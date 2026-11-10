@@ -14,6 +14,7 @@ import {
   Upload,
   ExternalLink
 } from 'lucide-react';
+import { LoaderCircle } from 'lucide-react';
 import { NoteItem } from '../types';
 import { notesService } from '../features/notes/notesService';
 
@@ -26,6 +27,9 @@ const CATEGORIES = ['All', 'General', 'Work', 'Personal', 'Ideas', 'Financial', 
 export const NotesView: React.FC<NotesViewProps> = () => {
   const [notes, setNotes] = useState<NoteItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [notesError, setNotesError] = useState<string | null>(null);
 
   // Filters & Search
   const [searchQuery, setSearchQuery] = useState('');
@@ -52,9 +56,15 @@ export const NotesView: React.FC<NotesViewProps> = () => {
 
   const loadNotesData = async () => {
     setLoading(true);
-    const data = await notesService.getNotes();
-    setNotes(data);
-    setLoading(false);
+    setNotesError(null);
+    try {
+      const data = await notesService.getNotes();
+      setNotes(data);
+    } catch (error) {
+      setNotesError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleOpenAdd = () => {
@@ -108,30 +118,45 @@ export const NotesView: React.FC<NotesViewProps> = () => {
       return;
     }
 
-    if (editingNote) {
-      await notesService.updateNote(editingNote.id, {
-        title: formTitle.trim(),
-        content: formContent.trim(),
-        category: formCategory,
-        imageUrl: formImageUrl.trim() || undefined
-      });
-    } else {
-      await notesService.saveNote({
-        title: formTitle.trim(),
-        content: formContent.trim(),
-        category: formCategory,
-        imageUrl: formImageUrl.trim() || undefined
-      });
+    setSaving(true);
+    try {
+      if (editingNote) {
+        await notesService.updateNote(editingNote.id, {
+          title: formTitle.trim(),
+          content: formContent.trim(),
+          category: formCategory,
+          imageUrl: formImageUrl.trim() || undefined
+        });
+      } else {
+        await notesService.saveNote({
+          title: formTitle.trim(),
+          content: formContent.trim(),
+          category: formCategory,
+          imageUrl: formImageUrl.trim() || undefined
+        });
+      }
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : String(error));
+      return;
+    } finally {
+      setSaving(false);
     }
 
     setIsModalOpen(false);
-    loadNotesData();
+    await loadNotesData();
   };
 
   const handleDelete = async (id: string) => {
     if (confirm('Are you sure you want to delete this note?')) {
-      await notesService.deleteNote(id);
-      loadNotesData();
+      try {
+        setDeletingId(id);
+        await notesService.deleteNote(id);
+        await loadNotesData();
+      } catch (error) {
+        setNotesError(error instanceof Error ? error.message : String(error));
+      } finally {
+        setDeletingId(null);
+      }
     }
   };
 
@@ -184,6 +209,8 @@ export const NotesView: React.FC<NotesViewProps> = () => {
       </div>
 
       {/* Filter & Search Toolbar */}
+      {notesError && <div role="alert" className="rounded-lg bg-rose-50 px-4 py-2 text-sm text-rose-700">Could not load or save notes in Supabase: {notesError}</div>}
+
       <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
         {/* Search */}
         <div className="relative flex-1">
@@ -230,8 +257,8 @@ export const NotesView: React.FC<NotesViewProps> = () => {
 
       {/* Notes Grid */}
       {loading ? (
-        <div className="flex items-center justify-center h-48 text-slate-400 text-xs">
-          Loading notes...
+        <div role="status" aria-live="polite" className="flex items-center justify-center gap-2 h-48 text-slate-400 text-xs">
+          <LoaderCircle className="h-4 w-4 animate-spin" /> Loading notes from Supabase...
         </div>
       ) : filteredNotes.length === 0 ? (
         <div className="flex flex-col items-center justify-center p-12 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 text-center">
@@ -273,10 +300,11 @@ export const NotesView: React.FC<NotesViewProps> = () => {
                     </button>
                     <button
                       onClick={() => handleDelete(note.id)}
+                      disabled={deletingId === note.id}
                       className="p-1.5 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors cursor-pointer"
                       title="Delete note"
                     >
-                      <Trash2 className="w-3.5 h-3.5" />
+                      {deletingId === note.id ? <LoaderCircle className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
                     </button>
                   </div>
                 </div>
@@ -420,15 +448,17 @@ export const NotesView: React.FC<NotesViewProps> = () => {
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
+                  disabled={saving}
                   className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
+                  disabled={saving}
                   className="px-5 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-sm transition-all cursor-pointer"
                 >
-                  {editingNote ? 'Update Note' : 'Save Note'}
+                  {saving ? <span className="inline-flex items-center gap-2"><LoaderCircle className="h-3.5 w-3.5 animate-spin" /> Saving to Supabase…</span> : editingNote ? 'Update Note' : 'Save Note'}
                 </button>
               </div>
             </form>

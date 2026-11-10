@@ -113,6 +113,8 @@ export interface BudgetConfig {
   id?: string;
   user_id: string;
   monthly_budget: number;
+  daily_budget?: number;
+  weekly_budget?: number;
   currency: string;
   category_budgets: Partial<Record<ExpenseCategory, number>>;
   updated_at?: string;

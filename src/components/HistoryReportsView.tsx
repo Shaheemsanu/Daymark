@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { Download, Upload, RotateCcw } from 'lucide-react';
+import { Download, Upload, RotateCcw, LoaderCircle } from 'lucide-react';
 import { Expense, Habit, DailyTask, DailyWellness, BudgetConfig } from '../types';
 import { formatCurrency } from '../utils/constants';
 
@@ -12,6 +12,7 @@ interface HistoryReportsViewProps {
   onExportJSON: () => void;
   onImportJSON: (importedData: any) => void;
   onResetData: () => void;
+  isCloudSyncing: boolean;
 }
 
 export const HistoryReportsView: React.FC<HistoryReportsViewProps> = ({
@@ -22,7 +23,8 @@ export const HistoryReportsView: React.FC<HistoryReportsViewProps> = ({
   budget,
   onExportJSON,
   onImportJSON,
-  onResetData
+  onResetData,
+  isCloudSyncing
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
@@ -66,7 +68,7 @@ export const HistoryReportsView: React.FC<HistoryReportsViewProps> = ({
         <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 mt-1">
           <span>Aggregate system telemetry</span>
           <span aria-hidden="true">·</span>
-          <span>Zero-loss local storage backup</span>
+          <span>Supabase account data backup</span>
           <span aria-hidden="true">·</span>
           <span>Portable JSON data export</span>
         </div>
@@ -122,7 +124,7 @@ export const HistoryReportsView: React.FC<HistoryReportsViewProps> = ({
             Data Portability & Backup
           </h3>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Your daily tracker and expense data resides securely in your local browser storage. You can backup or transfer it at any time.
+            Your tracker and expense data is stored in your Supabase account. Export a backup or restore one to this account at any time.
           </p>
         </div>
 
@@ -138,9 +140,10 @@ export const HistoryReportsView: React.FC<HistoryReportsViewProps> = ({
             </p>
             <button
               onClick={onExportJSON}
+              disabled={isCloudSyncing}
               className="w-full py-2 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
             >
-              Download Backup
+              {isCloudSyncing ? <span className="inline-flex items-center gap-2"><LoaderCircle className="h-3.5 w-3.5 animate-spin" /> Syncing…</span> : 'Download Backup'}
             </button>
           </div>
 
@@ -151,7 +154,7 @@ export const HistoryReportsView: React.FC<HistoryReportsViewProps> = ({
               <span>Restore from Backup (JSON)</span>
             </div>
             <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              Restore previously exported JSON files to restore your tracker data.
+              Restore a JSON backup into your signed-in Supabase account.
             </p>
             <input
               type="file"
@@ -162,9 +165,10 @@ export const HistoryReportsView: React.FC<HistoryReportsViewProps> = ({
             />
             <button
               onClick={() => fileInputRef.current?.click()}
+              disabled={isCloudSyncing}
               className="w-full py-2 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
             >
-              Choose Backup File
+              {isCloudSyncing ? 'Uploading to Supabase…' : 'Choose Backup File'}
             </button>
           </div>
 
@@ -175,7 +179,7 @@ export const HistoryReportsView: React.FC<HistoryReportsViewProps> = ({
               <span>Reset All Data</span>
             </div>
             <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              Erases all expenses, habits, tasks, and wellness entries to start fresh.
+              Erases all Daymark records in your Supabase account to start fresh.
             </p>
             <button
               onClick={() => setIsResetConfirmOpen(true)}
@@ -215,9 +219,10 @@ export const HistoryReportsView: React.FC<HistoryReportsViewProps> = ({
                   setIsResetConfirmOpen(false);
                   onResetData();
                 }}
+                disabled={isCloudSyncing}
                 className="px-4 py-2 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 rounded-xl transition-colors shadow-xs"
               >
-                Reset All Data
+                {isCloudSyncing ? 'Resetting…' : 'Reset All Data'}
               </button>
             </div>
           </div>

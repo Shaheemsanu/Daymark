@@ -193,21 +193,31 @@ export const CategoryDonutChart: React.FC<{
 export const DailySpendingTrendChart: React.FC<{
   expenses: Expense[];
   daysCount?: number;
+  rangeStartDate?: string;
+  rangeEndDate?: string;
   currencySymbol: string;
-}> = ({ expenses, daysCount = 30, currencySymbol }) => {
+}> = ({ expenses, daysCount = 30, rangeStartDate, rangeEndDate, currencySymbol }) => {
   const [hoveredDay, setHoveredDay] = useState<{
     date: string;
     amount: number;
     count: number;
   } | null>(null);
 
-  // Group by last N days
+  // Use the selected custom range when both dates are valid; otherwise show the last N days.
   const today = new Date();
   const dayBuckets: { date: string; display: string; amount: number; count: number }[] = [];
 
-  for (let i = daysCount - 1; i >= 0; i--) {
-    const d = new Date(today);
-    d.setDate(d.getDate() - i);
+  const customStart = rangeStartDate ? new Date(`${rangeStartDate}T00:00:00`) : null;
+  const customEnd = rangeEndDate ? new Date(`${rangeEndDate}T00:00:00`) : null;
+  const hasCustomRange = !!customStart && !!customEnd && !Number.isNaN(customStart.getTime()) && !Number.isNaN(customEnd.getTime()) && customStart <= customEnd;
+  const rangeDayCount = hasCustomRange
+    ? Math.floor((Date.UTC(customEnd!.getFullYear(), customEnd!.getMonth(), customEnd!.getDate()) - Date.UTC(customStart!.getFullYear(), customStart!.getMonth(), customStart!.getDate())) / 86400000) + 1
+    : daysCount;
+
+  for (let i = rangeDayCount - 1; i >= 0; i--) {
+    const d = hasCustomRange ? new Date(customStart!) : new Date(today);
+    if (hasCustomRange) d.setDate(d.getDate() + (rangeDayCount - 1 - i));
+    else d.setDate(d.getDate() - i);
     const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     const display = `${d.getMonth() + 1}/${d.getDate()}`;
 
@@ -224,7 +234,7 @@ export const DailySpendingTrendChart: React.FC<{
 
   const maxSpend = Math.max(...dayBuckets.map(b => b.amount), 50);
   const totalPeriodSpend = dayBuckets.reduce((acc, b) => acc + b.amount, 0);
-  const averageDailySpend = totalPeriodSpend / (daysCount || 1);
+  const averageDailySpend = totalPeriodSpend / (dayBuckets.length || 1);
 
   return (
     <div className="space-y-4">
@@ -308,7 +318,7 @@ export const DailySpendingTrendChart: React.FC<{
       <div className="flex justify-between text-[11px] font-mono text-slate-400 dark:text-slate-500">
         <span>{dayBuckets[0]?.display}</span>
         <span>{dayBuckets[Math.floor(dayBuckets.length / 2)]?.display}</span>
-        <span>Today ({dayBuckets[dayBuckets.length - 1]?.display})</span>
+        <span>{hasCustomRange ? 'End date' : 'Today'} ({dayBuckets[dayBuckets.length - 1]?.display})</span>
       </div>
     </div>
   );
@@ -496,7 +506,9 @@ export const AccountIntelligenceReport: React.FC<{
   expenseAccCurrentBalance: number;
   cashCurrentBalance: number;
 }> = ({ expenses, currencySymbol, savingsCurrentBalance, expenseAccCurrentBalance, cashCurrentBalance }) => {
-  const [reportTimeframe, setReportTimeframe] = useState<'this_month' | 'last_30_days' | 'all'>('this_month');
+  const [reportTimeframe, setReportTimeframe] = useState<'this_month' | 'last_30_days' | 'all' | 'custom'>('this_month');
+  const [reportStartDate, setReportStartDate] = useState('');
+  const [reportEndDate, setReportEndDate] = useState('');
   const [reportAccountFilter, setReportAccountFilter] = useState<'all' | 'expense' | 'savings' | 'cash'>('all');
 
   const now = new Date();
@@ -506,6 +518,7 @@ export const AccountIntelligenceReport: React.FC<{
   const filteredExpenses = expenses.filter(e => {
     const eDate = new Date(e.date + 'T00:00:00');
     if (reportAccountFilter !== 'all' && (e.account || 'expense') !== reportAccountFilter) return false;
+    if (reportTimeframe === 'custom' && ((reportStartDate && e.date < reportStartDate) || (reportEndDate && e.date > reportEndDate))) return false;
     if (reportTimeframe === 'this_month') {
       if (eDate.getFullYear() !== currentYear || eDate.getMonth() !== currentMonth) return false;
     } else if (reportTimeframe === 'last_30_days') {
@@ -544,7 +557,7 @@ export const AccountIntelligenceReport: React.FC<{
     <div className="space-y-6">
       {/* Filters Bar */}
       <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">Account Filter:</span>
           <select
             value={reportAccountFilter}
@@ -567,9 +580,14 @@ export const AccountIntelligenceReport: React.FC<{
           >
             <option value="this_month">This Month</option>
             <option value="last_30_days">Last 30 Days</option>
+            <option value="custom">Custom Dates</option>
             <option value="all">All Time Records</option>
           </select>
         </div>
+        {reportTimeframe === 'custom' && <div className="grid w-full grid-cols-2 gap-2 sm:w-auto">
+          <label className="text-[11px] font-medium text-slate-500">From<input type="date" max={reportEndDate || undefined} value={reportStartDate} onChange={e => setReportStartDate(e.target.value)} className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200" /></label>
+          <label className="text-[11px] font-medium text-slate-500">To<input type="date" min={reportStartDate || undefined} value={reportEndDate} onChange={e => setReportEndDate(e.target.value)} className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200" /></label>
+        </div>}
       </div>
 
       {/* 3 Account Cards: Expense, Cash, Savings */}

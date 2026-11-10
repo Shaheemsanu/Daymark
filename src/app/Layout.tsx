@@ -7,11 +7,12 @@ import {
   IndianRupee,
   BarChart3,
   Archive,
-  Plus,
+  RefreshCw,
   Sun,
   Moon,
   LogOut,
-  FileText
+  FileText,
+  LoaderCircle
 } from 'lucide-react';
 
 export type NavView = 'expenses' | 'daily' | 'habits' | 'tasks' | 'notes' | 'reports' | 'history';
@@ -20,10 +21,12 @@ interface LayoutProps {
   currentView: NavView;
   onSelectView: (view: NavView) => void;
   user: AppProfile | null;
-  onSignOut: () => void;
+  onSignOut: () => void | Promise<void>;
   isDarkMode: boolean;
   onToggleDarkMode: () => void;
-  onOpenQuickLog: (tab?: 'expense' | 'task' | 'habit') => void;
+  onRefreshData: () => void;
+  isRefreshingData: boolean;
+  isSyncing: boolean;
   children: React.ReactNode;
 }
 
@@ -34,10 +37,14 @@ export const Layout: React.FC<LayoutProps> = ({
   onSignOut,
   isDarkMode,
   onToggleDarkMode,
-  onOpenQuickLog,
+  onRefreshData,
+  isRefreshingData,
+  isSyncing,
   children
 }) => {
   const [isSignOutConfirmOpen, setIsSignOutConfirmOpen] = useState(false);
+  const [isSigningOut, setIsSigningOut] = useState(false);
+  const [signOutError, setSignOutError] = useState<string | null>(null);
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100 flex flex-col selection:bg-slate-200 dark:selection:bg-slate-800">
@@ -143,35 +150,20 @@ export const Layout: React.FC<LayoutProps> = ({
             </button>
           </nav>
 
-          {/* Zone 3: 3 Separated Quick Log Buttons & User Controls */}
+          {/* Zone 3: User Controls */}
           <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-            {/* 3 Separated Quick Buttons */}
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => onOpenQuickLog('expense')}
-                className="flex w-8 h-8 sm:w-auto sm:px-2.5 sm:py-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-400 dark:hover:bg-emerald-900/50 border border-emerald-200/60 dark:border-emerald-800/50 rounded-full sm:rounded-xl transition-all shadow-2xs items-center justify-center sm:justify-start gap-1 whitespace-nowrap"
-                title="Add Expense"
-              >
-                <IndianRupee className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                <span className="hidden sm:inline">+ Expense</span>
-              </button>
-              <button
-                onClick={() => onOpenQuickLog('task')}
-                className="flex w-8 h-8 sm:w-auto sm:px-2.5 sm:py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/40 dark:text-blue-400 dark:hover:bg-blue-900/50 border border-blue-200/60 dark:border-blue-800/50 rounded-full sm:rounded-xl transition-all shadow-2xs flex items-center justify-center sm:justify-start gap-1 whitespace-nowrap"
-                title="Add Task"
-              >
-                <ListTodo className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-blue-600 dark:text-blue-400 shrink-0" />
-                <span className="hidden sm:inline">+ Task</span>
-              </button>
-              <button
-                onClick={() => onOpenQuickLog('habit')}
-                className="flex w-8 h-8 sm:w-auto sm:px-2.5 sm:py-1.5 text-xs font-semibold text-purple-700 bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/40 dark:text-purple-400 dark:hover:bg-purple-900/50 border border-purple-200/60 dark:border-purple-800/50 rounded-full sm:rounded-xl transition-all shadow-2xs flex items-center justify-center sm:justify-start gap-1 whitespace-nowrap"
-                title="Add Habit"
-              >
-                <CheckCircle2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-purple-600 dark:text-purple-400 shrink-0" />
-                <span className="hidden sm:inline">+ Habit</span>
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={onRefreshData}
+              disabled={isRefreshingData}
+              className="inline-flex items-center gap-1.5 p-1.5 sm:px-2 sm:py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-60 transition-colors shrink-0"
+              title={isSyncing ? 'Saving changes to Supabase' : isRefreshingData ? 'Refreshing data from Supabase' : 'Refresh data from Supabase'}
+              aria-label={isSyncing ? 'Saving changes to Supabase' : isRefreshingData ? 'Refreshing data from Supabase' : 'Refresh data from Supabase'}
+              aria-busy={isRefreshingData || isSyncing}
+            >
+              <RefreshCw className={`w-4 h-4 ${isRefreshingData || isSyncing ? 'animate-spin' : ''}`} />
+              {isSyncing && <span className="hidden sm:inline text-[11px] font-medium">Saving…</span>}
+            </button>
 
             {/* Dark Mode toggle */}
             <button
@@ -290,23 +282,34 @@ export const Layout: React.FC<LayoutProps> = ({
               </div>
             </div>
             <p className="text-sm text-slate-600 dark:text-slate-400">
-              Are you sure you want to sign out of your account? Your local tracker data will remain stored in this browser.
+              Are you sure you want to sign out of your Supabase account?
             </p>
+            {signOutError && <p role="alert" className="text-xs text-rose-600">{signOutError}</p>}
             <div className="flex items-center justify-end gap-3 pt-2">
               <button
                 onClick={() => setIsSignOutConfirmOpen(false)}
+                disabled={isSigningOut}
                 className="px-4 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
               >
                 Cancel
               </button>
               <button
-                onClick={() => {
-                  setIsSignOutConfirmOpen(false);
-                  onSignOut();
+                disabled={isSigningOut}
+                onClick={async () => {
+                  setIsSigningOut(true);
+                  setSignOutError(null);
+                  try {
+                    await onSignOut();
+                    setIsSignOutConfirmOpen(false);
+                  } catch (error) {
+                    setSignOutError(error instanceof Error ? error.message : String(error));
+                  } finally {
+                    setIsSigningOut(false);
+                  }
                 }}
                 className="px-4 py-2 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 rounded-xl transition-colors shadow-xs"
               >
-                Sign Out
+                {isSigningOut ? <span className="inline-flex items-center gap-2"><LoaderCircle className="h-3.5 w-3.5 animate-spin" /> Signing out…</span> : 'Sign Out'}
               </button>
             </div>
           </div>

@@ -148,41 +148,7 @@ export const formatCurrency = (amount: number, symbol = '₹'): string => {
   })}`;
 };
 
-// Storage key for custom categories
-export const CUSTOM_CATEGORIES_KEY = 'daymark_custom_expense_cats_v1';
-
-export function getCustomCategories(): Record<string, CategoryInfo> {
-  try {
-    const raw = localStorage.getItem(CUSTOM_CATEGORIES_KEY);
-    if (!raw) return {};
-    return JSON.parse(raw);
-  } catch (e) {
-    console.error('Failed to parse custom categories', e);
-    return {};
-  }
-}
-
 export function getAllCategories(): Record<string, CategoryInfo> {
-  const custom = getCustomCategories();
-  return { ...CATEGORIES, ...custom };
+  return CATEGORIES;
 }
 
-export function saveCustomCategory(category: CategoryInfo): void {
-  try {
-    const existing = getCustomCategories();
-    existing[category.name] = { ...category, isCustom: true };
-    localStorage.setItem(CUSTOM_CATEGORIES_KEY, JSON.stringify(existing));
-  } catch (e) {
-    console.error('Failed to save custom category', e);
-  }
-}
-
-export function removeCustomCategory(categoryName: string): void {
-  try {
-    const existing = getCustomCategories();
-    delete existing[categoryName];
-    localStorage.setItem(CUSTOM_CATEGORIES_KEY, JSON.stringify(existing));
-  } catch (e) {
-    console.error('Failed to remove custom category', e);
-  }
-}

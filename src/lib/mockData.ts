@@ -341,6 +341,8 @@ export function getMockInitialData(userId = 'demo-user-1') {
   const mockBudget: BudgetConfig = {
     user_id: userId,
     monthly_budget: 3200.00,
+    daily_budget: 1000,
+    weekly_budget: 7000,
     currency: '$',
     category_budgets: {
       Housing: 1200,

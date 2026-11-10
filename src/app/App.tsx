@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { LoaderCircle } from 'lucide-react';
 import {
   Expense,
   BudgetConfig,
@@ -9,20 +10,9 @@ import {
   AppProfile
 } from '../types';
 import {
-  loadExpenses,
-  saveExpenses,
-  loadBudgetConfig,
-  saveBudgetConfig,
-  loadHabits,
-  saveHabits,
-  loadTasks,
-  saveTasks,
-  loadWellness,
-  saveWellness,
-  resetAllData,
   exportAllDataAsJSON,
   exportExpensesAsCSV
-} from '../utils/storage';
+} from '../utils/export';
 import { formatDate } from '../utils/constants';
 import { authService } from '../features/auth/authService';
 import { AuthPage } from '../features/auth/AuthPage';
@@ -35,9 +25,13 @@ import { ReportsPage } from '../features/reports/ReportsPage';
 import { HistoryReportsView } from '../components/HistoryReportsView';
 import { QuickLogModal } from '../components/QuickLogModal';
 import { NotesView } from '../components/NotesView';
+import { CategorySettings, WorkspaceData, dataService } from '../features/data/dataService';
+import { notesService } from '../features/notes/notesService';
+import { createUuid } from '../utils/uuid';
 
 export default function App() {
   const [user, setUser] = useState<AppProfile | null>(null);
+  const userId = user?.id;
   const [authLoading, setAuthLoading] = useState(true);
 
   // Navigation - Daily Overview 1st, Expense 2nd after overview
@@ -46,23 +40,26 @@ export default function App() {
 
   // Dark mode
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
-    return (
-      localStorage.getItem('daymark_theme_pref') === 'dark' ||
-      (!('daymark_theme_pref' in localStorage) &&
-        window.matchMedia('(prefers-color-scheme: dark)').matches)
-    );
+    return window.matchMedia('(prefers-color-scheme: dark)').matches;
   });
 
   // Core Data States
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [budget, setBudget] = useState<BudgetConfig>({
     monthlyBudget: 30000,
+    dailyBudget: 1000,
+    weeklyBudget: 7000,
     currency: '₹',
     categoryBudgets: {}
   });
   const [habits, setHabits] = useState<Habit[]>([]);
   const [tasks, setTasks] = useState<DailyTask[]>([]);
   const [wellness, setWellness] = useState<Record<string, DailyWellness>>({});
+  const [categories, setCategories] = useState<CategorySettings>({ expenses: {}, habits: [], tasks: [] });
+  const [dataLoading, setDataLoading] = useState(false);
+  const [workspaceRefreshing, setWorkspaceRefreshing] = useState(false);
+  const [dataError, setDataError] = useState<string | null>(null);
+  const [cloudPendingCount, setCloudPendingCount] = useState(0);
 
   // Quick Log Drawer
   const [isQuickLogOpen, setIsQuickLogOpen] = useState(false);
@@ -72,10 +69,8 @@ export default function App() {
   useEffect(() => {
     if (isDarkMode) {
       document.documentElement.classList.add('dark');
-      localStorage.setItem('daymark_theme_pref', 'dark');
     } else {
       document.documentElement.classList.remove('dark');
-      localStorage.setItem('daymark_theme_pref', 'light');
     }
   }, [isDarkMode]);
 
@@ -100,13 +95,144 @@ export default function App() {
 
   // Load data
   useEffect(() => {
-    if (!user) return;
-    setExpenses(loadExpenses());
-    setBudget(loadBudgetConfig());
-    setHabits(loadHabits());
-    setTasks(loadTasks());
-    setWellness(loadWellness());
-  }, [user]);
+    if (!userId) {
+      setExpenses([]);
+      setBudget({ monthlyBudget: 30000, dailyBudget: 1000, weeklyBudget: 7000, currency: '₹', categoryBudgets: {} });
+      setHabits([]);
+      setTasks([]);
+      setWellness({});
+      setCategories({ expenses: {}, habits: [], tasks: [] });
+      setDataError(null);
+      setDataLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setExpenses([]);
+    setBudget({ monthlyBudget: 30000, dailyBudget: 1000, weeklyBudget: 7000, currency: '₹', categoryBudgets: {} });
+    setHabits([]);
+    setTasks([]);
+    setWellness({});
+    setCategories({ expenses: {}, habits: [], tasks: [] });
+    setDataLoading(true);
+    setDataError(null);
+    dataService.loadWorkspace(userId).then((data: WorkspaceData) => {
+      if (cancelled) return;
+      applyWorkspace(data);
+    }).catch(error => {
+      if (!cancelled) setDataError(`Could not load your Supabase data: ${error.message || error}`);
+    }).finally(() => {
+      if (!cancelled) setDataLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [userId]);
+
+  // Refresh from Supabase when returning to the browser tab.
+  useEffect(() => {
+    if (!userId) return;
+    let disposed = false;
+    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+    let refreshInProgress = false;
+
+    const refreshLiveWorkspace = async () => {
+      if (disposed || refreshInProgress) return;
+      refreshInProgress = true;
+      setWorkspaceRefreshing(true);
+      try {
+        const data = await dataService.loadWorkspace(userId);
+        if (!disposed) {
+          applyWorkspace(data);
+          setDataError(null);
+        }
+      } catch (error) {
+        if (!disposed) reportSaveError(error);
+      } finally {
+        refreshInProgress = false;
+        if (!disposed) setWorkspaceRefreshing(false);
+      }
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (refreshTimer) clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(() => { void refreshLiveWorkspace(); }, 300);
+    };
+
+    window.addEventListener('focus', onVisibilityChange);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
+    return () => {
+      disposed = true;
+      if (refreshTimer) clearTimeout(refreshTimer);
+      window.removeEventListener('focus', onVisibilityChange);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [userId]);
+
+  const reportSaveError = (error: unknown) => {
+    if (error && typeof error === 'object') {
+      const detail = error as { message?: string; code?: string; details?: string; hint?: string };
+      const parts = [detail.code, detail.message, detail.details, detail.hint].filter(Boolean);
+      setDataError(`Supabase request failed: ${parts.join(' — ') || String(error)}`);
+      return;
+    }
+    setDataError(`Supabase request failed: ${String(error)}`);
+  };
+
+  const describeSaveError = (error: unknown): string => {
+    if (error && typeof error === 'object') {
+      const detail = error as { message?: string; code?: string; details?: string; hint?: string };
+      return [detail.code, detail.message, detail.details, detail.hint].filter(Boolean).join(' — ') || String(error);
+    }
+    return String(error);
+  };
+
+  const applyWorkspace = (data: WorkspaceData) => {
+    setExpenses(data.expenses);
+    setBudget(data.budget);
+    setHabits(data.habits);
+    setTasks(data.tasks);
+    setWellness(data.wellness);
+    setCategories(data.categories);
+  };
+
+  const refreshWorkspace = async () => {
+    if (!user || workspaceRefreshing) return;
+    setWorkspaceRefreshing(true);
+    try {
+      applyWorkspace(await dataService.loadWorkspace(user.id));
+      setDataError(null);
+    } catch (error) {
+      reportSaveError(error);
+    } finally {
+      setWorkspaceRefreshing(false);
+    }
+  };
+
+  const trackCloudRequest = async (request: Promise<unknown>): Promise<boolean> => {
+    setCloudPendingCount(count => count + 1);
+    try {
+      await request;
+      setDataError(null);
+      return true;
+    } catch (error) {
+      reportSaveError(error);
+      if (user) {
+        try {
+          applyWorkspace(await dataService.loadWorkspace(user.id));
+        } catch (refreshError) {
+          reportSaveError(refreshError);
+        }
+      }
+      return false;
+    } finally {
+      setCloudPendingCount(count => Math.max(0, count - 1));
+    }
+  };
+
+  const updateCategories = (next: CategorySettings) => {
+    setCategories(next);
+    if (user) trackCloudRequest(dataService.saveCategories(user.id, next));
+  };
 
   // Habit Handlers (Module 1 - same as previous first code)
   const handleToggleHabit = (habitId: string, dateIso: string) => {
@@ -143,44 +269,46 @@ export default function App() {
     });
 
     setHabits(updated);
-    saveHabits(updated);
+    const changed = updated.find(h => h.id === habitId);
+    if (user && changed) trackCloudRequest(dataService.saveHabit(user.id, changed));
   };
 
   const handleAddHabit = (newHabit: Omit<Habit, 'id' | 'completedDates' | 'streak' | 'bestStreak'>) => {
     const created: Habit = {
       ...newHabit,
-      id: `hab-${Date.now()}`,
+      id: createUuid(),
       completedDates: [],
       streak: 0,
       bestStreak: 0
     };
     const updated = [...habits, created];
     setHabits(updated);
-    saveHabits(updated);
+    if (user) trackCloudRequest(dataService.saveHabit(user.id, created));
   };
 
   const handleUpdateHabit = (id: string, partial: Partial<Habit>) => {
     const updated = habits.map(h => (h.id === id ? { ...h, ...partial } : h));
     setHabits(updated);
-    saveHabits(updated);
+    const changed = updated.find(h => h.id === id);
+    if (user && changed) trackCloudRequest(dataService.saveHabit(user.id, changed));
   };
 
   const handleDeleteHabit = (id: string) => {
     const updated = habits.filter(h => h.id !== id);
     setHabits(updated);
-    saveHabits(updated);
+    if (user) trackCloudRequest(dataService.deleteHabit(user.id, id));
   };
 
   // Task Handlers (Module 2 - same as previous first code)
   const handleAddTask = (newTask: Omit<DailyTask, 'id' | 'completed'>) => {
     const created: DailyTask = {
       ...newTask,
-      id: `tsk-${Date.now()}`,
+      id: createUuid(),
       completed: false
     };
     const updated = [created, ...tasks];
     setTasks(updated);
-    saveTasks(updated);
+    if (user) trackCloudRequest(dataService.saveTask(user.id, created));
   };
 
   const handleToggleTask = (taskId: string) => {
@@ -190,42 +318,79 @@ export default function App() {
         : t
     );
     setTasks(updated);
-    saveTasks(updated);
+    const changed = updated.find(t => t.id === taskId);
+    if (user && changed) trackCloudRequest(dataService.saveTask(user.id, changed));
   };
 
   const handleDeleteTask = (taskId: string) => {
     const updated = tasks.filter(t => t.id !== taskId);
     setTasks(updated);
-    saveTasks(updated);
+    if (user) trackCloudRequest(dataService.deleteTask(user.id, taskId));
   };
 
   // Expense Handlers (New Dedicated Expense Model)
-  const handleAddExpense = (newExp: Omit<Expense, 'id' | 'createdAt'>) => {
+  const handleAddExpense = async (newExp: Omit<Expense, 'id' | 'createdAt'>): Promise<boolean | string> => {
     const created: Expense = {
       ...newExp,
-      id: `exp-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      id: createUuid(),
       createdAt: Date.now()
     };
-    const updated = [created, ...expenses];
-    setExpenses(updated);
-    saveExpenses(updated);
+    if (!user) return 'You must be signed in to save a transaction.';
+    setCloudPendingCount(count => count + 1);
+    try {
+      await dataService.createExpense(user.id, created);
+      setDataError(null);
+      setExpenses(current => [created, ...current]);
+      return true;
+    } catch (error) {
+      const message = `Supabase request failed: ${describeSaveError(error)}`;
+      setDataError(message);
+      return message;
+    } finally {
+      setCloudPendingCount(count => Math.max(0, count - 1));
+    }
   };
 
-  const handleUpdateExpense = (id: string, partial: Partial<Expense>) => {
-    const updated = expenses.map(e => (e.id === id ? { ...e, ...partial } : e));
-    setExpenses(updated);
-    saveExpenses(updated);
+  const handleUpdateExpense = async (id: string, partial: Partial<Expense>): Promise<boolean | string> => {
+    const existing = expenses.find(expense => expense.id === id);
+    if (!existing) return 'Transaction could not be found.';
+    if (!user) return 'You must be signed in to update a transaction.';
+    const updated = { ...existing, ...partial };
+    setCloudPendingCount(count => count + 1);
+    try {
+      await dataService.saveExpense(user.id, updated);
+      setExpenses(current => current.map(expense => expense.id === id ? updated : expense));
+      setDataError(null);
+      return true;
+    } catch (error) {
+      const message = `Supabase request failed: ${describeSaveError(error)}`;
+      setDataError(message);
+      return message;
+    } finally {
+      setCloudPendingCount(count => Math.max(0, count - 1));
+    }
   };
 
-  const handleDeleteExpense = (id: string) => {
-    const updated = expenses.filter(e => e.id !== id);
-    setExpenses(updated);
-    saveExpenses(updated);
+  const handleDeleteExpense = async (id: string): Promise<boolean | string> => {
+    if (!user) return 'You must be signed in to delete a transaction.';
+    setCloudPendingCount(count => count + 1);
+    try {
+      await dataService.deleteExpense(user.id, id);
+      setExpenses(current => current.filter(expense => expense.id !== id));
+      setDataError(null);
+      return true;
+    } catch (error) {
+      const message = `Supabase request failed: ${describeSaveError(error)}`;
+      setDataError(message);
+      return message;
+    } finally {
+      setCloudPendingCount(count => Math.max(0, count - 1));
+    }
   };
 
   const handleUpdateBudget = (newBudget: BudgetConfig) => {
     setBudget(newBudget);
-    saveBudgetConfig(newBudget);
+    if (user) trackCloudRequest(dataService.saveBudget(user.id, newBudget));
   };
 
   // Wellness Handler
@@ -243,7 +408,7 @@ export default function App() {
       [date]: { ...existing, ...partial }
     };
     setWellness(updated);
-    saveWellness(updated);
+    if (user) trackCloudRequest(dataService.saveWellness(user.id, updated[date]));
   };
 
   // Export & Backup
@@ -259,49 +424,44 @@ export default function App() {
     document.body.removeChild(link);
   };
 
-  const handleExportJSON = () => {
-    const jsonStr = exportAllDataAsJSON();
-    const blob = new Blob([jsonStr], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', `daymark_backup_${formatDate(new Date())}.json`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  const handleExportJSON = async () => {
+    await trackCloudRequest((async () => {
+      const notes = await notesService.getNotes();
+      const jsonStr = exportAllDataAsJSON({ expenses, budget, habits, tasks, wellness, notes, categories });
+      const blob = new Blob([jsonStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.setAttribute('href', url);
+      link.setAttribute('download', `daymark_backup_${formatDate(new Date())}.json`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    })());
   };
 
-  const handleImportJSON = (data: any) => {
-    if (data.expenses && Array.isArray(data.expenses)) {
-      setExpenses(data.expenses);
-      saveExpenses(data.expenses);
-    }
-    if (data.budget) {
-      setBudget(data.budget);
-      saveBudgetConfig(data.budget);
-    }
-    if (data.habits && Array.isArray(data.habits)) {
-      setHabits(data.habits);
-      saveHabits(data.habits);
-    }
-    if (data.tasks && Array.isArray(data.tasks)) {
-      setTasks(data.tasks);
-      saveTasks(data.tasks);
-    }
-    if (data.wellness) {
-      setWellness(data.wellness);
-      saveWellness(data.wellness);
-    }
-    alert('Backup data restored successfully!');
+  const handleImportJSON = async (data: Partial<WorkspaceData>) => {
+    if (!user) return;
+    await trackCloudRequest((async () => {
+      await dataService.importWorkspace(user.id, data);
+      const refreshed = await dataService.loadWorkspace(user.id);
+      applyWorkspace(refreshed);
+      alert('Backup data restored to Supabase successfully!');
+    })());
   };
 
-  const handleResetData = () => {
-    resetAllData();
-    setExpenses(loadExpenses());
-    setBudget(loadBudgetConfig());
-    setHabits(loadHabits());
-    setTasks(loadTasks());
-    setWellness(loadWellness());
+  const handleResetData = async () => {
+    if (!user) return;
+    await trackCloudRequest((async () => {
+      await dataService.resetWorkspace(user.id);
+      setExpenses([]);
+      setBudget({ monthlyBudget: 30000, dailyBudget: 1000, weeklyBudget: 7000, currency: '₹', categoryBudgets: {} });
+      setHabits([]);
+      setTasks([]);
+      setWellness({});
+      setCategories({ expenses: {}, habits: [], tasks: [] });
+      setDataError(null);
+    })());
   };
 
   const handleSignOut = async () => {
@@ -334,8 +494,13 @@ export default function App() {
       onSignOut={handleSignOut}
       isDarkMode={isDarkMode}
       onToggleDarkMode={() => setIsDarkMode(!isDarkMode)}
-      onOpenQuickLog={tab => openQuickLog(tab || 'expense')}
+      onRefreshData={refreshWorkspace}
+      isRefreshingData={workspaceRefreshing}
+      isSyncing={cloudPendingCount > 0}
     >
+      {cloudPendingCount > 0 && <div role="status" aria-live="polite" className="mx-4 mt-3 flex items-center gap-2 rounded-lg bg-sky-50 px-4 py-2 text-sm text-sky-800 dark:bg-sky-950 dark:text-sky-200"><LoaderCircle className="h-4 w-4 animate-spin" /> Syncing with Supabase…</div>}
+      {dataLoading && <div role="status" aria-live="polite" className="mx-4 mt-3 flex items-center gap-2 rounded-lg bg-slate-100 px-4 py-2 text-sm text-slate-700 dark:bg-slate-800 dark:text-slate-200"><LoaderCircle className="h-4 w-4 animate-spin" /> Loading your Supabase workspace…</div>}
+      {dataError && <div role="alert" className="mx-4 mt-3 rounded-lg bg-rose-50 px-4 py-2 text-sm text-rose-700">{dataError}</div>}
       {/* 1. Daily Overview Dashboard */}
       {currentView === 'daily' && (
         <DailyOverview
@@ -367,6 +532,8 @@ export default function App() {
           wellness={wellness}
           onUpdateWellness={handleUpdateWellness}
           selectedDate={selectedDate}
+          customCategories={categories.habits}
+          onSaveCustomCategories={next => updateCategories({ ...categories, habits: next })}
         />
       )}
 
@@ -377,6 +544,8 @@ export default function App() {
           onAddTask={handleAddTask}
           onToggleTask={handleToggleTask}
           onDeleteTask={handleDeleteTask}
+          customCategories={categories.tasks}
+          onSaveCustomCategories={next => updateCategories({ ...categories, tasks: next })}
         />
       )}
 
@@ -397,6 +566,8 @@ export default function App() {
           onDeleteExpense={handleDeleteExpense}
           onUpdateBudget={handleUpdateBudget}
           onExportCSV={handleExportCSV}
+          customCategories={categories.expenses}
+          onSaveCustomCategories={next => updateCategories({ ...categories, expenses: next })}
         />
       )}
 
@@ -422,6 +593,7 @@ export default function App() {
           onExportJSON={handleExportJSON}
           onImportJSON={handleImportJSON}
           onResetData={handleResetData}
+          isCloudSyncing={cloudPendingCount > 0}
         />
       )}
 
@@ -461,6 +633,7 @@ export default function App() {
         selectedDate={selectedDate}
         currencySymbol={budget.currency || '₹'}
         initialTab={quickLogTab}
+        customCategories={categories.expenses}
       />
     </Layout>
   );

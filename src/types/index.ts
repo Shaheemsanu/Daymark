@@ -50,6 +50,8 @@ export interface CategoryInfo {
 
 export interface BudgetConfig {
   monthlyBudget: number;
+  dailyBudget: number;
+  weeklyBudget: number;
   currency: string;
   categoryBudgets: Partial<Record<ExpenseCategory, number>>;
 }

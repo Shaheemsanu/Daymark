@@ -51,6 +51,8 @@ interface HabitsViewProps {
   wellness?: Record<string, DailyWellness>;
   onUpdateWellness?: (date: string, data: Partial<DailyWellness>) => void;
   selectedDate?: string;
+  customCategories: string[];
+  onSaveCustomCategories: (categories: string[]) => void;
 }
 
 export type AnalyticsTimeGrain = 'day' | 'week' | 'month' | 'year';
@@ -105,7 +107,9 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
   onToggleHabit,
   wellness,
   onUpdateWellness,
-  selectedDate
+  selectedDate,
+  customCategories,
+  onSaveCustomCategories
 }) => {
   const [viewMode, setViewMode] = useState<'matrix' | 'analytics'>('matrix');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -115,15 +119,6 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
   const [timeGrain, setTimeGrain] = useState<AnalyticsTimeGrain>('day');
 
   // Custom categories state
-  const [customCategories, setCustomCategories] = useState<string[]>(() => {
-    try {
-      const saved = localStorage.getItem('daymark_custom_habit_cats');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
-
   // All available categories: defaults + custom + categories found in existing habits
   const allCategories = useMemo(() => {
     const set = new Set([...DEFAULT_HABIT_CATEGORIES, ...customCategories, ...habits.map(h => h.category)]);
@@ -369,12 +364,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
     if (!trimmed) return;
     if (!allCategories.includes(trimmed)) {
       const updated = [...customCategories, trimmed];
-      setCustomCategories(updated);
-      try {
-        localStorage.setItem('daymark_custom_habit_cats', JSON.stringify(updated));
-      } catch (err) {
-        console.error(err);
-      }
+      onSaveCustomCategories(updated);
     }
     setCategory(trimmed);
     setNewCatInput('');
@@ -390,12 +380,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
       finalCategory = newCatInput.trim();
       if (!allCategories.includes(finalCategory)) {
         const updated = [...customCategories, finalCategory];
-        setCustomCategories(updated);
-        try {
-          localStorage.setItem('daymark_custom_habit_cats', JSON.stringify(updated));
-        } catch (err) {
-          console.error(err);
-        }
+        onSaveCustomCategories(updated);
       }
     }
 

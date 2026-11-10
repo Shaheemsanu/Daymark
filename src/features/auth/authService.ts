@@ -5,16 +5,7 @@ export const authService = {
   isConfigured: isSupabaseConfigured,
 
   async signUp(email: string, password: string, fullName?: string) {
-    if (!isSupabaseConfigured() || !supabase) {
-      // Offline fallback: simulate successful signup
-      const mockUser = {
-        id: 'local-user-' + Math.random().toString(36).substring(2, 8),
-        email,
-        full_name: fullName || email.split('@')[0]
-      };
-      localStorage.setItem('daymark_auth_user', JSON.stringify(mockUser));
-      return { user: mockUser, error: null };
-    }
+    if (!isSupabaseConfigured() || !supabase) throw new Error('Supabase is not configured.');
 
     const { data, error } = await supabase.auth.signUp({
       email,
@@ -30,16 +21,7 @@ export const authService = {
   },
 
   async signIn(email: string, password: string) {
-    if (!isSupabaseConfigured() || !supabase) {
-      // Offline fallback: simulate signin
-      const mockUser = {
-        id: 'local-user-1',
-        email,
-        full_name: email.split('@')[0]
-      };
-      localStorage.setItem('daymark_auth_user', JSON.stringify(mockUser));
-      return { user: mockUser, error: null };
-    }
+    if (!isSupabaseConfigured() || !supabase) throw new Error('Supabase is not configured.');
 
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
@@ -50,26 +32,13 @@ export const authService = {
   },
 
   async signOut() {
-    if (!isSupabaseConfigured() || !supabase) {
-      localStorage.removeItem('daymark_auth_user');
-      return { error: null };
-    }
+    if (!isSupabaseConfigured() || !supabase) throw new Error('Supabase is not configured.');
     const { error } = await supabase.auth.signOut();
     return { error };
   },
 
   async getCurrentUser(): Promise<AppProfile | null> {
-    if (!isSupabaseConfigured() || !supabase) {
-      const stored = localStorage.getItem('daymark_auth_user');
-      if (stored) {
-        try {
-          return JSON.parse(stored);
-        } catch {
-          return null;
-        }
-      }
-      return null;
-    }
+    if (!isSupabaseConfigured() || !supabase) return null;
 
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return null;

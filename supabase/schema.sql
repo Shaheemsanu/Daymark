@@ -213,6 +213,32 @@ CREATE POLICY "Users can delete own notes"
 CREATE INDEX IF NOT EXISTS idx_daily_notes_user_date ON public.daily_notes(user_id, entry_date);
 
 -- ------------------------------------------------------------------------------
+-- 6b. Titled Notes (separate from one-per-day wellness notes)
+-- ------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.notes (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+  title TEXT NOT NULL,
+  content TEXT NOT NULL,
+  category TEXT NOT NULL DEFAULT 'General',
+  image_url TEXT,
+  created_at TIMESTAMPTZ DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
+  updated_at TIMESTAMPTZ DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
+);
+
+ALTER TABLE public.notes ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can select own titled notes"
+  ON public.notes FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can insert own titled notes"
+  ON public.notes FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can update own titled notes"
+  ON public.notes FOR UPDATE USING (auth.uid() = user_id);
+CREATE POLICY "Users can delete own titled notes"
+  ON public.notes FOR DELETE USING (auth.uid() = user_id);
+CREATE INDEX IF NOT EXISTS idx_notes_user_created ON public.notes(user_id, created_at DESC);
+
+-- ------------------------------------------------------------------------------
 -- 7. Expenses Table
 -- ------------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.expenses (
@@ -223,6 +249,9 @@ CREATE TABLE IF NOT EXISTS public.expenses (
   amount NUMERIC(12,2) NOT NULL CHECK (amount > 0),
   category TEXT NOT NULL,
   spend_type TEXT NOT NULL DEFAULT 'need' CHECK (spend_type IN ('need', 'want', 'savings')),
+  transaction_type TEXT NOT NULL DEFAULT 'expense' CHECK (transaction_type IN ('expense', 'income')),
+  account TEXT NOT NULL DEFAULT 'expense' CHECK (account IN ('expense', 'savings', 'cash')),
+  is_transfer BOOLEAN NOT NULL DEFAULT FALSE,
   payment_method TEXT DEFAULT 'Credit Card',
   notes TEXT,
   is_recurring BOOLEAN DEFAULT FALSE,
@@ -257,8 +286,11 @@ CREATE TABLE IF NOT EXISTS public.budget_configs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL UNIQUE,
   monthly_budget NUMERIC(12,2) DEFAULT 3200.00 NOT NULL,
+  daily_budget NUMERIC(12,2) DEFAULT 1000.00 NOT NULL,
+  weekly_budget NUMERIC(12,2) DEFAULT 7000.00 NOT NULL,
   currency TEXT DEFAULT '$' NOT NULL,
   category_budgets JSONB DEFAULT '{}'::jsonb NOT NULL,
+  custom_categories JSONB DEFAULT '{}'::jsonb NOT NULL,
   updated_at TIMESTAMPTZ DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
 );
 
@@ -287,11 +319,13 @@ BEGIN
     NEW.raw_user_meta_data->>'avatar_url'
   );
 
-  INSERT INTO public.budget_configs (user_id, monthly_budget, currency, category_budgets)
+  INSERT INTO public.budget_configs (user_id, monthly_budget, daily_budget, weekly_budget, currency, category_budgets)
   VALUES (
     NEW.id,
-    3200.00,
-    '$',
+    30000.00,
+    1000.00,
+    7000.00,
+    '₹',
     '{"Housing": 1200, "Groceries": 450, "Food & Dining": 300, "Transportation": 200, "Utilities": 220, "Health & Fitness": 140, "Entertainment": 180, "Shopping": 200, "Subscriptions": 60, "Personal Care": 80, "Education": 100, "Other": 70}'::jsonb
   );
 

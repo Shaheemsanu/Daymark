@@ -17,6 +17,8 @@ This directory contains the database schema and initialization instructions for 
    - Copy the entire content of [`supabase/schema.sql`](./schema.sql) and paste it into the editor.
    - Click **Run** to execute the script.
    - All tables, constraints, foreign keys, triggers, and Row Level Security (RLS) policies will be created.
+   - If you already created the original schema, run [`migrations/20261110000000_existing_schema_app_fields.sql`](./migrations/20261110000000_existing_schema_app_fields.sql) to apply the approved additions: titled notes, expense transaction fields, and custom categories JSONB.
+   - Run [`migrations/20261110000001_budget_daily_weekly_targets.sql`](./migrations/20261110000001_budget_daily_weekly_targets.sql) to add daily and weekly budget targets. Existing rows receive defaults of ₹1,000 daily and ₹7,000 weekly.
 
 3. **Get API Keys**:
    - Navigate to **Project Settings** → **API**.
@@ -43,9 +45,9 @@ This directory contains the database schema and initialization instructions for 
 
 ## 2. Architecture & Security Model
 
-- **Row Level Security (RLS)**: Every single table (`profiles`, `tasks`, `task_entries`, `custom_trackers`, `tracker_entries`, `daily_notes`, `expenses`, `budget_configs`) has RLS enabled with strict policies verifying `auth.uid() = user_id`.
+- **Row Level Security (RLS)**: User data tables (`profiles`, `tasks`, `task_entries`, `custom_trackers`, `tracker_entries`, `daily_notes`, `notes`, `expenses`, `budget_configs`) have RLS policies scoped to `auth.uid() = user_id`.
 - **Daily Independence Constraint**:
   - The `task_entries` table enforces `UNIQUE (user_id, task_id, entry_date)`: each recurring task has a completely independent status (`pending`, `complete`, `skipped`) for each calendar date.
   - The `tracker_entries` table enforces `UNIQUE (user_id, tracker_id, entry_date)`: tracking values (water, habits, metrics) are isolated per day.
 - **Auto Profile & Budget Trigger**: An automated database trigger (`on_auth_user_created`) provisions a user profile and default budget configuration upon signup.
-- **Offline / Local Demo Fallback**: When Supabase credentials are not supplied, Daymark operates smoothly in offline local-first mode using browser storage and full demo seeds so testing and evaluation remain seamless.
+- **Supabase-only application data**: Daymark reads and writes expenses, budgets and custom categories, tasks and task entries, habits and tracker entries, wellness entries, and titled notes through their matching tables. RLS scopes records to the signed-in user. Supabase Auth keeps its session in browser storage.

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { authService } from './authService';
 import { AppProfile } from '../../lib/types';
-import { CheckCircle2, Lock, Mail, User, ArrowRight, ShieldCheck, Sparkles } from 'lucide-react';
+import { Lock, Mail, User, ArrowRight, ShieldCheck, LoaderCircle } from 'lucide-react';
 
 interface AuthPageProps {
   onAuthSuccess: (user: AppProfile) => void;
@@ -51,20 +51,6 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuthSuccess }) => {
     }
   };
 
-  const handleDemoLogin = async () => {
-    setLoading(true);
-    const demoUser: AppProfile = {
-      id: 'demo-user-1',
-      email: 'alex@daymark.dev',
-      full_name: 'Alex Mercer'
-    };
-    localStorage.setItem('daymark_auth_user', JSON.stringify(demoUser));
-    setTimeout(() => {
-      onAuthSuccess(demoUser);
-      setLoading(false);
-    }, 250);
-  };
-
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100">
       <div className="w-full max-w-md">
@@ -94,7 +80,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuthSuccess }) => {
             </div>
             {!authService.isConfigured() && (
               <span className="text-[10px] font-mono font-medium px-2 py-0.5 rounded bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
-                Local Storage Mode
+                Supabase Required
               </span>
             )}
           </div>
@@ -165,8 +151,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuthSuccess }) => {
               disabled={loading}
               className="w-full py-2.5 px-4 text-xs font-medium text-white bg-slate-900 dark:bg-slate-100 dark:text-slate-950 rounded-xl hover:bg-slate-800 dark:hover:bg-white transition-all shadow-sm flex items-center justify-center gap-1.5 disabled:opacity-50"
             >
-              <span>{loading ? 'Processing...' : isSignUp ? 'Create Account' : 'Sign In'}</span>
-              <ArrowRight className="w-3.5 h-3.5" />
+              {loading ? <><LoaderCircle className="w-3.5 h-3.5 animate-spin" /><span>Connecting to Supabase...</span></> : <><span>{isSignUp ? 'Create Account' : 'Sign In'}</span><ArrowRight className="w-3.5 h-3.5" /></>}
             </button>
           </form>
 
@@ -186,18 +171,6 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuthSuccess }) => {
             </button>
           </div>
 
-          {/* Quick Demo Guest Login */}
-          <div className="pt-2">
-            <button
-              type="button"
-              onClick={handleDemoLogin}
-              disabled={loading}
-              className="w-full py-2 px-3 text-xs font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center justify-center gap-1.5"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-              <span>Launch Demo Mode (1-Click Instant Preview)</span>
-            </button>
-          </div>
         </div>
 
         {/* Security footer note */}

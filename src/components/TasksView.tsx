@@ -45,6 +45,8 @@ interface TasksViewProps {
   onAddTask: (task: Omit<DailyTask, 'id' | 'completed'>) => void;
   onToggleTask: (taskId: string) => void;
   onDeleteTask: (taskId: string) => void;
+  customCategories: string[];
+  onSaveCustomCategories: (categories: string[]) => void;
 }
 
 export type TaskTimeGrain = 'day' | 'week' | 'month' | 'year';
@@ -86,7 +88,9 @@ export const TasksView: React.FC<TasksViewProps> = ({
   tasks,
   onAddTask,
   onToggleTask,
-  onDeleteTask
+  onDeleteTask,
+  customCategories,
+  onSaveCustomCategories
 }) => {
   const [viewMode, setViewMode] = useState<'list' | 'analytics'>('list');
   const [filterPriority, setFilterPriority] = useState<TaskPriority | 'all'>('all');
@@ -98,15 +102,6 @@ export const TasksView: React.FC<TasksViewProps> = ({
   const [timeGrain, setTimeGrain] = useState<TaskTimeGrain>('day');
 
   // Custom task categories
-  const [customCategories, setCustomCategories] = useState<string[]>(() => {
-    try {
-      const saved = localStorage.getItem('daymark_custom_task_cats');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
-
   // All task categories
   const allCategories = useMemo(() => {
     const existing = tasks.map(t => t.category).filter(Boolean) as string[];
@@ -360,12 +355,7 @@ interface TaskChartPoint {
     if (!trimmed) return;
     if (!allCategories.includes(trimmed)) {
       const updated = [...customCategories, trimmed];
-      setCustomCategories(updated);
-      try {
-        localStorage.setItem('daymark_custom_task_cats', JSON.stringify(updated));
-      } catch (err) {
-        console.error(err);
-      }
+      onSaveCustomCategories(updated);
     }
     setCategory(trimmed);
     setNewCatInput('');
@@ -381,12 +371,7 @@ interface TaskChartPoint {
       finalCategory = newCatInput.trim();
       if (!allCategories.includes(finalCategory)) {
         const updated = [...customCategories, finalCategory];
-        setCustomCategories(updated);
-        try {
-          localStorage.setItem('daymark_custom_task_cats', JSON.stringify(updated));
-        } catch (err) {
-          console.error(err);
-        }
+        onSaveCustomCategories(updated);
       }
     }
 

@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { IndianRupee, CheckCircle2, ListTodo, TrendingDown, TrendingUp, Grid } from 'lucide-react';
 import { Expense, ExpenseCategory, PaymentMethod, Task, TaskPriority } from '../lib/types';
 import { getAllCategories } from '../utils/constants';
+import { CategoryInfo } from '../types';
 
 interface QuickLogModalProps {
   isOpen: boolean;
@@ -15,6 +16,7 @@ interface QuickLogModalProps {
   selectedDate: string;
   currencySymbol: string;
   initialTab?: 'expense' | 'task' | 'habit';
+  customCategories?: Record<string, CategoryInfo>;
 }
 
 const PAYMENT_METHODS: PaymentMethod[] = [
@@ -50,7 +52,8 @@ export const QuickLogModal: React.FC<QuickLogModalProps> = ({
   onToggleHabit,
   selectedDate,
   currencySymbol,
-  initialTab = 'expense'
+  initialTab = 'expense',
+  customCategories = {}
 }) => {
   const [activeTab, setActiveTab] = useState<'expense' | 'task' | 'habit'>(initialTab);
 
@@ -156,7 +159,7 @@ export const QuickLogModal: React.FC<QuickLogModalProps> = ({
     onClose();
   };
 
-  const allSystemCategories = Object.keys(getAllCategories());
+  const allSystemCategories = Object.keys({ ...getAllCategories(), ...customCategories });
 
   const getPrimaryCategories = () => {
     if (expAccount === 'savings') {

@@ -291,15 +291,15 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
           <div className="w-full h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 mt-3 overflow-hidden">
             <div
               className={`h-full rounded-full transition-all duration-300 ${
-                dayOutflow > (budget.monthlyBudget / 30) ? 'bg-amber-500' : 'bg-emerald-500'
+                dayOutflow > (budget.dailyBudget || budget.monthlyBudget / 30) ? 'bg-amber-500' : 'bg-emerald-500'
               }`}
               style={{
-                width: `${Math.min(100, (dayOutflow / Math.max(1, budget.monthlyBudget / 30)) * 100)}%`
+                width: `${Math.min(100, (dayOutflow / Math.max(1, budget.dailyBudget || budget.monthlyBudget / 30)) * 100)}%`
               }}
             />
           </div>
           <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
-            <span className="text-[11px]">Daily target: ~{formatCurrency(Math.round(budget.monthlyBudget / 30), budget.currency)}</span>
+            <span className="text-[11px]">Daily target: ~{formatCurrency(Math.round(budget.dailyBudget || budget.monthlyBudget / 30), budget.currency)}</span>
             <button
               onClick={onQuickLogExpense}
               className="text-blue-600 dark:text-blue-400 font-semibold hover:underline text-[11px]"

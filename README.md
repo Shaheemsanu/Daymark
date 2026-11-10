@@ -13,7 +13,7 @@ Daymark is designed around the core philosophy of **Daily Independence**: unlike
 - **Session Handling**: Persistent session state and automatic token refresh.
 - **Row Level Security (RLS)**: Enforced across all PostgreSQL database tables requiring `auth.uid() = user_id`.
 - **Zero-Secret Client**: Only public anon keys are used in the client bundle; service role keys are never exposed.
-- **Instant Demo Mode**: 1-click preview mode available for evaluation when running without live Supabase credentials.
+- **Supabase Authentication**: Sign-up and sign-in are required to use the workspace.
 
 ### 2. Recurring Tasks System (Daily Independence)
 - **Weekday Scheduling**: Define recurring tasks for specific days (e.g. Everyday, Weekdays, Weekends, custom days).
@@ -71,7 +71,7 @@ Daymark is designed around the core philosophy of **Daily Independence**: unlike
     QuickLogModal.tsx      # Universal + Quick Log drawer modal
   /features
     /auth
-      AuthPage.tsx         # Sign-in, sign-up, and demo mode switch
+      AuthPage.tsx         # Supabase sign-in and sign-up
       authService.ts       # Supabase Auth client & session management
     /dashboard
       DashboardPage.tsx    # Daily execution command center & 7-day strip
@@ -93,7 +93,7 @@ Daymark is designed around the core philosophy of **Daily Independence**: unlike
     types.ts               # Core TypeScript data models & definitions
     dateUtils.ts           # date-fns utilities, streaks, & intervals
     exportUtils.ts         # CSV builders & JSON backup serializers
-    mockData.ts            # Rich seed data for offline preview & evaluation
+    mockData.ts            # Preview seed data (not used for persistence)
   /test
     setup.ts               # Test setup for Vitest, jsdom, & Testing Library
     tasks.test.ts          # Daily independence & recurring task tests
@@ -137,13 +137,14 @@ VITE_SUPABASE_URL=https://your-project.supabase.co
 VITE_SUPABASE_ANON_KEY=your-anon-public-key
 VITE_BASE_PATH=/
 ```
-*(Note: If left empty, Daymark seamlessly runs in offline local-storage mode for instant testing.)*
+Daymark requires Supabase credentials. Tracker and expense data is stored in the signed-in user's Supabase account.
 
 ### 3. Database Setup (Supabase)
 1. Open your Supabase project dashboard at [supabase.com](https://supabase.com).
 2. Go to the **SQL Editor**.
 3. Copy and run the entire [`supabase/schema.sql`](./supabase/schema.sql) file.
-4. Go to **Authentication** &gt; **URL Configuration** and add:
+4. If you already ran the original schema, run [`supabase/migrations/20261110000000_existing_schema_app_fields.sql`](./supabase/migrations/20261110000000_existing_schema_app_fields.sql) to add the approved Notes table and app fields to the existing tables.
+5. Go to **Authentication** &gt; **URL Configuration** and add:
    - Site URL: `http://localhost:3000/`
    - Redirect URLs: `http://localhost:3000/**` and your production URL.
 
