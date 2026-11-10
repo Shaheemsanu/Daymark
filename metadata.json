@@ -1,0 +1,6 @@
+{
+  "name": "Daymark — Daily Todo & Habit Tracker",
+  "description": "Production-ready daily productivity, habit tracker, recurring tasks, and expense analysis dashboard built with React, TypeScript, and Supabase.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
