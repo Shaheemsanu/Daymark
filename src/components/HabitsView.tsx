@@ -663,58 +663,58 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
           <h2 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
             Habit Tracker &amp; Consistency
           </h2>
-          <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 mt-1">
-            <span>Module 1 · Habits &amp; Routines</span>
-            <span aria-hidden="true">·</span>
-            <span>{habits.length} tracked habits</span>
-            <span aria-hidden="true">·</span>
-            <span>{allCategories.length} categories</span>
+          <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-slate-500 dark:text-slate-400 sm:flex sm:items-center sm:gap-2">
+            <span className="col-span-2 min-w-0 sm:col-span-1">Module 1 · Habits &amp; Routines</span>
+            <span aria-hidden="true" className="hidden sm:inline">·</span>
+            <span className="min-w-0">{habits.length} tracked habits</span>
+            <span aria-hidden="true" className="hidden sm:inline">·</span>
+            <span className="min-w-0">{allCategories.length} categories</span>
           </div>
         </div>
 
         <div className="flex items-center gap-2.5 flex-wrap">
           {/* Matrix and analytics views */}
-          <div className="grid w-full grid-cols-2 items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-100 p-1.5 text-xs font-medium dark:border-slate-800 dark:bg-slate-950/70 lg:flex lg:w-auto lg:gap-0.5 lg:rounded-lg lg:border-0 lg:bg-slate-100 lg:p-1 lg:dark:bg-slate-800">
+          <div className="grid w-full grid-cols-2 items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-100 p-1.5 text-xs font-medium dark:border-slate-800 dark:bg-slate-950/70 lg:flex lg:h-9 lg:w-auto lg:gap-0.5 lg:rounded-lg lg:border-0 lg:bg-slate-100 lg:p-1 lg:dark:bg-slate-800">
             <button
               type="button"
               aria-pressed={viewMode === 'matrix'}
               onClick={() => setViewMode('matrix')}
-              className={`col-span-2 flex min-h-9 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-2 py-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 lg:col-span-1 lg:min-h-0 lg:rounded-md lg:gap-1.5 lg:px-3 lg:py-1.5 ${
+              className={`col-span-2 flex min-h-9 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-2 py-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 lg:col-span-1 lg:h-7 lg:min-h-0 lg:rounded-md lg:gap-1.5 lg:px-3 lg:py-1.5 ${
                 viewMode === 'matrix'
                   ? 'bg-blue-600 text-white shadow-sm dark:bg-blue-500 lg:bg-white lg:text-blue-600 lg:dark:bg-slate-900 lg:dark:text-blue-400'
                   : 'bg-white/70 text-slate-600 hover:bg-white hover:text-slate-900 dark:bg-slate-800/70 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white'
               }`}
             >
               <LayoutGrid className="w-3.5 h-3.5" />
-              <span className="lg:hidden">Matrix</span>
+              <span className="lg:hidden">14-Day Matrix</span>
               <span className="hidden lg:inline">14-Day Matrix</span>
             </button>
             <button
               type="button"
               aria-pressed={viewMode === 'analytics'}
               onClick={() => setViewMode('analytics')}
-              className={`flex min-h-9 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-2 py-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 lg:min-h-0 lg:rounded-md lg:gap-1.5 lg:px-3 lg:py-1.5 ${
+              className={`flex min-h-9 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-2 py-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 lg:h-7 lg:min-h-0 lg:rounded-md lg:gap-1.5 lg:px-3 lg:py-1.5 ${
                 viewMode === 'analytics'
                   ? 'bg-blue-600 text-white shadow-sm dark:bg-blue-500 lg:bg-white lg:text-blue-600 lg:dark:bg-slate-900 lg:dark:text-blue-400'
                   : 'bg-white/70 text-slate-600 hover:bg-white hover:text-slate-900 dark:bg-slate-800/70 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white'
               }`}
             >
               <BarChart3 className="w-3.5 h-3.5" />
-              <span className="lg:hidden">Habits</span>
+              <span className="lg:hidden">Habit Analytics</span>
               <span className="hidden lg:inline">Habit Analytics</span>
             </button>
             <button
               type="button"
               aria-pressed={viewMode === 'wellnessAnalytics'}
               onClick={() => setViewMode('wellnessAnalytics')}
-              className={`flex min-h-9 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-2 py-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 lg:min-h-0 lg:rounded-md lg:gap-1.5 lg:px-3 lg:py-1.5 ${
+              className={`flex min-h-9 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-2 py-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 lg:h-7 lg:min-h-0 lg:rounded-md lg:gap-1.5 lg:px-3 lg:py-1.5 ${
                 viewMode === 'wellnessAnalytics'
                   ? 'bg-blue-600 text-white shadow-sm dark:bg-blue-500 lg:bg-white lg:text-blue-600 lg:dark:bg-slate-900 lg:dark:text-blue-400'
                   : 'bg-white/70 text-slate-600 hover:bg-white hover:text-slate-900 dark:bg-slate-800/70 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white'
               }`}
             >
               <Droplet className="h-3.5 w-3.5" />
-              <span className="lg:hidden">Wellness</span>
+              <span className="lg:hidden">Wellness Analytics</span>
               <span className="hidden lg:inline">Wellness Analytics</span>
             </button>
           </div>
@@ -723,7 +723,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
             <button
               type="button"
               onClick={() => { setCategoryActionError(''); setIsCategoryManagerOpen(true); }}
-              className="flex min-h-10 w-full cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-2 py-2 text-[11px] font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 sm:w-auto sm:px-3 sm:text-xs"
+              className="flex min-h-10 w-full cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-2 py-2 text-[11px] font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 sm:w-auto sm:px-3 sm:text-xs lg:h-9 lg:min-h-9"
             >
               <Tag className="w-3.5 h-3.5" />
               <span>Manage Categories</span>
@@ -731,7 +731,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
             <button
               type="button"
               onClick={openCreateHabit}
-              className="flex min-h-10 w-full cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-slate-900 px-2 py-2 text-[11px] font-semibold text-white shadow-xs transition-colors hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-white sm:w-auto sm:px-4 sm:text-xs"
+              className="flex min-h-10 w-full cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-slate-900 px-2 py-2 text-[11px] font-semibold text-white shadow-xs transition-colors hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-white sm:w-auto sm:px-4 sm:text-xs lg:h-9 lg:min-h-9"
             >
               <Plus className="w-4 h-4" />
               <span>New Habit</span>

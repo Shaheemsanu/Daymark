@@ -13,7 +13,8 @@ import {
   DollarSign,
   Calendar,
   Sparkles,
-  Trash2
+  Trash2,
+  LoaderCircle
 } from 'lucide-react';
 import { Habit, DailyTask, DailyWellness, Expense, MoodType, BudgetConfig } from '../types';
 import { formatCurrency, formatDate, CATEGORIES } from '../utils/constants';
@@ -23,11 +24,12 @@ interface DailyOverviewProps {
   onSelectDate: (date: string) => void;
   habits: Habit[];
   tasks: DailyTask[];
+  savingKeys?: Set<string>;
   wellness: Record<string, DailyWellness>;
   expenses: Expense[];
   budget: BudgetConfig;
   onToggleHabit: (habitId: string, date: string) => void;
-  onToggleTask: (taskId: string) => void;
+  onToggleTask: (taskId: string) => void | boolean | Promise<boolean>;
   onAddTask: (task: Omit<DailyTask, 'id' | 'completed'>) => void;
   onDeleteTask: (taskId: string) => void;
   onUpdateWellness: (date: string, data: Partial<DailyWellness>) => void;
@@ -48,6 +50,7 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
   onSelectDate,
   habits,
   tasks,
+  savingKeys,
   wellness,
   expenses,
   budget,
@@ -690,7 +693,9 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
                   No priority tasks scheduled for this date.
                 </div>
               ) : (
-                dayTasks.map(task => (
+                dayTasks.map(task => {
+                  const isSavingTask = savingKeys?.has(`task:${task.id}`);
+                  return (
                   <div
                     key={task.id}
                     className={`p-3 rounded-xl border flex items-center justify-between gap-3 transition-colors ${
@@ -701,10 +706,13 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
                   >
                     <div className="flex items-center gap-3 min-w-0 flex-1">
                       <button
+                        type="button"
                         onClick={() => onToggleTask(task.id)}
-                        className="shrink-0 text-slate-400 hover:scale-110 active:scale-95 transition-all cursor-pointer"
+                        disabled={Boolean(isSavingTask)}
+                        aria-label={isSavingTask ? 'Saving task status' : task.completed ? 'Mark task incomplete' : 'Mark task complete'}
+                        className="shrink-0 text-slate-400 hover:scale-110 active:scale-95 transition-all cursor-pointer disabled:cursor-wait"
                       >
-                        {task.completed ? (
+                        {isSavingTask ? <LoaderCircle className="h-4.5 w-4.5 animate-spin text-sky-500" /> : task.completed ? (
                           <CheckCircle2 className="w-4.5 h-4.5 text-sky-600 dark:text-sky-400" />
                         ) : (
                           <Circle className="w-4.5 h-4.5 text-slate-300 dark:text-slate-600 hover:text-slate-400" />
@@ -753,7 +761,8 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
                       </button>
                     </div>
                   </div>
-                ))
+                  );
+                })
               )}
             </div>
           </div>

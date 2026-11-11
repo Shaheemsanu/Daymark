@@ -40,7 +40,7 @@ interface ExpenseDashboardProps {
   onUpdateBudget: (budget: BudgetConfig) => void;
   onExportCSV: () => void;
   customCategories: Record<string, CategoryInfo>;
-  onSaveCustomCategories: (categories: Record<string, CategoryInfo>) => void;
+  onSaveCustomCategories: (categories: Record<string, CategoryInfo>) => void | Promise<boolean>;
 }
 
 const PRESET_AMOUNTS = [50, 100, 200, 500, 1000, 2000];
@@ -142,6 +142,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
   const [editingCategoryName, setEditingCategoryName] = useState<string | null>(null);
   const [pendingDeleteCategory, setPendingDeleteCategory] = useState<string | null>(null);
   const [isDeletingCategory, setIsDeletingCategory] = useState(false);
+  const [isSavingCategory, setIsSavingCategory] = useState(false);
 
   // Add/Edit Form states
   const [formAccount, setFormAccount] = useState<'expense' | 'savings' | 'cash'>('expense');
@@ -710,36 +711,45 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
       return;
     }
 
-    const updatedCategories = { ...customCategories };
-    const previousName = editingCategoryName;
-    const existingInfo = previousName ? customCategories[previousName] : undefined;
-    if (previousName && previousName !== trimmed) {
-      const affectedExpenses = expenses.filter(expense => expense.category === previousName);
-      const results = await Promise.all(affectedExpenses.map(expense => onUpdateExpense(expense.id, { category: trimmed })));
-      const failure = results.find(result => result !== true);
-      if (failure) {
-        setCategoryError(typeof failure === 'string' ? failure : 'Could not update transactions for this category.');
+    setIsSavingCategory(true);
+    try {
+      const updatedCategories = { ...customCategories };
+      const previousName = editingCategoryName;
+      const existingInfo = previousName ? customCategories[previousName] : undefined;
+      if (previousName && previousName !== trimmed) {
+        const affectedExpenses = expenses.filter(expense => expense.category === previousName);
+        const results = await Promise.all(affectedExpenses.map(expense => onUpdateExpense(expense.id, { category: trimmed })));
+        const failure = results.find(result => result !== true);
+        if (failure) {
+          setCategoryError(typeof failure === 'string' ? failure : 'Could not update transactions for this category.');
+          return;
+        }
+        delete updatedCategories[previousName];
+        if (formCategory === previousName) setFormCategory(trimmed);
+      }
+      updatedCategories[trimmed] = {
+        ...existingInfo,
+        name: trimmed,
+        color: newCatColor,
+        defaultSpendType: newCatSpendType,
+        description: newCatDescription.trim() || 'Custom user category',
+        isCustom: true
+      };
+      if (previousName && previousName !== trimmed && budget.categoryBudgets[previousName]) {
+        const categoryBudgets = { ...budget.categoryBudgets, [trimmed]: budget.categoryBudgets[previousName] };
+        delete categoryBudgets[previousName];
+        onUpdateBudget({ ...budget, categoryBudgets });
+      }
+      const saved = await onSaveCustomCategories(updatedCategories);
+      if (saved === false) {
+        setCategoryError('Could not save category changes. Please try again.');
         return;
       }
-      delete updatedCategories[previousName];
-      if (formCategory === previousName) setFormCategory(trimmed);
+      setCategoriesMap({ ...CATEGORIES, ...updatedCategories });
+      resetCategoryForm();
+    } finally {
+      setIsSavingCategory(false);
     }
-    updatedCategories[trimmed] = {
-      ...existingInfo,
-      name: trimmed,
-      color: newCatColor,
-      defaultSpendType: newCatSpendType,
-      description: newCatDescription.trim() || 'Custom user category',
-      isCustom: true
-    };
-    if (previousName && previousName !== trimmed && budget.categoryBudgets[previousName]) {
-      const categoryBudgets = { ...budget.categoryBudgets, [trimmed]: budget.categoryBudgets[previousName] };
-      delete categoryBudgets[previousName];
-      onUpdateBudget({ ...budget, categoryBudgets });
-    }
-    onSaveCustomCategories(updatedCategories);
-    setCategoriesMap({ ...CATEGORIES, ...updatedCategories });
-    resetCategoryForm();
   };
 
   const handleDeleteCategory = async () => {
@@ -757,7 +767,11 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
       }
       const updatedCategories = { ...customCategories };
       delete updatedCategories[catName];
-      onSaveCustomCategories(updatedCategories);
+      const saved = await onSaveCustomCategories(updatedCategories);
+      if (saved === false) {
+        setCategoryError('Could not save category changes. Please try again.');
+        return;
+      }
       setCategoriesMap({ ...CATEGORIES, ...updatedCategories });
       if (formCategory === catName) setFormCategory('Other');
       if (editingCategoryName === catName) resetCategoryForm();
@@ -2005,12 +2019,14 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                 <div className="pt-2 flex justify-end">
                   <button
                     type="submit"
-                    className="px-4 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-xs transition-colors"
+                    disabled={isSavingCategory}
+                    className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-xs transition-colors disabled:cursor-wait disabled:opacity-70"
                   >
-                    {editingCategoryName ? 'Save Changes' : 'Create Category'}
+                    {isSavingCategory && <LoaderCircle className="h-3.5 w-3.5 animate-spin" />}
+                    {isSavingCategory ? 'Saving…' : editingCategoryName ? 'Save Changes' : 'Create Category'}
                   </button>
                   {editingCategoryName && (
-                    <button type="button" onClick={resetCategoryForm} className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl transition-colors">
+                    <button type="button" disabled={isSavingCategory} onClick={resetCategoryForm} className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl transition-colors disabled:opacity-50">
                       Cancel
                     </button>
                   )}

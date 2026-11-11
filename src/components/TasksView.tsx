@@ -19,6 +19,9 @@ import {
   CheckCircle2,
   Circle,
   Trash2,
+  Pencil,
+  LoaderCircle,
+  AlertCircle,
   Calendar,
   Clock,
   Filter,
@@ -37,19 +40,22 @@ import {
   getPastNWeeks,
   getPastNMonths,
   getPastNYears,
+  getDaysInInterval,
   formatShortDate
 } from '../lib/dateUtils';
 
 interface TasksViewProps {
   tasks: DailyTask[];
-  onAddTask: (task: Omit<DailyTask, 'id' | 'completed'>) => void;
-  onToggleTask: (taskId: string) => void;
-  onDeleteTask: (taskId: string) => void;
+  onAddTask: (task: Omit<DailyTask, 'id' | 'completed'>) => void | Promise<boolean>;
+  onToggleTask: (taskId: string) => void | boolean | Promise<boolean>;
+  onDeleteTask: (taskId: string) => void | Promise<boolean>;
+  onUpdateTask: (taskId: string, task: Partial<DailyTask>) => void | Promise<boolean>;
+  savingKeys?: Set<string>;
   customCategories: string[];
-  onSaveCustomCategories: (categories: string[]) => void;
+  onSaveCustomCategories: (categories: string[]) => void | Promise<boolean>;
 }
 
-export type TaskTimeGrain = 'day' | 'week' | 'month' | 'year';
+export type TaskTimeGrain = 'day' | 'week' | 'month' | 'year' | 'custom';
 
 const DEFAULT_TASK_CATEGORIES = [
   'General',
@@ -89,17 +95,36 @@ export const TasksView: React.FC<TasksViewProps> = ({
   onAddTask,
   onToggleTask,
   onDeleteTask,
+  onUpdateTask,
+  savingKeys,
   customCategories,
   onSaveCustomCategories
 }) => {
   const [viewMode, setViewMode] = useState<'list' | 'analytics'>('list');
   const [filterPriority, setFilterPriority] = useState<TaskPriority | 'all'>('all');
-  const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'completed'>('all');
+  const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'completed'>('active');
   const [filterCategory, setFilterCategory] = useState<string>('all');
+  const [analyticsCategory, setAnalyticsCategory] = useState<string>('all');
   const [isAddOpen, setIsAddOpen] = useState(false);
+  const [editingTask, setEditingTask] = useState<DailyTask | null>(null);
+  const [taskToDelete, setTaskToDelete] = useState<DailyTask | null>(null);
+  const [isDeletingTask, setIsDeletingTask] = useState(false);
+  const [isCategoryManagerOpen, setIsCategoryManagerOpen] = useState(false);
+  const [newManagedCategory, setNewManagedCategory] = useState('');
+  const [editingCategory, setEditingCategory] = useState<string | null>(null);
+  const [editingCategoryName, setEditingCategoryName] = useState('');
+  const [categoryToDelete, setCategoryToDelete] = useState<string | null>(null);
+  const [isSavingCategoryAction, setIsSavingCategoryAction] = useState(false);
 
   // Time grain for analytics: Day, Week, Month, Year
   const [timeGrain, setTimeGrain] = useState<TaskTimeGrain>('day');
+  const [customStartDate, setCustomStartDate] = useState(() => {
+    const date = new Date();
+    date.setDate(date.getDate() - 13);
+    return formatDate(date);
+  });
+  const [customEndDate, setCustomEndDate] = useState(() => formatDate(new Date()));
+  const todayIso = formatDate(new Date());
 
   // Custom task categories
   // All task categories
@@ -134,6 +159,10 @@ export const TasksView: React.FC<TasksViewProps> = ({
 
   const activeCount = tasks.filter(t => !t.completed).length;
   const completedCount = tasks.filter(t => t.completed).length;
+  const analyticsTasks = useMemo(
+    () => analyticsCategory === 'all' ? tasks : tasks.filter(task => (task.category || 'General') === analyticsCategory),
+    [analyticsCategory, tasks]
+  );
 
 interface TaskChartPoint {
   label: string;
@@ -150,10 +179,45 @@ interface TaskChartPoint {
   // TIME GRAIN ANALYTICS CALCULATIONS (Day, Week, Month, Year)
   // -------------------------------------------------------------
   const grainAnalyticsData = useMemo(() => {
+    if (timeGrain === 'custom') {
+      const isValidRange = Boolean(customStartDate && customEndDate && customStartDate <= customEndDate);
+      const days = isValidRange ? getDaysInInterval(customStartDate, customEndDate) : [];
+      const chartPoints: TaskChartPoint[] = days.map(dateStr => {
+        const dayTasks = analyticsTasks.filter(task => task.date === dateStr);
+        const done = dayTasks.filter(task => task.completed).length;
+        const pending = dayTasks.length - done;
+        const focusMins = dayTasks.filter(task => task.completed).reduce((sum, task) => sum + (task.timeEstimateMin || 30), 0);
+        return {
+          label: formatShortDate(dateStr),
+          subLabel: dateStr,
+          Completed: done,
+          Pending: pending,
+          Total: dayTasks.length,
+          FocusMinutes: focusMins,
+          Rate: dayTasks.length ? Math.round((done / dayTasks.length) * 100) : 0
+        };
+      });
+      const totalCompleted = chartPoints.reduce((sum, point) => sum + point.Completed, 0);
+      const totalPending = chartPoints.reduce((sum, point) => sum + point.Pending, 0);
+      const totalFocusMins = chartPoints.reduce((sum, point) => sum + point.FocusMinutes, 0);
+      const periodName = days.length ? `${formatShortDate(customStartDate)} – ${formatShortDate(customEndDate)}` : 'Choose a valid date range';
+      const averagePerDay = days.length ? (totalCompleted / days.length).toFixed(1) : '0.0';
+
+      return {
+        chartPoints,
+        periodName,
+        totalCompleted,
+        totalPending,
+        totalFocusMins,
+        throughputMetric: `${averagePerDay} tasks/day`,
+        activeDays: days
+      };
+    }
+
     if (timeGrain === 'day') {
       const past14Days = getPastNDays(14);
       const chartPoints: TaskChartPoint[] = past14Days.map(dateStr => {
-        const dayTasks = tasks.filter(t => t.date === dateStr);
+        const dayTasks = analyticsTasks.filter(t => t.date === dateStr);
         const done = dayTasks.filter(t => t.completed).length;
         const pending = dayTasks.filter(t => !t.completed).length;
         const focusMins = dayTasks
@@ -189,7 +253,7 @@ interface TaskChartPoint {
     if (timeGrain === 'week') {
       const intervals = getPastNWeeks(8);
       const chartPoints: TaskChartPoint[] = intervals.map(w => {
-        const weekTasks = tasks.filter(t => w.days.includes(t.date));
+        const weekTasks = analyticsTasks.filter(t => w.days.includes(t.date));
         const done = weekTasks.filter(t => t.completed).length;
         const pending = weekTasks.filter(t => !t.completed).length;
         const focusMins = weekTasks
@@ -226,7 +290,7 @@ interface TaskChartPoint {
     if (timeGrain === 'month') {
       const intervals = getPastNMonths(6);
       const chartPoints: TaskChartPoint[] = intervals.map(m => {
-        const monthTasks = tasks.filter(t => m.days.includes(t.date));
+        const monthTasks = analyticsTasks.filter(t => m.days.includes(t.date));
         const done = monthTasks.filter(t => t.completed).length;
         const pending = monthTasks.filter(t => !t.completed).length;
         const focusMins = monthTasks
@@ -263,7 +327,7 @@ interface TaskChartPoint {
     // Year: Past 3 years
     const intervals = getPastNYears(3);
     const chartPoints: TaskChartPoint[] = intervals.map(y => {
-      const yearTasks = tasks.filter(t => y.days.includes(t.date));
+      const yearTasks = analyticsTasks.filter(t => y.days.includes(t.date));
       const done = yearTasks.filter(t => t.completed).length;
       const pending = yearTasks.filter(t => !t.completed).length;
       const focusMins = yearTasks
@@ -294,7 +358,7 @@ interface TaskChartPoint {
       throughputMetric: `${totalCompleted} tasks completed`,
       activeDays: intervals.flatMap(i => i.days)
     };
-  }, [timeGrain, tasks]);
+  }, [timeGrain, analyticsTasks, customStartDate, customEndDate]);
 
   // Tasks by Category within selected grain
   const taskCategoryData = useMemo(() => {
@@ -305,7 +369,7 @@ interface TaskChartPoint {
       counts[cat] = 0;
     });
 
-    tasks.forEach(t => {
+    analyticsTasks.forEach(t => {
       if (activeDaysSet.has(t.date)) {
         const cat = t.category || 'General';
         counts[cat] = (counts[cat] || 0) + (t.completed ? 1 : 0);
@@ -319,12 +383,12 @@ interface TaskChartPoint {
         value,
         color: TASK_CATEGORY_COLORS[name] || DYNAMIC_TASK_PALETTE[idx % DYNAMIC_TASK_PALETTE.length]
       }));
-  }, [grainAnalyticsData, allCategories, tasks]);
+  }, [grainAnalyticsData, allCategories, analyticsTasks]);
 
   // Priority breakdown in window
   const priorityBreakdownData = useMemo(() => {
     const activeDaysSet = new Set(grainAnalyticsData.activeDays);
-    const scopedTasks = tasks.filter(t => activeDaysSet.has(t.date));
+    const scopedTasks = analyticsTasks.filter(t => activeDaysSet.has(t.date));
 
     const high = scopedTasks.filter(t => t.priority === 'high');
     const med = scopedTasks.filter(t => t.priority === 'medium');
@@ -347,7 +411,7 @@ interface TaskChartPoint {
         Completed: low.filter(t => t.completed).length
       }
     ];
-  }, [grainAnalyticsData, tasks]);
+  }, [grainAnalyticsData, analyticsTasks]);
 
   // Handle adding custom category
   const handleAddNewCategory = () => {
@@ -362,7 +426,7 @@ interface TaskChartPoint {
     setIsCreatingNewCat(false);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) return;
 
@@ -375,18 +439,102 @@ interface TaskChartPoint {
       }
     }
 
-    onAddTask({
+    const taskFields = {
       title: title.trim(),
       date,
       priority,
       timeEstimateMin: parseInt(timeEstimate) || 30,
       category: finalCategory || 'General'
-    });
+    };
+
+    if (editingTask) {
+      const saved = await onUpdateTask(editingTask.id, taskFields);
+      if (saved === false) return;
+    } else {
+      const saved = await onAddTask(taskFields);
+      if (saved === false) return;
+    }
 
     setTitle('');
     setIsCreatingNewCat(false);
     setNewCatInput('');
     setIsAddOpen(false);
+    setEditingTask(null);
+  };
+
+  const openEditTask = (task: DailyTask) => {
+    setEditingTask(task);
+    setTitle(task.title);
+    setDate(task.date);
+    setPriority(task.priority);
+    setTimeEstimate(String(task.timeEstimateMin || 30));
+    setCategory(task.category || 'General');
+    setIsCreatingNewCat(false);
+    setNewCatInput('');
+    setIsAddOpen(true);
+  };
+
+  const confirmDeleteTask = async () => {
+    if (!taskToDelete) return;
+    setIsDeletingTask(true);
+    await onDeleteTask(taskToDelete.id);
+    setIsDeletingTask(false);
+    setTaskToDelete(null);
+  };
+
+  const saveTaskCategoryEdit = async () => {
+    if (!editingCategory) return;
+    const nextName = editingCategoryName.trim();
+    if (!nextName || nextName === editingCategory) return;
+    if (allCategories.some(item => item.toLowerCase() === nextName.toLowerCase())) return;
+
+    setIsSavingCategoryAction(true);
+    const affectedTasks = tasks.filter(task => task.category === editingCategory);
+    const results = await Promise.all(affectedTasks.map(task => onUpdateTask(task.id, { category: nextName })));
+    if (results.some(result => result === false)) {
+      setIsSavingCategoryAction(false);
+      return;
+    }
+    const saved = await onSaveCustomCategories(customCategories.map(item => item === editingCategory ? nextName : item));
+    if (saved === false) {
+      setIsSavingCategoryAction(false);
+      return;
+    }
+    if (category === editingCategory) setCategory(nextName);
+    if (filterCategory === editingCategory) setFilterCategory(nextName);
+    setEditingCategory(null);
+    setEditingCategoryName('');
+    setIsSavingCategoryAction(false);
+  };
+
+  const confirmDeleteTaskCategory = async () => {
+    if (!categoryToDelete) return;
+    setIsSavingCategoryAction(true);
+    const affectedTasks = tasks.filter(task => task.category === categoryToDelete);
+    const results = await Promise.all(affectedTasks.map(task => onUpdateTask(task.id, { category: 'General' })));
+    if (results.some(result => result === false)) {
+      setIsSavingCategoryAction(false);
+      return;
+    }
+    const saved = await onSaveCustomCategories(customCategories.filter(item => item !== categoryToDelete));
+    if (saved === false) {
+      setIsSavingCategoryAction(false);
+      return;
+    }
+    if (category === categoryToDelete) setCategory('General');
+    if (filterCategory === categoryToDelete) setFilterCategory('all');
+    setCategoryToDelete(null);
+    setIsSavingCategoryAction(false);
+  };
+
+  const addManagedTaskCategory = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const name = newManagedCategory.trim();
+    if (!name || allCategories.some(item => item.toLowerCase() === name.toLowerCase())) return;
+    setIsSavingCategoryAction(true);
+    const saved = await onSaveCustomCategories([...customCategories, name]);
+    if (saved !== false) setNewManagedCategory('');
+    setIsSavingCategoryAction(false);
   };
 
   return (
@@ -397,23 +545,23 @@ interface TaskChartPoint {
           <h2 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
             Daily Tasks &amp; Priorities
           </h2>
-          <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 mt-1">
-            <span>Module 2 · Daily Tasks</span>
-            <span aria-hidden="true">·</span>
-            <span>{activeCount} pending</span>
-            <span aria-hidden="true">·</span>
-            <span>{completedCount} completed</span>
-            <span aria-hidden="true">·</span>
-            <span>{allCategories.length} categories</span>
+          <div className="mt-1 grid grid-cols-3 gap-x-3 gap-y-1 text-xs text-slate-500 dark:text-slate-400 sm:flex sm:items-center sm:gap-2">
+            <span className="col-span-3 min-w-0 sm:col-span-1">Module 2 · Daily Tasks</span>
+            <span aria-hidden="true" className="hidden sm:inline">·</span>
+            <span className="min-w-0">{activeCount} pending</span>
+            <span aria-hidden="true" className="hidden sm:inline">·</span>
+            <span className="min-w-0">{completedCount} completed</span>
+            <span aria-hidden="true" className="hidden sm:inline">·</span>
+            <span className="min-w-0">{allCategories.length} categories</span>
           </div>
         </div>
 
-        <div className="flex items-center gap-2.5 flex-wrap">
+        <div className="grid w-full grid-cols-2 items-center gap-2.5 sm:flex sm:w-auto sm:flex-wrap">
           {/* Mode Switcher: List vs Analytics */}
-          <div className="flex items-center p-1 bg-slate-100 dark:bg-slate-800 rounded-lg text-xs font-medium">
+          <div className="col-span-2 flex min-h-11 w-full items-center rounded-lg bg-slate-100 p-1 text-xs font-medium dark:bg-slate-800 sm:col-span-1 sm:h-9 sm:min-h-0 sm:w-auto">
             <button
               onClick={() => setViewMode('list')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-colors cursor-pointer ${
+              className={`flex min-h-9 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 transition-colors cursor-pointer sm:h-7 sm:min-h-0 sm:flex-none ${
                 viewMode === 'list'
                   ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-xs'
                   : 'text-slate-600 dark:text-slate-400'
@@ -424,7 +572,7 @@ interface TaskChartPoint {
             </button>
             <button
               onClick={() => setViewMode('analytics')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-colors cursor-pointer ${
+              className={`flex min-h-9 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 transition-colors cursor-pointer sm:h-7 sm:min-h-0 sm:flex-none ${
                 viewMode === 'analytics'
                   ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs'
                   : 'text-slate-600 dark:text-slate-400'
@@ -436,8 +584,17 @@ interface TaskChartPoint {
           </div>
 
           <button
-            onClick={() => setIsAddOpen(true)}
-            className="flex items-center gap-1.5 px-4 py-2 text-xs font-medium text-white bg-slate-900 dark:bg-slate-100 dark:text-slate-950 rounded-lg hover:bg-slate-800 dark:hover:bg-white transition-colors shadow-xs whitespace-nowrap cursor-pointer"
+            type="button"
+            onClick={() => setIsCategoryManagerOpen(true)}
+            className="flex min-h-11 flex-1 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-2 py-2 text-[11px] font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 sm:h-9 sm:min-h-9 sm:flex-none sm:px-3 sm:text-xs"
+          >
+            <Tag className="h-3.5 w-3.5" />
+            <span>Manage Categories</span>
+          </button>
+
+          <button
+            onClick={() => { setEditingTask(null); setIsAddOpen(true); }}
+            className="flex min-h-11 flex-1 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-slate-900 px-3 py-2 text-xs font-medium text-white shadow-xs transition-colors hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-white sm:h-9 sm:min-h-9 sm:flex-none sm:px-4"
           >
             <Plus className="w-4 h-4" />
             <span>New Task</span>
@@ -521,37 +678,40 @@ interface TaskChartPoint {
                 const isHigh = task.priority === 'high';
                 const isLow = task.priority === 'low';
                 const taskCat = task.category || 'General';
+                const isSavingTask = savingKeys?.has(`task:${task.id}`) || savingKeys?.has(`task:update:${task.id}`);
 
                 return (
                   <div
                     key={task.id}
-                    className={`flex items-center justify-between p-4 transition-colors ${
+                    className={`flex items-center justify-between border-l-4 p-4 transition-colors ${
                       task.completed
-                        ? 'bg-slate-50/50 dark:bg-slate-900/40 text-slate-400'
-                        : 'hover:bg-slate-50/80 dark:hover:bg-slate-800/40'
+                        ? 'border-l-emerald-500 bg-emerald-50/70 text-slate-600 dark:bg-emerald-950/25 dark:text-slate-300'
+                        : 'border-l-transparent hover:bg-slate-50/80 dark:hover:bg-slate-800/40'
                     }`}
                   >
                     <div className="flex items-center gap-3.5 min-w-0">
                       <button
+                        type="button"
                         onClick={() => onToggleTask(task.id)}
-                        className={`w-5 h-5 rounded-md flex items-center justify-center transition-all cursor-pointer ${
-                          task.completed
-                            ? 'bg-emerald-500 text-white'
-                            : 'border border-slate-300 dark:border-slate-600 hover:border-emerald-500 text-transparent'
-                        }`}
+                        disabled={Boolean(isSavingTask)}
+                        aria-label={isSavingTask ? 'Saving task status' : task.completed ? 'Mark task incomplete' : 'Mark task complete'}
+                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg transition-all cursor-pointer disabled:cursor-wait"
                       >
-                        ✓
+                        {isSavingTask ? <LoaderCircle className="h-5 w-5 animate-spin text-sky-500" /> : task.completed ? <CheckCircle2 className="h-5 w-5 text-sky-600 dark:text-sky-400" /> : <Circle className="h-5 w-5 text-slate-300 transition-colors hover:text-slate-400 dark:text-slate-600" />}
                       </button>
 
                       <div className="min-w-0">
-                        <div
-                          className={`text-sm font-medium truncate ${
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span
+                          className={`min-w-0 truncate text-sm font-medium ${
                             task.completed
-                              ? 'line-through text-slate-400 dark:text-slate-500'
+                              ? 'line-through text-emerald-800 dark:text-emerald-200'
                               : 'text-slate-900 dark:text-slate-100'
                           }`}
                         >
                           {task.title}
+                          </span>
+                          {task.completed && <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-800 dark:bg-emerald-900/70 dark:text-emerald-200"><Check className="h-3 w-3" />Completed</span>}
                         </div>
 
                         <div className="flex items-center gap-2 text-[11px] text-slate-400 dark:text-slate-500 mt-1 flex-wrap">
@@ -596,9 +756,20 @@ interface TaskChartPoint {
 
                     <div className="flex items-center gap-2 shrink-0">
                       <button
-                        onClick={() => onDeleteTask(task.id)}
+                        type="button"
+                        onClick={() => openEditTask(task)}
+                        className="p-1.5 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 rounded-md hover:bg-blue-50 dark:hover:bg-blue-950/30 transition-colors cursor-pointer"
+                        title="Edit task"
+                        aria-label={`Edit ${task.title}`}
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTaskToDelete(task)}
                         className="p-1.5 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded-md hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors cursor-pointer"
                         title="Delete task"
+                        aria-label={`Delete ${task.title}`}
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -615,7 +786,7 @@ interface TaskChartPoint {
       {viewMode === 'analytics' && (
         <div className="space-y-6">
           {/* Grain Switcher & Overview Header */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
+          <div className="flex flex-col justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900 lg:flex-row lg:items-center">
             <div>
               <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
                 Task Analytics Timeframe
@@ -625,13 +796,30 @@ interface TaskChartPoint {
               </div>
             </div>
 
-            {/* Day / Week / Month / Year Pills */}
-            <div className="flex items-center p-1 bg-slate-100 dark:bg-slate-800 rounded-lg text-xs font-medium">
-              {(['day', 'week', 'month', 'year'] as TaskTimeGrain[]).map(g => (
+            {/* Category and timeframe controls, matching Habit Analytics */}
+            <div className="grid w-full grid-cols-1 gap-3 lg:w-auto lg:grid-cols-[220px_auto] lg:items-end">
+              <label className="w-full text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                Category
+                <select
+                  aria-label="Filter task analytics by category"
+                  value={analyticsCategory}
+                  onChange={event => setAnalyticsCategory(event.target.value)}
+                  className="mt-1 block h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium normal-case tracking-normal text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                >
+                  <option value="all">All Categories ({tasks.length})</option>
+                  {allCategories.map(cat => (
+                    <option key={cat} value={cat}>
+                      {cat} ({tasks.filter(task => (task.category || 'General') === cat).length})
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="grid w-full grid-cols-5 items-center gap-0.5 rounded-lg bg-slate-100 p-1 text-xs font-medium dark:bg-slate-800 lg:flex lg:w-auto lg:gap-0">
+              {(['day', 'week', 'month', 'year', 'custom'] as TaskTimeGrain[]).map(g => (
                 <button
                   key={g}
                   onClick={() => setTimeGrain(g)}
-                  className={`px-3 py-1.5 rounded-md uppercase tracking-wider transition-colors cursor-pointer ${
+                  className={`min-w-0 flex-1 whitespace-nowrap rounded-md px-1 py-1.5 text-[10px] uppercase tracking-wide transition-colors cursor-pointer lg:min-w-fit lg:px-3 lg:text-xs lg:tracking-wider ${
                     timeGrain === g
                       ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs font-bold'
                       : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
@@ -640,6 +828,34 @@ interface TaskChartPoint {
                   {g}
                 </button>
               ))}
+              </div>
+              {timeGrain === 'custom' && (
+                <div className="grid grid-cols-2 gap-2 lg:col-start-2 lg:min-w-[300px]">
+                  <label className="min-w-0 text-[10px] font-medium uppercase tracking-wide text-slate-500">
+                    From
+                    <input
+                      aria-label="Task analytics start date"
+                      type="date"
+                      value={customStartDate}
+                      max={customEndDate < todayIso ? customEndDate : todayIso}
+                      onChange={event => setCustomStartDate(event.target.value)}
+                      className="mt-1 block h-9 w-full min-w-0 rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                    />
+                  </label>
+                  <label className="min-w-0 text-[10px] font-medium uppercase tracking-wide text-slate-500">
+                    To
+                    <input
+                      aria-label="Task analytics end date"
+                      type="date"
+                      value={customEndDate}
+                      min={customStartDate}
+                      max={todayIso}
+                      onChange={event => setCustomEndDate(event.target.value)}
+                      className="mt-1 block h-9 w-full min-w-0 rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                    />
+                  </label>
+                </div>
+              )}
             </div>
           </div>
 
@@ -687,7 +903,7 @@ interface TaskChartPoint {
             <div className="lg:col-span-8 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs space-y-3">
               <div>
                 <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                  Task Throughput by {timeGrain.toUpperCase()}
+                  Task Throughput by {timeGrain === 'custom' ? 'DATE' : timeGrain.toUpperCase()}
                 </h4>
                 <p className="text-xs text-slate-400">
                   Completed vs Pending tasks across {grainAnalyticsData.periodName}
@@ -808,7 +1024,7 @@ interface TaskChartPoint {
             <div className="p-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
               <div>
                 <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
-                  Create New Task
+                  {editingTask ? 'Edit Task' : 'Create New Task'}
                 </h3>
                 <p className="text-xs text-slate-400 mt-0.5">
                   Set priority, time estimate, and category
@@ -818,6 +1034,7 @@ interface TaskChartPoint {
                 onClick={() => {
                   setIsAddOpen(false);
                   setIsCreatingNewCat(false);
+                  setEditingTask(null);
                 }}
                 className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-sm cursor-pointer"
               >
@@ -951,6 +1168,7 @@ interface TaskChartPoint {
                   onClick={() => {
                     setIsAddOpen(false);
                     setIsCreatingNewCat(false);
+                    setEditingTask(null);
                   }}
                   className="px-4 py-2 text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 cursor-pointer"
                 >
@@ -958,12 +1176,103 @@ interface TaskChartPoint {
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 text-xs font-medium text-white bg-slate-900 dark:bg-slate-100 dark:text-slate-950 rounded-lg hover:bg-slate-800 dark:hover:bg-white cursor-pointer"
+                  disabled={Boolean(editingTask ? savingKeys?.has(`task:update:${editingTask.id}`) : savingKeys?.has('task:add'))}
+                  className="inline-flex items-center gap-2 px-4 py-2 text-xs font-medium text-white bg-slate-900 dark:bg-slate-100 dark:text-slate-950 rounded-lg hover:bg-slate-800 dark:hover:bg-white cursor-pointer disabled:cursor-wait disabled:opacity-70"
                 >
-                  Save Task
+                  {(editingTask ? savingKeys?.has(`task:update:${editingTask.id}`) : savingKeys?.has('task:add')) && <LoaderCircle className="h-3.5 w-3.5 animate-spin" />}
+                  {editingTask ? 'Save Changes' : savingKeys?.has('task:add') ? 'Adding…' : 'Save Task'}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {taskToDelete && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/60 p-4" role="alertdialog" aria-modal="true" aria-labelledby="delete-task-title">
+          <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-800 dark:bg-slate-900">
+            <div className="flex items-start gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-rose-100 text-rose-600 dark:bg-rose-950/50 dark:text-rose-400"><AlertCircle className="h-5 w-5" /></div>
+              <div className="min-w-0">
+                <h3 id="delete-task-title" className="text-sm font-bold text-slate-900 dark:text-slate-100">Delete this task?</h3>
+                <p className="mt-1 break-words text-xs leading-relaxed text-slate-600 dark:text-slate-400">“{taskToDelete.title}” will be permanently deleted.</p>
+              </div>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button type="button" onClick={() => setTaskToDelete(null)} disabled={isDeletingTask} className="rounded-lg px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 disabled:opacity-60 dark:text-slate-300 dark:hover:bg-slate-800">Cancel</button>
+              <button type="button" onClick={() => void confirmDeleteTask()} disabled={isDeletingTask} className="inline-flex min-w-24 items-center justify-center gap-2 rounded-lg bg-rose-600 px-4 py-2 text-xs font-semibold text-white hover:bg-rose-700 disabled:cursor-wait disabled:opacity-70">
+                {isDeletingTask && <LoaderCircle className="h-3.5 w-3.5 animate-spin" />}
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isCategoryManagerOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4" role="dialog" aria-modal="true" aria-labelledby="task-category-manager-title">
+          <div className="flex max-h-[88vh] w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-900">
+            <div className="flex items-start justify-between border-b border-slate-200 p-5 dark:border-slate-800">
+              <div>
+                <h3 id="task-category-manager-title" className="text-base font-bold text-slate-900 dark:text-slate-100">Manage Task Categories</h3>
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Add or remove custom categories used by your tasks.</p>
+              </div>
+              <button type="button" onClick={() => setIsCategoryManagerOpen(false)} className="rounded-lg px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800">Close</button>
+            </div>
+
+            <form className="border-b border-slate-200 p-5 dark:border-slate-800" onSubmit={event => void addManagedTaskCategory(event)}>
+              <label htmlFor="new-task-category" className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-300">New category</label>
+              <div className="flex gap-2">
+                <input id="new-task-category" value={newManagedCategory} onChange={event => setNewManagedCategory(event.target.value)} maxLength={40} placeholder="e.g. Projects, Home" className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" />
+                <button type="submit" disabled={!newManagedCategory.trim() || isSavingCategoryAction} className="inline-flex min-w-16 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:cursor-wait disabled:opacity-50 dark:bg-slate-100 dark:text-slate-950">{isSavingCategoryAction ? <><LoaderCircle className="h-3.5 w-3.5 animate-spin" />Saving</> : <><Plus className="h-3.5 w-3.5" />Add</>}</button>
+              </div>
+            </form>
+
+            <div className="space-y-2 overflow-y-auto p-5">
+              <h4 className="mb-2 text-xs font-bold text-slate-700 dark:text-slate-300">All Categories ({allCategories.length})</h4>
+              {allCategories.map(item => {
+                const isDefault = DEFAULT_TASK_CATEGORIES.includes(item);
+                const usage = tasks.filter(task => task.category === item).length;
+                const isEditing = editingCategory === item;
+                return <div key={item} className="flex min-h-11 items-center gap-3 rounded-xl border border-slate-200 px-3 py-2 dark:border-slate-700">
+                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: TASK_CATEGORY_COLORS[item] || DYNAMIC_TASK_PALETTE[allCategories.indexOf(item) % DYNAMIC_TASK_PALETTE.length] }} />
+                  {isEditing ? <input autoFocus value={editingCategoryName} onChange={event => setEditingCategoryName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); void saveTaskCategoryEdit(); } }} maxLength={40} className="min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100" /> : <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-800 dark:text-slate-200">{item}</span>}
+                  <span className="shrink-0 text-[11px] text-slate-400">{usage} {usage === 1 ? 'task' : 'tasks'}</span>
+                  {isDefault ? <span className="shrink-0 text-[10px] font-medium text-slate-400">Default</span> : isEditing ? <>
+                    <button type="button" onClick={() => void saveTaskCategoryEdit()} disabled={isSavingCategoryAction || !editingCategoryName.trim()} className="rounded-md px-2 py-1 text-xs font-semibold text-emerald-600 hover:bg-emerald-50 disabled:opacity-50 dark:hover:bg-emerald-950/30">{isSavingCategoryAction ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : 'Save'}</button>
+                    <button type="button" onClick={() => { setEditingCategory(null); setEditingCategoryName(''); }} disabled={isSavingCategoryAction} className="rounded-md px-2 py-1 text-xs font-medium text-slate-500 hover:bg-slate-100 disabled:opacity-50 dark:hover:bg-slate-800">Cancel</button>
+                  </> : <div className="flex shrink-0 items-center gap-1">
+                    <button type="button" onClick={() => { setEditingCategory(item); setEditingCategoryName(item); }} className="rounded-md p-2 text-slate-400 hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-950/30 dark:hover:text-blue-400" aria-label={`Edit ${item}`}><Pencil className="h-3.5 w-3.5" /></button>
+                    <button type="button" onClick={() => setCategoryToDelete(item)} className="rounded-md p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/30 dark:hover:text-rose-400" aria-label={`Delete ${item}`}><Trash2 className="h-3.5 w-3.5" /></button>
+                  </div>}
+                </div>;
+              })}
+            </div>
+
+            <div className="flex justify-end border-t border-slate-200 p-4 dark:border-slate-800">
+              <button type="button" onClick={() => setIsCategoryManagerOpen(false)} className="rounded-lg bg-slate-900 px-5 py-2 text-xs font-semibold text-white hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-950">Done</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {categoryToDelete && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/60 p-4" role="alertdialog" aria-modal="true" aria-labelledby="delete-task-category-title">
+          <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-800 dark:bg-slate-900">
+            <div className="flex items-start gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-rose-100 text-rose-600 dark:bg-rose-950/50 dark:text-rose-400"><AlertCircle className="h-5 w-5" /></div>
+              <div>
+                <h3 id="delete-task-category-title" className="text-sm font-bold text-slate-900 dark:text-slate-100">Delete “{categoryToDelete}”?</h3>
+                <p className="mt-1 text-xs leading-relaxed text-slate-600 dark:text-slate-400">{tasks.some(task => task.category === categoryToDelete) ? 'Tasks in this category will be moved to General.' : 'This category will be removed from your list.'}</p>
+              </div>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button type="button" onClick={() => setCategoryToDelete(null)} disabled={isSavingCategoryAction} className="rounded-lg px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 disabled:opacity-60 dark:text-slate-300 dark:hover:bg-slate-800">Cancel</button>
+              <button type="button" onClick={() => void confirmDeleteTaskCategory()} disabled={isSavingCategoryAction} className="inline-flex min-w-24 items-center justify-center gap-2 rounded-lg bg-rose-600 px-4 py-2 text-xs font-semibold text-white hover:bg-rose-700 disabled:cursor-wait disabled:opacity-70">
+                {isSavingCategoryAction && <LoaderCircle className="h-3.5 w-3.5 animate-spin" />}
+                Delete
+              </button>
+            </div>
           </div>
         </div>
       )}

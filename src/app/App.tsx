@@ -258,6 +258,20 @@ export default function App() {
     return trackKeyedCloudRequest('habit:categories', dataService.saveCategories(user.id, next));
   };
 
+  const saveTaskCategories = async (taskCategories: string[]): Promise<boolean> => {
+    const next = { ...categories, tasks: taskCategories };
+    setCategories(next);
+    if (!user) return true;
+    return trackKeyedCloudRequest('task:categories', dataService.saveCategories(user.id, next));
+  };
+
+  const saveExpenseCategories = async (expenseCategories: CategorySettings['expenses']): Promise<boolean> => {
+    const next = { ...categories, expenses: expenseCategories };
+    setCategories(next);
+    if (!user) return true;
+    return trackKeyedCloudRequest('expense:categories', dataService.saveCategories(user.id, next));
+  };
+
   const saveHabitOrder = async (habitOrder: string[]): Promise<boolean> => {
     const next = { ...categories, habitOrder };
     setCategories(next);
@@ -345,24 +359,43 @@ export default function App() {
     };
     const updated = [created, ...tasks];
     setTasks(updated);
-    if (user) trackCloudRequest(dataService.saveTask(user.id, created));
+    if (user) return trackKeyedCloudRequest('task:add', dataService.saveTask(user.id, created));
   };
 
   const handleToggleTask = (taskId: string) => {
-    const updated = tasks.map(t =>
-      t.id === taskId
-        ? { ...t, completed: !t.completed, completedAt: !t.completed ? Date.now() : undefined }
-        : t
-    );
-    setTasks(updated);
-    const changed = updated.find(t => t.id === taskId);
-    if (user && changed) trackCloudRequest(dataService.saveTask(user.id, changed));
+    const task = tasks.find(item => item.id === taskId);
+    if (!task) return false;
+
+    const changed: DailyTask = {
+      ...task,
+      completed: !task.completed,
+      completedAt: !task.completed ? Date.now() : undefined
+    };
+
+    const applyChange = () => {
+      setTasks(current => current.map(item => item.id === taskId ? changed : item));
+      return true;
+    };
+
+    if (!user) return applyChange();
+    return trackKeyedCloudRequest(`task:${taskId}`, dataService.saveTask(user.id, changed)).then(saved => {
+      if (!saved) return false;
+      return applyChange();
+    });
+  };
+
+  const handleUpdateTask = (taskId: string, changes: Partial<DailyTask>) => {
+    const changed = tasks.find(task => task.id === taskId);
+    if (!changed) return;
+    const nextTask = { ...changed, ...changes };
+    setTasks(current => current.map(task => task.id === taskId ? nextTask : task));
+    if (user) return trackKeyedCloudRequest(`task:update:${taskId}`, dataService.saveTask(user.id, nextTask));
   };
 
   const handleDeleteTask = (taskId: string) => {
     const updated = tasks.filter(t => t.id !== taskId);
     setTasks(updated);
-    if (user) trackCloudRequest(dataService.deleteTask(user.id, taskId));
+    if (user) return trackKeyedCloudRequest(`task:delete:${taskId}`, dataService.deleteTask(user.id, taskId));
   };
 
   // Expense Handlers (New Dedicated Expense Model)
@@ -550,6 +583,7 @@ export default function App() {
           onSelectDate={setSelectedDate}
           habits={habits}
           tasks={tasks}
+          savingKeys={savingKeys}
           wellness={wellness}
           expenses={expenses}
           budget={budget}
@@ -589,8 +623,10 @@ export default function App() {
           onAddTask={handleAddTask}
           onToggleTask={handleToggleTask}
           onDeleteTask={handleDeleteTask}
+          onUpdateTask={handleUpdateTask}
+          savingKeys={savingKeys}
           customCategories={categories.tasks}
-          onSaveCustomCategories={next => updateCategories({ ...categories, tasks: next })}
+          onSaveCustomCategories={saveTaskCategories}
         />
       )}
 
@@ -612,7 +648,7 @@ export default function App() {
           onUpdateBudget={handleUpdateBudget}
           onExportCSV={handleExportCSV}
           customCategories={categories.expenses}
-          onSaveCustomCategories={next => updateCategories({ ...categories, expenses: next })}
+          onSaveCustomCategories={saveExpenseCategories}
         />
       )}
 
