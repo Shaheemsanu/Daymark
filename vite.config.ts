@@ -3,6 +3,18 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 import { defineConfig } from 'vitest/config';
 
+import fs from 'fs';
+import dotenv from 'dotenv';
+
+// Priority: If .env exists in the app root, its values MUST override any container system environment variables
+const envPath = path.resolve(import.meta.dirname, './.env');
+if (fs.existsSync(envPath)) {
+  const envConfig = dotenv.parse(fs.readFileSync(envPath));
+  for (const k in envConfig) {
+    process.env[k] = envConfig[k];
+  }
+}
+
 // Ensure base URL is a valid web path (must start with /, http://, or https://)
 // Prevents database connection strings (e.g. postgresql://...) passed in environment variables from corrupting built asset URLs
 const rawBase = process.env.VITE_BASE_PATH || process.env.BASE_URL || '/';
@@ -15,6 +27,11 @@ const safeBase =
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   base: safeBase,
+  define: {
+    'import.meta.env.VITE_SUPABASE_URL': JSON.stringify(process.env.VITE_SUPABASE_URL || ''),
+    'import.meta.env.VITE_SUPABASE_ANON_KEY': JSON.stringify(process.env.VITE_SUPABASE_ANON_KEY || ''),
+    'import.meta.env.VITE_BASE_PATH': JSON.stringify(safeBase),
+  },
   resolve: {
     alias: {
       '@': path.resolve(import.meta.dirname, './src'),
