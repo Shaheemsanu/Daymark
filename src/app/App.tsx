@@ -37,6 +37,8 @@ export default function App() {
   // Navigation - Daily Overview 1st, Expense 2nd after overview
   const [currentView, setCurrentView] = useState<NavView>('daily');
   const [selectedDate, setSelectedDate] = useState<string>(formatDate(new Date()));
+  const [openExpenseAddOnMount, setOpenExpenseAddOnMount] = useState(false);
+  const [returnToDailyAfterExpenseAdd, setReturnToDailyAfterExpenseAdd] = useState(false);
 
   // Dark mode
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
@@ -550,6 +552,18 @@ export default function App() {
     setIsQuickLogOpen(true);
   };
 
+  const openExpenseAddFromOverview = () => {
+    setOpenExpenseAddOnMount(true);
+    setReturnToDailyAfterExpenseAdd(true);
+    setCurrentView('expenses');
+  };
+
+  const handleExpenseAddModalDismiss = () => {
+    if (!returnToDailyAfterExpenseAdd) return;
+    setReturnToDailyAfterExpenseAdd(false);
+    setCurrentView('daily');
+  };
+
   if (authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950 text-slate-500 font-mono text-xs">
@@ -592,7 +606,7 @@ export default function App() {
           onAddTask={handleAddTask}
           onDeleteTask={handleDeleteTask}
           onUpdateWellness={handleUpdateWellness}
-          onQuickLogExpense={() => openQuickLog('expense')}
+          onQuickLogExpense={openExpenseAddFromOverview}
           onOpenAddHabit={() => setCurrentView('habits')}
         />
       )}
@@ -649,6 +663,10 @@ export default function App() {
           onExportCSV={handleExportCSV}
           customCategories={categories.expenses}
           onSaveCustomCategories={saveExpenseCategories}
+          openAddModal={openExpenseAddOnMount}
+          initialDate={selectedDate}
+          onAddModalOpened={() => setOpenExpenseAddOnMount(false)}
+          onQuickAddDismiss={handleExpenseAddModalDismiss}
         />
       )}
 

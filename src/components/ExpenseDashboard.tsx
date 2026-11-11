@@ -20,6 +20,7 @@ import {
   TrendingDown,
   TrendingUp,
   Wallet,
+  RotateCcw,
   X
 } from 'lucide-react';
 import { Expense, ExpenseCategory, BudgetConfig, PaymentMethod, SpendType, CategoryInfo } from '../types';
@@ -42,6 +43,10 @@ interface ExpenseDashboardProps {
   onExportCSV: () => void;
   customCategories: Record<string, CategoryInfo>;
   onSaveCustomCategories: (categories: Record<string, CategoryInfo>) => void | Promise<boolean>;
+  openAddModal?: boolean;
+  initialDate?: string;
+  onAddModalOpened?: () => void;
+  onQuickAddDismiss?: () => void;
 }
 
 const PRESET_AMOUNTS = [50, 100, 200, 500, 1000, 2000];
@@ -80,7 +85,11 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
   onUpdateBudget,
   onExportCSV,
   customCategories,
-  onSaveCustomCategories
+  onSaveCustomCategories,
+  openAddModal = false,
+  initialDate,
+  onAddModalOpened,
+  onQuickAddDismiss
 }) => {
   const currencySymbol = budget.currency || '₹';
   const todayIso = formatDate(new Date());
@@ -176,6 +185,17 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
   const [historyTimeframe, setHistoryTimeframe] = useState<'this_month' | 'last_30_days' | 'custom' | 'all'>('this_month');
   const [historyStartDate, setHistoryStartDate] = useState('');
   const [historyEndDate, setHistoryEndDate] = useState('');
+
+  const resetHistoryFilters = () => {
+    setHistorySearch('');
+    setHistoryAccountFilter('all');
+    setHistoryTypeFilter('all');
+    setHistoryTimeframe('this_month');
+    setHistoryStartDate('');
+    setHistoryEndDate('');
+    setHistoryCategory('all');
+    setHistoryPayment('all');
+  };
   const [analyticsAccount, setAnalyticsAccount] = useState<'all' | 'expense' | 'savings' | 'cash'>('all');
   const [classificationPeriod, setClassificationPeriod] = useState<'this_month' | 'last_30_days' | 'custom'>('this_month');
   const [categoryPeriod, setCategoryPeriod] = useState<'this_month' | 'last_30_days' | 'all' | 'custom'>('this_month');
@@ -548,13 +568,24 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
     setFormAmount('');
     setFormCategory('');
     setFormCategoryError('');
-    setFormDate(todayIso);
+    setFormDate(initialDate || todayIso);
     setFormPaymentMethod('UPI / QR');
     setFormNotes('');
     setFormIsRecurring(false);
     setShowAllCategories(false);
     setShowExtraDetails(false);
     setIsAddModalOpen(true);
+  };
+
+  useEffect(() => {
+    if (!openAddModal) return;
+    handleOpenAdd();
+    onAddModalOpened?.();
+  }, [openAddModal]);
+
+  const handleCloseAdd = () => {
+    setIsAddModalOpen(false);
+    onQuickAddDismiss?.();
   };
 
   // Quick Amount preset handler
@@ -605,7 +636,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
         return;
       }
       setFormCategoryError('');
-      setIsAddModalOpen(false);
+      handleCloseAdd();
     } catch (error) {
       setTransactionSaveError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -1290,7 +1321,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
         {activeTab === 'ledger' && (
           <div id="transaction-ledger-section" className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs overflow-hidden">
             {/* Table Toolbar */}
-            <div className="p-4 sm:p-5 border-b border-slate-200 dark:border-slate-800 flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
+            <div className="p-4 sm:p-5 border-b border-slate-200 dark:border-slate-800 flex flex-col gap-3">
               <div className="flex items-center gap-2.5">
                 <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
                   Transaction Ledger
@@ -1301,9 +1332,9 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
               </div>
 
               {/* Toolbar Controls */}
-              <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:items-center xl:flex xl:flex-wrap xl:items-center">
                 {/* Search */}
-                <div className="relative col-span-2 min-w-0 sm:col-span-1 sm:min-w-[180px]">
+                <div className="relative col-span-2 min-w-0 sm:col-span-2 sm:min-w-0 xl:flex-1 xl:basis-56">
                   <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
@@ -1352,7 +1383,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
 
                 {/* Custom Date Pickers */}
                 {historyTimeframe === 'custom' && (
-                  <div className="col-span-2 flex min-w-0 flex-wrap items-center gap-1.5 text-xs bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl border border-slate-200 dark:border-slate-700 sm:col-span-1">
+                  <div className="col-span-2 flex min-w-0 flex-wrap items-center gap-1.5 text-xs bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl border border-slate-200 dark:border-slate-700 sm:col-span-2">
                     <span className="text-slate-500 font-medium text-[11px] pl-1">From:</span>
                     <input
                       type="date"
@@ -1398,15 +1429,26 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                   ))}
                 </select>
 
-                {/* Export CSV */}
-                <button
-                  onClick={onExportCSV}
-                  className="col-span-2 flex w-full items-center justify-center gap-1.5 px-3 py-2.5 sm:col-span-1 sm:w-auto sm:py-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors cursor-pointer"
-                  title="Export to CSV"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>CSV</span>
-                </button>
+                <div className="col-span-2 flex w-full min-w-0 gap-2 sm:col-span-2 sm:w-auto xl:ml-auto">
+                  <button
+                    onClick={onExportCSV}
+                    className="flex min-h-10 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-lg border border-emerald-700 bg-emerald-600 px-2.5 py-2 text-xs font-semibold text-white transition-colors hover:bg-emerald-700 dark:border-emerald-500 dark:bg-emerald-600 dark:hover:bg-emerald-500 sm:min-h-9 sm:flex-none sm:py-1.5"
+                    title="Export transactions to CSV"
+                  >
+                    <Download className="h-3.5 w-3.5 shrink-0" />
+                    <span>Export CSV</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={resetHistoryFilters}
+                    className="flex min-h-10 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-2 text-xs font-semibold text-indigo-700 transition-colors hover:bg-indigo-100 dark:border-indigo-900/80 dark:bg-indigo-950/60 dark:text-indigo-300 dark:hover:bg-indigo-900/70 sm:min-h-9 sm:flex-none sm:py-1.5"
+                    title="Reset transaction filters"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5 shrink-0" />
+                    <span>Reset Filters</span>
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -1428,10 +1470,12 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                           <span>{formatDisplayDate(item.date)}</span>
                           <span className="text-slate-300 dark:text-slate-600">•</span>
                           <span className="rounded-full bg-slate-100 px-2 py-0.5 font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">{accountLabel}</span>
-                          {isTransfer && <span className="rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-800 dark:bg-amber-950/60 dark:text-amber-300">Transfer</span>}
+                          <span className={`rounded-full px-2 py-0.5 font-semibold ${isTransfer ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300' : isIncome ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300' : 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300'}`}>
+                            {isTransfer ? 'Transfer' : isIncome ? 'Inflow' : 'Outflow'}
+                          </span>
                         </div>
                       </div>
-                      <strong className={`shrink-0 text-sm font-mono font-bold tabular-nums ${isIncome ? 'text-emerald-600 dark:text-emerald-400' : isTransfer ? 'text-amber-600 dark:text-amber-400' : 'text-slate-900 dark:text-slate-100'}`}>
+                      <strong className={`shrink-0 text-sm font-mono font-bold tabular-nums ${isIncome ? 'text-emerald-600 dark:text-emerald-400' : isTransfer ? 'text-amber-600 dark:text-amber-400' : 'text-rose-600 dark:text-rose-400'}`}>
                         {isIncome ? '+' : '-'}{formatCurrency(item.amount, currencySymbol)}
                       </strong>
                     </div>
@@ -1464,6 +1508,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                     <th className="py-3 px-4">Account</th>
                     <th className="py-3 px-4">Description</th>
                     <th className="py-3 px-4">Category</th>
+                    <th className="py-3 px-4">Flow</th>
                     <th className="py-3 px-4">Payment</th>
                     <th className="py-3 px-4 text-right">Amount</th>
                     <th className="py-3 px-4 text-right">Actions</th>
@@ -1472,7 +1517,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {filteredHistory.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="py-12 text-center text-slate-400 dark:text-slate-500">
+                      <td colSpan={8} className="py-12 text-center text-slate-400 dark:text-slate-500">
                         No transactions match the selected criteria.
                       </td>
                     </tr>
@@ -1507,11 +1552,6 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                           <td className="py-3 px-4">
                             <div className="font-medium text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
                               <span>{item.title}</span>
-                              {isTransfer && (
-                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 font-bold">
-                                  Transfer
-                                </span>
-                              )}
                             </div>
                             {item.notes && (
                               <div className="text-[11px] text-slate-400 truncate max-w-xs mt-0.5">
@@ -1528,11 +1568,22 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                               <span>{item.category}</span>
                             </div>
                           </td>
+                          <td className="py-3 px-4 whitespace-nowrap">
+                            <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                              isTransfer
+                                ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
+                                : isIncome
+                                  ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                                  : 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300'
+                            }`}>
+                              {isTransfer ? 'Transfer' : isIncome ? 'In' : 'Out'}
+                            </span>
+                          </td>
                           <td className="py-3 px-4 text-slate-500 dark:text-slate-400 whitespace-nowrap">
                             {item.paymentMethod}
                           </td>
                           <td className="py-3 px-4 text-right font-mono font-bold tabular-nums whitespace-nowrap">
-                            <span className={isIncome ? 'text-emerald-600 dark:text-emerald-400' : isTransfer ? 'text-amber-600 dark:text-amber-400' : 'text-slate-900 dark:text-slate-100'}>
+                            <span className={isIncome ? 'text-emerald-600 dark:text-emerald-400' : isTransfer ? 'text-amber-600 dark:text-amber-400' : 'text-rose-600 dark:text-rose-400'}>
                               {isIncome ? '+' : '-'}{formatCurrency(item.amount, currencySymbol)}
                             </span>
                           </td>
@@ -1595,7 +1646,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
               </div>
               <button
                 type="button"
-                onClick={() => setIsAddModalOpen(false)}
+                onClick={handleCloseAdd}
                 className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg cursor-pointer"
               >
                 <X className="w-4 h-4" />
@@ -1907,7 +1958,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
               <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
                 <button
                   type="button"
-                  onClick={() => setIsAddModalOpen(false)}
+                  onClick={handleCloseAdd}
                   disabled={isSavingTransaction}
                   className="px-3.5 py-1.5 text-xs font-medium text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 cursor-pointer"
                 >

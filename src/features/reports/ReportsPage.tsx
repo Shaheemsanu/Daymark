@@ -20,10 +20,9 @@ import { Habit, DailyTask, Expense, DailyWellness, BudgetConfig } from '../../ty
 import { formatCurrency } from '../../utils/constants';
 import {
   getPastNDays,
-  getPastNWeeks,
-  getPastNMonths,
-  getPastNYears,
-  formatShortDate
+  getDaysInInterval,
+  formatShortDate,
+  getTodayIso
 } from '../../lib/dateUtils';
 import {
   CheckCircle2,
@@ -40,6 +39,52 @@ import {
 } from 'lucide-react';
 
 export type ReportModule = 'all' | 'expenses' | 'habits' | 'tasks' | 'wellness';
+
+type ReportDateRange = '7' | '14' | '30' | 'custom';
+
+interface DateRangeControlProps {
+  value: ReportDateRange;
+  onChange: (value: ReportDateRange) => void;
+  startDate: string;
+  onStartDateChange: (value: string) => void;
+  endDate: string;
+  onEndDateChange: (value: string) => void;
+  label: string;
+}
+
+const DateRangeControl: React.FC<DateRangeControlProps> = ({ value, onChange, startDate, onStartDateChange, endDate, onEndDateChange, label }) => (
+  <div className="order-first col-span-full flex w-full min-w-0 flex-wrap items-center gap-2 sm:order-none sm:col-span-auto sm:w-auto sm:flex-nowrap" aria-label={`${label} date range`}>
+    <div className="flex w-full flex-nowrap items-center rounded-lg bg-slate-100 p-1 text-xs font-medium dark:bg-slate-800 sm:w-auto">
+      {([
+        ['7', 'Past 7 Days'], ['14', 'Past 14 Days'], ['30', 'Past 30 Days'], ['custom', 'Custom']
+      ] as const).map(([range, title]) => (
+        <button
+          key={range}
+          type="button"
+          aria-pressed={value === range}
+          onClick={() => onChange(range)}
+          className={`flex-1 whitespace-nowrap rounded-md px-1.5 py-2 text-center transition-colors sm:flex-none sm:px-2.5 sm:py-1.5 ${value === range ? 'bg-white text-slate-900 shadow-xs dark:bg-slate-900 dark:text-slate-100' : 'text-slate-600 dark:text-slate-400'}`}
+        >
+          {title}
+        </button>
+      ))}
+    </div>
+    {value === 'custom' && <>
+      <label className="flex shrink-0 items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        From
+        <input type="date" aria-label={`${label} start date`} value={startDate} max={endDate} onChange={event => onStartDateChange(event.target.value)} className="h-9 min-w-0 rounded-lg border border-slate-200 bg-white px-2 text-xs font-normal normal-case tracking-normal text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200" />
+      </label>
+      <label className="flex shrink-0 items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        To
+        <input type="date" aria-label={`${label} end date`} value={endDate} min={startDate} max={getTodayIso()} onChange={event => onEndDateChange(event.target.value)} className="h-9 min-w-0 rounded-lg border border-slate-200 bg-white px-2 text-xs font-normal normal-case tracking-normal text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200" />
+      </label>
+    </>}
+  </div>
+);
+
+function getReportDays(range: ReportDateRange, startDate: string, endDate: string): string[] {
+  return range === 'custom' ? getDaysInInterval(startDate, endDate) : getPastNDays(Number(range));
+}
 
 interface ReportsPageProps {
   habits: Habit[];
@@ -59,25 +104,70 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
   defaultModule = 'all'
 }) => {
   const [selectedModule, setSelectedModule] = useState<ReportModule>(defaultModule);
-  const [timeframe, setTimeframe] = useState<'7' | '14' | '30'>('14');
+  const [expenseRange, setExpenseRange] = useState<ReportDateRange>('14');
+  const [habitRange, setHabitRange] = useState<ReportDateRange>('14');
+  const [taskRange, setTaskRange] = useState<ReportDateRange>('14');
+  const [wellnessRange, setWellnessRange] = useState<ReportDateRange>('14');
+  const [expenseStartDate, setExpenseStartDate] = useState(() => getPastNDays(14)[0]);
+  const [habitStartDate, setHabitStartDate] = useState(() => getPastNDays(14)[0]);
+  const [taskStartDate, setTaskStartDate] = useState(() => getPastNDays(14)[0]);
+  const [wellnessStartDate, setWellnessStartDate] = useState(() => getPastNDays(14)[0]);
+  const [expenseEndDate, setExpenseEndDate] = useState(() => {
+    const initialDays = getPastNDays(14);
+    return initialDays[initialDays.length - 1] || '';
+  });
+  const [habitEndDate, setHabitEndDate] = useState(() => getTodayIso());
+  const [taskEndDate, setTaskEndDate] = useState(() => getTodayIso());
+  const [wellnessEndDate, setWellnessEndDate] = useState(() => getTodayIso());
 
   const currSymbol = budget?.currency || '₹';
 
   // Time grain toggles for Habit and Task Analytics
-  const [habitTimeGrain, setHabitTimeGrain] = useState<'day' | 'week' | 'month' | 'year'>('day');
-  const [taskTimeGrain, setTaskTimeGrain] = useState<'day' | 'week' | 'month' | 'year'>('day');
+  const [expenseCategoryFilter, setExpenseCategoryFilter] = useState('all');
+  const [expenseAccountFilter, setExpenseAccountFilter] = useState('all');
+  const [expenseFlowFilter, setExpenseFlowFilter] = useState<'all' | 'expense' | 'income'>('all');
+  const [habitCategoryFilter, setHabitCategoryFilter] = useState('all');
+  const [taskCategoryFilter, setTaskCategoryFilter] = useState('all');
+  const [taskPriorityFilter, setTaskPriorityFilter] = useState<'all' | 'high' | 'medium' | 'low'>('all');
+  const [taskStatusFilter, setTaskStatusFilter] = useState<'all' | 'completed' | 'pending'>('all');
+  const [wellnessMetric, setWellnessMetric] = useState<'sleep_water' | 'sleep' | 'water' | 'energy'>('sleep_water');
+  const [wellnessMoodFilter, setWellnessMoodFilter] = useState<'all' | 'great' | 'good' | 'neutral' | 'low' | 'stressed'>('all');
 
-  const daysList = useMemo(() => {
-    return getPastNDays(parseInt(timeframe));
-  }, [timeframe]);
+  const expenseDays = useMemo(() => getReportDays(expenseRange, expenseStartDate, expenseEndDate), [expenseRange, expenseStartDate, expenseEndDate]);
+  const habitDays = useMemo(() => getReportDays(habitRange, habitStartDate, habitEndDate), [habitRange, habitStartDate, habitEndDate]);
+  const taskDays = useMemo(() => getReportDays(taskRange, taskStartDate, taskEndDate), [taskRange, taskStartDate, taskEndDate]);
+  const wellnessDays = useMemo(() => getReportDays(wellnessRange, wellnessStartDate, wellnessEndDate), [wellnessRange, wellnessStartDate, wellnessEndDate]);
+
+  const filteredExpenses = useMemo(() => expenses.filter(expense =>
+    expenseDays.includes(expense.date) &&
+    (expenseCategoryFilter === 'all' || expense.category === expenseCategoryFilter) &&
+    (expenseAccountFilter === 'all' || (expense.account || 'expense') === expenseAccountFilter) &&
+    (expenseFlowFilter === 'all' || (expense.type || 'expense') === expenseFlowFilter)
+  ), [expenses, expenseDays, expenseCategoryFilter, expenseAccountFilter, expenseFlowFilter]);
+
+  const filteredHabits = useMemo(() => habits.filter(habit =>
+    habitCategoryFilter === 'all' || habit.category === habitCategoryFilter
+  ), [habits, habitCategoryFilter]);
+
+  const filteredTasks = useMemo(() => tasks.filter(task =>
+    (taskCategoryFilter === 'all' || (task.category || 'General') === taskCategoryFilter) &&
+    (taskPriorityFilter === 'all' || task.priority === taskPriorityFilter) &&
+    (taskStatusFilter === 'all' || (taskStatusFilter === 'completed' ? task.completed : !task.completed))
+  ), [tasks, taskCategoryFilter, taskPriorityFilter, taskStatusFilter]);
+  const tasksInSelectedRange = useMemo(() => filteredTasks.filter(task => taskDays.includes(task.date)), [filteredTasks, taskDays]);
+
+  const expenseCategories = useMemo(() => Array.from(new Set(expenses.map(item => item.category))).sort(), [expenses]);
+  const expenseAccounts = useMemo(() => Array.from(new Set(expenses.map(item => item.account || 'expense'))).sort(), [expenses]);
+  const habitCategories = useMemo(() => Array.from(new Set(habits.map(item => item.category))).sort(), [habits]);
+  const taskCategories = useMemo(() => Array.from(new Set(tasks.map(item => item.category || 'General'))).sort(), [tasks]);
 
   // -------------------------------------------------------------
   // 1. EXPENSES ANALYTICS DATA (EXPENSE FIRST)
   // -------------------------------------------------------------
   // A. Daily Expense Velocity series
   const expenseVelocityData = useMemo(() => {
-    return daysList.map(dateStr => {
-      const dayExp = expenses.filter(e => e.date === dateStr);
+    return expenseDays.map(dateStr => {
+      const dayExp = filteredExpenses.filter(e => e.date === dateStr);
       const totalOutflow = dayExp
         .filter(e => (e.type || 'expense') === 'expense')
         .reduce((sum, e) => sum + e.amount, 0);
@@ -92,11 +182,11 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
         Income: Number(totalInflow.toFixed(2))
       };
     });
-  }, [daysList, expenses]);
+  }, [expenseDays, filteredExpenses]);
 
   // B. Category Outflow Breakdown
   const expenseCategoryData = useMemo(() => {
-    const relevant = expenses.filter(e => daysList.includes(e.date) && (e.type || 'expense') === 'expense');
+    const relevant = filteredExpenses.filter(e => (e.type || 'expense') === 'expense');
     const totals = relevant.reduce((acc, curr) => {
       acc[curr.category] = (acc[curr.category] || 0) + curr.amount;
       return acc;
@@ -126,11 +216,11 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
         color: palette[name] || '#94A3B8'
       }))
       .sort((a, b) => b.value - a.value);
-  }, [daysList, expenses]);
+  }, [filteredExpenses]);
 
   // C. 50/30/20 Need vs Want vs Savings Breakdown
   const classificationData = useMemo(() => {
-    const relevant = expenses.filter(e => daysList.includes(e.date) && (e.type || 'expense') === 'expense');
+    const relevant = filteredExpenses.filter(e => (e.type || 'expense') === 'expense');
     let need = 0;
     let want = 0;
     let savings = 0;
@@ -148,85 +238,44 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
       { name: 'Wants (Lifestyle)', value: want, pct: total > 0 ? Math.round((want / total) * 100) : 0, color: '#F59E0B' },
       { name: 'Savings & Investments', value: savings, pct: total > 0 ? Math.round((savings / total) * 100) : 0, color: '#10B981' }
     ];
-  }, [daysList, expenses]);
+  }, [filteredExpenses]);
+  const spendTypeBreakdownData = useMemo(() => classificationData.filter(item => item.value > 0), [classificationData]);
+
+  const expenseAccountData = useMemo(() => {
+    const totals = filteredExpenses.reduce((result, expense) => {
+      const account = expense.account || 'expense';
+      const bucket = result[account] || { Expense: 0, Income: 0 };
+      if ((expense.type || 'expense') === 'income') bucket.Income += expense.amount;
+      else bucket.Expense += expense.amount;
+      result[account] = bucket;
+      return result;
+    }, {} as Record<string, { Expense: number; Income: number }>);
+    return Object.entries(totals).map(([account, values]) => ({
+      account: account === 'expense' ? 'Expense account' : account === 'savings' ? 'Savings account' : account === 'cash' ? 'Cash' : account,
+      ...values
+    }));
+  }, [filteredExpenses]);
 
   // -------------------------------------------------------------
-  // 2. HABITS ANALYTICS DATA (Day, Week, Month, Year)
+  // 2. HABITS ANALYTICS DATA
   // -------------------------------------------------------------
-  const habitGrainTrend = useMemo(() => {
-    if (habitTimeGrain === 'day') {
-      return daysList.map(dateStr => {
-        const completedCount = habits.filter(h => h.completedDates.includes(dateStr)).length;
-        const rate = habits.length > 0 ? Math.round((completedCount / habits.length) * 100) : 0;
-        return {
-          date: formatShortDate(dateStr),
-          fullDate: dateStr,
-          Completed: completedCount,
-          Total: habits.length,
-          Rate: rate
-        };
-      });
-    }
-
-    if (habitTimeGrain === 'week') {
-      return getPastNWeeks(8).map(w => {
-        let completed = 0;
-        w.days.forEach(d => {
-          completed += habits.filter(h => h.completedDates.includes(d)).length;
-        });
-        const maxPoss = habits.length * w.days.length;
-        const rate = maxPoss > 0 ? Math.round((completed / maxPoss) * 100) : 0;
-        return {
-          date: w.label,
-          fullDate: w.subLabel || w.label,
-          Completed: completed,
-          Total: maxPoss,
-          Rate: rate
-        };
-      });
-    }
-
-    if (habitTimeGrain === 'month') {
-      return getPastNMonths(6).map(m => {
-        let completed = 0;
-        m.days.forEach(d => {
-          completed += habits.filter(h => h.completedDates.includes(d)).length;
-        });
-        const maxPoss = habits.length * m.days.length;
-        const rate = maxPoss > 0 ? Math.round((completed / maxPoss) * 100) : 0;
-        return {
-          date: m.label,
-          fullDate: m.subLabel || m.label,
-          Completed: completed,
-          Total: maxPoss,
-          Rate: rate
-        };
-      });
-    }
-
-    // Year
-    return getPastNYears(3).map(y => {
-      let completed = 0;
-      y.days.forEach(d => {
-        completed += habits.filter(h => h.completedDates.includes(d)).length;
-      });
-      const maxPoss = habits.length * y.days.length;
-      const rate = maxPoss > 0 ? Math.round((completed / maxPoss) * 100) : 0;
-      return {
-        date: y.label,
-        fullDate: y.label,
-        Completed: completed,
-        Total: maxPoss,
-        Rate: rate
-      };
-    });
-  }, [habitTimeGrain, daysList, habits]);
+  const habitGrainTrend = useMemo(() => habitDays.map(dateStr => {
+    const completedCount = filteredHabits.filter(h => h.completedDates.includes(dateStr)).length;
+    const rate = filteredHabits.length > 0 ? Math.round((completedCount / filteredHabits.length) * 100) : 0;
+    return {
+      date: formatShortDate(dateStr),
+      fullDate: dateStr,
+      Completed: completedCount,
+      Total: filteredHabits.length,
+      Rate: rate
+    };
+  }), [habitDays, filteredHabits]);
 
   // Consistency by Individual Habit
   const habitPerformanceByHabit = useMemo(() => {
-    return habits.map(h => {
-      const countInWindow = daysList.filter(d => h.completedDates.includes(d)).length;
-      const windowTotal = daysList.length;
+    return filteredHabits.map(h => {
+      const countInWindow = habitDays.filter(d => h.completedDates.includes(d)).length;
+      const windowTotal = habitDays.length;
       const pct = Math.round((countInWindow / windowTotal) * 100);
       return {
         name: h.title,
@@ -239,11 +288,11 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
         category: h.category
       };
     });
-  }, [daysList, habits]);
+  }, [habitDays, filteredHabits]);
 
   // Habit Category Breakdown
   const habitCategoryData = useMemo(() => {
-    const counts = habits.reduce((acc, h) => {
+    const counts = filteredHabits.reduce((acc, h) => {
       acc[h.category] = (acc[h.category] || 0) + 1;
       return acc;
     }, {} as Record<string, number>);
@@ -262,84 +311,52 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
       value,
       color: palette[name] || dynamicPalette[idx % dynamicPalette.length]
     }));
-  }, [habits]);
+  }, [filteredHabits]);
 
-  // -------------------------------------------------------------
-  // 3. DAILY TASKS ANALYTICS DATA (Day, Week, Month, Year)
-  // -------------------------------------------------------------
-  const taskGrainTrend = useMemo(() => {
-    if (taskTimeGrain === 'day') {
-      return daysList.map(dateStr => {
-        const dayTasks = tasks.filter(t => t.date === dateStr);
-        const completed = dayTasks.filter(t => t.completed).length;
-        const pending = dayTasks.filter(t => !t.completed).length;
-        return {
-          date: formatShortDate(dateStr),
-          fullDate: dateStr,
-          Completed: completed,
-          Pending: pending,
-          Total: dayTasks.length
-        };
-      });
-    }
-
-    if (taskTimeGrain === 'week') {
-      return getPastNWeeks(8).map(w => {
-        const weekTasks = tasks.filter(t => w.days.includes(t.date));
-        const completed = weekTasks.filter(t => t.completed).length;
-        const pending = weekTasks.filter(t => !t.completed).length;
-        return {
-          date: w.label,
-          fullDate: w.subLabel || w.label,
-          Completed: completed,
-          Pending: pending,
-          Total: weekTasks.length
-        };
-      });
-    }
-
-    if (taskTimeGrain === 'month') {
-      return getPastNMonths(6).map(m => {
-        const monthTasks = tasks.filter(t => m.days.includes(t.date));
-        const completed = monthTasks.filter(t => t.completed).length;
-        const pending = monthTasks.filter(t => !t.completed).length;
-        return {
-          date: m.label,
-          fullDate: m.subLabel || m.label,
-          Completed: completed,
-          Pending: pending,
-          Total: monthTasks.length
-        };
-      });
-    }
-
-    // Year
-    return getPastNYears(3).map(y => {
-      const yearTasks = tasks.filter(t => y.days.includes(t.date));
-      const completed = yearTasks.filter(t => t.completed).length;
-      const pending = yearTasks.filter(t => !t.completed).length;
-      return {
-        date: y.label,
-        fullDate: y.label,
-        Completed: completed,
-        Pending: pending,
-        Total: yearTasks.length
-      };
+  const habitWeekdayData = useMemo(() => {
+    const labels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    return labels.map((day, weekday) => {
+      const dueDates = habitDays.filter(date => new Date(`${date}T12:00:00`).getDay() === weekday);
+      const dueCount = filteredHabits.reduce((total, habit) => {
+        const scheduledDays = habit.weekdays?.length ? habit.weekdays : [0, 1, 2, 3, 4, 5, 6];
+        return total + (scheduledDays.includes(weekday) ? dueDates.length : 0);
+      }, 0);
+      const completedCount = filteredHabits.reduce((total, habit) => {
+        const scheduledDays = habit.weekdays?.length ? habit.weekdays : [0, 1, 2, 3, 4, 5, 6];
+        return total + dueDates.filter(date => scheduledDays.includes(weekday) && habit.completedDates.includes(date)).length;
+      }, 0);
+      return { day, Rate: dueCount ? Math.round(completedCount / dueCount * 100) : 0, Completed: completedCount, Scheduled: dueCount };
     });
-  }, [taskTimeGrain, daysList, tasks]);
+  }, [habitDays, filteredHabits]);
+
+  // -------------------------------------------------------------
+  // 3. DAILY TASKS ANALYTICS DATA
+  // -------------------------------------------------------------
+  const taskGrainTrend = useMemo(() => taskDays.map(dateStr => {
+    const dayTasks = tasksInSelectedRange.filter(t => t.date === dateStr);
+    const completed = dayTasks.filter(t => t.completed).length;
+    const pending = dayTasks.filter(t => !t.completed).length;
+    return {
+      date: formatShortDate(dateStr),
+      fullDate: dateStr,
+      Completed: completed,
+      Pending: pending,
+      Total: dayTasks.length
+    };
+  }), [taskDays, tasksInSelectedRange]);
 
   const taskStatusData = useMemo(() => {
-    const relevantTasks = tasks.filter(t => daysList.includes(t.date));
+    const relevantTasks = tasksInSelectedRange;
     const completed = relevantTasks.filter(t => t.completed).length;
     const pending = relevantTasks.filter(t => !t.completed).length;
     return [
       { name: 'Completed', value: completed, color: '#10B981' },
       { name: 'Pending', value: pending, color: '#64748B' }
     ].filter(i => i.value > 0);
-  }, [daysList, tasks]);
+  }, [tasksInSelectedRange]);
 
   const taskPriorityData = useMemo(() => {
-    const relevant = tasks.filter(t => daysList.includes(t.date));
+    const relevant = tasksInSelectedRange;
     const high = relevant.filter(t => t.priority === 'high');
     const med = relevant.filter(t => t.priority === 'medium');
     const low = relevant.filter(t => t.priority === 'low');
@@ -364,13 +381,27 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
         fill: '#64748B'
       }
     ];
-  }, [daysList, tasks]);
+  }, [tasksInSelectedRange]);
+
+  const taskCategoryData = useMemo(() => {
+    const counts = tasksInSelectedRange.reduce((acc, task) => {
+      const category = task.category || 'General';
+      const current = acc[category] || { Completed: 0, Pending: 0 };
+      if (task.completed) current.Completed++;
+      else current.Pending++;
+      acc[category] = current;
+      return acc;
+    }, {} as Record<string, { Completed: number; Pending: number }>);
+    return Object.entries(counts).map(([category, values]) => ({ category, ...values }))
+      .sort((a, b) => b.Completed + b.Pending - a.Completed - a.Pending);
+  }, [tasksInSelectedRange]);
 
   // -------------------------------------------------------------
   // 4. WELLNESS & SLEEP ANALYTICS DATA
   // -------------------------------------------------------------
   const wellnessTrendData = useMemo(() => {
-    return daysList.map(dateStr => {
+    const visibleDays = wellnessDays.filter(dateStr => wellnessMoodFilter === 'all' || wellness[dateStr]?.mood === wellnessMoodFilter);
+    return visibleDays.map(dateStr => {
       const log = wellness[dateStr];
       const waterLiters = log ? Number(((log.waterGlasses * 250) / 1000).toFixed(2)) : 0;
       const sleepHours = log ? log.sleepHours : 0;
@@ -384,13 +415,25 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
         EnergyScore: energy
       };
     });
-  }, [daysList, wellness]);
+  }, [wellnessDays, wellness, wellnessMoodFilter]);
+
+  const wellnessMoodData = useMemo(() => {
+    const colors: Record<string, string> = { great: '#10B981', good: '#06B6D4', neutral: '#64748B', low: '#F59E0B', stressed: '#F43F5E' };
+    const counts = wellnessDays.reduce((result, date) => {
+      const mood = wellness[date]?.mood;
+      if (mood) result[mood] = (result[mood] || 0) + 1;
+      return result;
+    }, {} as Record<string, number>);
+    return Object.entries(counts).map(([name, value]) => ({ name: name[0].toUpperCase() + name.slice(1), value, color: colors[name] }));
+  }, [wellnessDays, wellness]);
 
   // High-level aggregate totals
-  const totalTasksCompleted = tasks.filter(t => daysList.includes(t.date) && t.completed).length;
+  const totalTasksCompleted = tasksInSelectedRange.filter(task => task.completed).length;
   const totalPeriodSpend = expenseVelocityData.reduce((acc, d) => acc + d.Spend, 0);
   const totalPeriodIncome = expenseVelocityData.reduce((acc, d) => acc + d.Income, 0);
-  const avgDailySpend = totalPeriodSpend / parseInt(timeframe);
+  const avgDailySpend = totalPeriodSpend / Math.max(expenseDays.length, 1);
+  const expenseDaysLabel = expenseRange === 'custom' ? `${expenseDays.length}-day custom range` : `${expenseRange} days`;
+  const taskTimeframeLabel = taskRange === 'custom' ? 'selected date range' : `the past ${taskRange} days`;
 
   const avgSleepHours = useMemo(() => {
     const valid = wellnessTrendData.filter(d => d.SleepHours > 0);
@@ -421,101 +464,79 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
           </div>
         </div>
 
-        {/* Timeframe window selector */}
-        <div className="flex items-center p-1 bg-slate-100 dark:bg-slate-800 rounded-lg text-xs font-medium self-start sm:self-auto">
-          <button
-            onClick={() => setTimeframe('7')}
-            className={`px-3 py-1.5 rounded-md transition-colors cursor-pointer ${
-              timeframe === '7'
-                ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-xs'
-                : 'text-slate-600 dark:text-slate-400'
-            }`}
-          >
-            Past 7 Days
-          </button>
-          <button
-            onClick={() => setTimeframe('14')}
-            className={`px-3 py-1.5 rounded-md transition-colors cursor-pointer ${
-              timeframe === '14'
-                ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-xs'
-                : 'text-slate-600 dark:text-slate-400'
-            }`}
-          >
-            Past 14 Days
-          </button>
-          <button
-            onClick={() => setTimeframe('30')}
-            className={`px-3 py-1.5 rounded-md transition-colors cursor-pointer ${
-              timeframe === '30'
-                ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-xs'
-                : 'text-slate-600 dark:text-slate-400'
-            }`}
-          >
-            Past 30 Days
-          </button>
-        </div>
       </div>
 
+      <div className="flex flex-col-reverse gap-8">
       {/* Module Selector Filter Ribbon (EXPENSE TOP / FIRST) */}
-      <div className="flex items-center p-1.5 bg-slate-100 dark:bg-slate-800 rounded-xl text-xs font-medium overflow-x-auto gap-1">
+      <div aria-label="Analytics modules" className="report-module-tabs grid w-full min-w-0 grid-cols-4 items-center gap-1 rounded-xl border border-slate-700/70 bg-slate-800 p-1.5 text-[10px] font-medium shadow-inner sm:flex sm:flex-nowrap sm:overflow-x-auto sm:text-xs">
         <button
+          aria-label="All Modules Combined"
           onClick={() => setSelectedModule('all')}
-          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
+          className={`col-span-full flex min-w-0 flex-col items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-slate-700/80 px-1 py-2 transition-all duration-150 cursor-pointer active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-800 sm:col-span-auto sm:flex-row sm:shrink-0 sm:snap-start sm:gap-1.5 sm:border-0 sm:px-3.5 ${
             selectedModule === 'all'
-              ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-xs font-semibold'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+              ? 'border-slate-500 bg-slate-900 text-slate-100 shadow-sm ring-1 ring-white/10 font-semibold'
+              : 'text-slate-400 hover:bg-slate-700/80 hover:text-slate-100'
           }`}
         >
           <Activity className="w-3.5 h-3.5" />
-          <span>All Modules Combined</span>
+          <span className="sm:hidden">All Modules</span>
+          <span className="hidden sm:inline">All Modules Combined</span>
         </button>
 
         <button
+          aria-label="Expense Analytics & Accounts"
           onClick={() => setSelectedModule('expenses')}
-          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
+          className={`col-span-1 flex min-w-0 flex-col items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-slate-700/80 px-1 py-2 transition-all duration-150 cursor-pointer active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-800 sm:col-span-auto sm:flex-row sm:shrink-0 sm:snap-start sm:gap-1.5 sm:border-0 sm:px-3.5 ${
             selectedModule === 'expenses'
-              ? 'bg-white dark:bg-slate-900 text-purple-600 dark:text-purple-400 shadow-xs font-semibold'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+              ? 'border-purple-500/60 bg-slate-900 text-purple-300 shadow-sm ring-1 ring-purple-400/20 font-semibold'
+              : 'text-slate-400 hover:bg-slate-700/80 hover:text-slate-100'
           }`}
         >
           <DollarSign className="w-3.5 h-3.5 text-purple-500" />
-          <span>Expense Analytics &amp; Accounts</span>
+          <span className="sm:hidden">Expenses</span>
+          <span className="hidden sm:inline">Expense Analytics &amp; Accounts</span>
         </button>
 
         <button
+          aria-label="Habit Analytics"
           onClick={() => setSelectedModule('habits')}
-          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
+          className={`col-span-1 flex min-w-0 flex-col items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-slate-700/80 px-1 py-2 transition-all duration-150 cursor-pointer active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-800 sm:col-span-auto sm:flex-row sm:shrink-0 sm:snap-start sm:gap-1.5 sm:border-0 sm:px-3.5 ${
             selectedModule === 'habits'
-              ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-xs font-semibold'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+              ? 'border-emerald-500/60 bg-slate-900 text-emerald-300 shadow-sm ring-1 ring-emerald-400/20 font-semibold'
+              : 'text-slate-400 hover:bg-slate-700/80 hover:text-slate-100'
           }`}
         >
           <Flame className="w-3.5 h-3.5 text-amber-500" />
-          <span>Habit Analytics</span>
+          <span className="sm:hidden">Habits</span>
+          <span className="hidden sm:inline">Habit Analytics</span>
         </button>
 
         <button
+          aria-label="Daily Tasks Analytics"
           onClick={() => setSelectedModule('tasks')}
-          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
+          className={`col-span-1 flex min-w-0 flex-col items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-slate-700/80 px-1 py-2 transition-all duration-150 cursor-pointer active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-800 sm:col-span-auto sm:flex-row sm:shrink-0 sm:snap-start sm:gap-1.5 sm:border-0 sm:px-3.5 ${
             selectedModule === 'tasks'
-              ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs font-semibold'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+              ? 'border-blue-500/60 bg-slate-900 text-blue-300 shadow-sm ring-1 ring-blue-400/20 font-semibold'
+              : 'text-slate-400 hover:bg-slate-700/80 hover:text-slate-100'
           }`}
         >
           <ListTodo className="w-3.5 h-3.5 text-blue-500" />
-          <span>Daily Tasks Analytics</span>
+          <span className="sm:hidden">Tasks</span>
+          <span className="hidden sm:inline">Daily Tasks Analytics</span>
         </button>
 
         <button
+          aria-label="Sleep & Hydration Curves"
           onClick={() => setSelectedModule('wellness')}
-          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
+          className={`col-span-1 flex min-w-0 flex-col items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-slate-700/80 px-1 py-2 transition-all duration-150 cursor-pointer active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-800 sm:col-span-auto sm:flex-row sm:shrink-0 sm:snap-start sm:gap-1.5 sm:border-0 sm:px-3.5 ${
             selectedModule === 'wellness'
-              ? 'bg-white dark:bg-slate-900 text-cyan-600 dark:text-cyan-400 shadow-xs font-semibold'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+              ? 'border-cyan-500/60 bg-slate-900 text-cyan-300 shadow-sm ring-1 ring-cyan-400/20 font-semibold'
+              : 'text-slate-400 hover:bg-slate-700/80 hover:text-slate-100'
           }`}
         >
           <Moon className="w-3.5 h-3.5 text-indigo-500" />
-          <span>Sleep &amp; Hydration Curves</span>
+          <span className="sm:hidden">Wellness</span>
+          <span className="hidden sm:inline">Sleep &amp; Hydration Curves</span>
         </button>
       </div>
 
@@ -549,7 +570,7 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
             <span className="font-mono text-amber-500 font-bold">🔥 STREAKS</span>
           </div>
           <div className="text-2xl font-bold font-mono tracking-tight text-slate-900 dark:text-slate-100 tabular-nums">
-            {habits.length} <span className="text-sm font-normal text-slate-400">routines</span>
+            {filteredHabits.length} <span className="text-sm font-normal text-slate-400">routines</span>
           </div>
           <p className="text-[11px] text-slate-400 mt-2">
             Top streak: {Math.max(...habits.map(h => h.streak), 0)} days
@@ -565,7 +586,7 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
           <div className="text-2xl font-bold font-mono tracking-tight text-slate-900 dark:text-slate-100 tabular-nums">
             {totalTasksCompleted}
           </div>
-          <p className="text-[11px] text-slate-400 mt-2">In the {timeframe}-day window</p>
+          <p className="text-[11px] text-slate-400 mt-2">Tasks in {taskTimeframeLabel}</p>
         </div>
 
         {/* 4. WELLNESS KPI CARD */}
@@ -580,24 +601,38 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
           <p className="text-[11px] text-slate-400 mt-2">Daily recorded averages</p>
         </div>
       </div>
+      </div>
 
       {/* ------------------------------------------------------------- */}
       {/* MODULE 1: EXPENSE ANALYTICS (EXPENSE FIRST AT TOP!)            */}
       {/* ------------------------------------------------------------- */}
       {(selectedModule === 'all' || selectedModule === 'expenses') && (
         <div className="space-y-4 pt-2">
-          <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-col items-stretch justify-between gap-3 border-b border-slate-200 pb-3 dark:border-slate-800 sm:flex-row sm:items-center xl:flex-nowrap">
+            <div className="flex min-w-0 items-center gap-2 xl:flex-1">
               <span className="p-1 rounded-md bg-purple-50 dark:bg-purple-950/60 text-purple-600">
                 <DollarSign className="w-4 h-4" />
               </span>
-              <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">
+              <h3 className="min-w-0 text-base font-bold text-slate-900 dark:text-slate-100 xl:text-lg">
                 Expense Analytics: Disbursement Velocity &amp; 50/30/20 Classification
               </h3>
             </div>
-            <span className="text-xs text-slate-400 font-mono">
-              Module 1: Expense &amp; Accounts
-            </span>
+            <div className="grid w-full min-w-0 grid-cols-2 items-center gap-2 sm:flex sm:w-auto sm:flex-wrap xl:max-w-[68%] xl:flex-nowrap xl:overflow-x-auto">
+              <select aria-label="Filter expenses by category" value={expenseCategoryFilter} onChange={event => setExpenseCategoryFilter(event.target.value)} className="min-h-10 min-w-0 w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 sm:w-auto">
+                <option value="all">All categories</option>
+                {expenseCategories.map(category => <option key={category} value={category}>{category}</option>)}
+              </select>
+              <select aria-label="Filter expenses by account" value={expenseAccountFilter} onChange={event => setExpenseAccountFilter(event.target.value)} className="min-h-10 min-w-0 w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 sm:w-auto">
+                <option value="all">All accounts</option>
+                {expenseAccounts.map(account => <option key={account} value={account}>{account === 'expense' ? 'Expense account' : account === 'savings' ? 'Savings account' : account === 'cash' ? 'Cash' : account}</option>)}
+              </select>
+              <select aria-label="Filter expenses by flow" value={expenseFlowFilter} onChange={event => setExpenseFlowFilter(event.target.value as typeof expenseFlowFilter)} className="col-span-full min-h-10 min-w-0 w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 sm:col-span-auto sm:w-auto">
+                <option value="all">Income &amp; expenses</option>
+                <option value="expense">Expenses</option>
+                <option value="income">Income</option>
+              </select>
+              <DateRangeControl label="Expense analytics" value={expenseRange} onChange={setExpenseRange} startDate={expenseStartDate} onStartDateChange={setExpenseStartDate} endDate={expenseEndDate} onEndDateChange={setExpenseEndDate} />
+            </div>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -609,7 +644,7 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
                     Expense Velocity ({currSymbol} Daily Spend)
                   </h4>
                   <p className="text-xs text-slate-400">
-                    Daily outflow volume tracking spending surges across {timeframe} days
+                    Daily outflow volume tracking spending surges across {expenseDaysLabel}
                   </p>
                 </div>
                 <span className="text-xs font-mono font-bold text-purple-600 dark:text-purple-400">
@@ -715,7 +750,8 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-center">
+                <div className="grid grid-cols-1 md:grid-cols-3 lg:col-span-8 gap-4">
                 {classificationData.map(item => (
                   <div
                     key={item.name}
@@ -736,6 +772,43 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
                     </div>
                   </div>
                 ))}
+                </div>
+                <div className="h-56 lg:col-span-4">
+                  {spendTypeBreakdownData.length === 0 ? <div className="flex h-full items-center justify-center text-xs text-slate-400">No outflows to classify.</div> : (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie data={spendTypeBreakdownData} dataKey="value" nameKey="name" innerRadius={48} outerRadius={76} paddingAngle={3}>
+                          {spendTypeBreakdownData.map(item => <Cell key={item.name} fill={item.color} />)}
+                        </Pie>
+                        <Tooltip formatter={(value: any) => [formatCurrency(Number(value), currSymbol), 'Amount']} contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.9)', borderRadius: '8px', color: '#fff', fontSize: '12px', border: 'none' }} />
+                        <Legend wrapperStyle={{ fontSize: '10px' }} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Chart 4: Cash Flow by Account */}
+            <div className="lg:col-span-12 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs space-y-3">
+              <div>
+                <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Cash Flow by Account</h4>
+                <p className="text-xs text-slate-400">Compare income and expenses across your selected accounts</p>
+              </div>
+              <div className="h-56 w-full">
+                {expenseAccountData.length === 0 ? <div className="flex h-full items-center justify-center text-xs text-slate-400">No transactions match these filters.</div> : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={expenseAccountData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" opacity={0.12} />
+                      <XAxis dataKey="account" tick={{ fontSize: 11 }} />
+                      <YAxis tick={{ fontSize: 11 }} />
+                      <Tooltip formatter={(value: any) => [formatCurrency(Number(value), currSymbol)]} contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.9)', borderRadius: '8px', color: '#fff', fontSize: '12px', border: 'none' }} />
+                      <Legend wrapperStyle={{ fontSize: '11px' }} />
+                      <Bar dataKey="Expense" fill="#8B5CF6" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="Income" fill="#10B981" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
               </div>
             </div>
           </div>
@@ -747,32 +820,21 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
       {/* ------------------------------------------------------------- */}
       {(selectedModule === 'all' || selectedModule === 'habits') && (
         <div className="space-y-4 pt-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3 gap-3">
-            <div className="flex items-center gap-2">
+          <div className="flex flex-col gap-3 border-b border-slate-200 pb-3 dark:border-slate-800 sm:flex-row sm:items-center sm:justify-between xl:flex-nowrap">
+            <div className="flex min-w-0 items-center gap-2 xl:flex-1">
               <span className="p-1 rounded-md bg-amber-50 dark:bg-amber-950/60 text-amber-600">
                 <Flame className="w-4 h-4" />
               </span>
-              <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">
+              <h3 className="text-base font-bold text-slate-900 dark:text-slate-100 xl:text-lg">
                 Habit Analytics: Completion Consistency &amp; Streaks
               </h3>
             </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-slate-400 mr-1 hidden sm:inline">Grain:</span>
-              <div className="flex items-center p-1 bg-slate-100 dark:bg-slate-800 rounded-lg text-xs font-medium">
-                {(['day', 'week', 'month', 'year'] as const).map(g => (
-                  <button
-                    key={g}
-                    onClick={() => setHabitTimeGrain(g)}
-                    className={`px-2.5 py-1 rounded-md uppercase tracking-wider transition-colors cursor-pointer ${
-                      habitTimeGrain === g
-                        ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-xs font-bold'
-                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-                    }`}
-                  >
-                    {g}
-                  </button>
-                ))}
-              </div>
+            <div className="grid w-full min-w-0 grid-cols-2 items-center gap-2 sm:flex sm:w-auto sm:flex-wrap xl:max-w-[68%] xl:flex-nowrap xl:overflow-x-auto">
+              <DateRangeControl label="Habit analytics" value={habitRange} onChange={setHabitRange} startDate={habitStartDate} onStartDateChange={setHabitStartDate} endDate={habitEndDate} onEndDateChange={setHabitEndDate} />
+              <select aria-label="Filter habits by category" value={habitCategoryFilter} onChange={event => setHabitCategoryFilter(event.target.value)} className="col-span-full min-w-0 w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 sm:col-span-auto sm:w-auto">
+                <option value="all">All categories</option>
+                {habitCategories.map(category => <option key={category} value={category}>{category}</option>)}
+              </select>
             </div>
           </div>
 
@@ -782,20 +844,17 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
               <div className="flex items-center justify-between">
                 <div>
                   <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                    Habit Completion Consistency ({habitTimeGrain.toUpperCase()})
+                    Daily Habit Completion Consistency
                   </h4>
                   <p className="text-xs text-slate-400">
-                    {habitTimeGrain === 'day'
-                      ? 'Daily habit completion consistency percentage'
-                      : `Habit check-offs aggregated by ${habitTimeGrain}`}
+                    Habit completion consistency for each day in this range
                   </p>
                 </div>
               </div>
 
               <div className="h-64 w-full">
                 <ResponsiveContainer width="100%" height="100%">
-                  {habitTimeGrain === 'day' ? (
-                    <AreaChart data={habitGrainTrend} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                  <AreaChart data={habitGrainTrend} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                       <defs>
                         <linearGradient id="habitRateGrad" x1="0" y1="0" x2="0" y2="1">
                           <stop offset="5%" stopColor="#10B981" stopOpacity={0.35} />
@@ -823,28 +882,7 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
                         fillOpacity={1}
                         fill="url(#habitRateGrad)"
                       />
-                    </AreaChart>
-                  ) : (
-                    <BarChart data={habitGrainTrend} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" opacity={0.12} />
-                      <XAxis dataKey="date" tick={{ fontSize: 11 }} />
-                      <YAxis tick={{ fontSize: 11 }} />
-                      <Tooltip
-                        formatter={(val: any, name?: any) => [
-                          val,
-                          name === 'Completed' ? 'Total Completions' : name
-                        ]}
-                        contentStyle={{
-                          backgroundColor: 'rgba(15, 23, 42, 0.9)',
-                          borderRadius: '8px',
-                          color: '#fff',
-                          fontSize: '12px',
-                          border: 'none'
-                        }}
-                      />
-                      <Bar dataKey="Completed" fill="#10B981" radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                  )}
+                  </AreaChart>
                 </ResponsiveContainer>
               </div>
             </div>
@@ -922,6 +960,25 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
                 </ResponsiveContainer>
               </div>
             </div>
+
+            {/* Chart 4: Weekday Habit Consistency */}
+            <div className="lg:col-span-12 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs space-y-3">
+              <div>
+                <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Consistency by Weekday</h4>
+                <p className="text-xs text-slate-400">Completion rate on scheduled days within the selected date range</p>
+              </div>
+              <div className="h-56 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={habitWeekdayData} margin={{ top: 10, right: 10, left: -16, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" opacity={0.12} />
+                    <XAxis dataKey="day" tick={{ fontSize: 11 }} />
+                    <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} unit="%" />
+                    <Tooltip formatter={(value: any, name: any, item: any) => [name === 'Rate' ? `${value}% (${item.payload.Completed}/${item.payload.Scheduled})` : value, name === 'Rate' ? 'Completion rate' : name]} contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.9)', borderRadius: '8px', color: '#fff', fontSize: '12px', border: 'none' }} />
+                    <Bar dataKey="Rate" name="Completion Rate" fill="#10B981" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -931,32 +988,32 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
       {/* ------------------------------------------------------------- */}
       {(selectedModule === 'all' || selectedModule === 'tasks') && (
         <div className="space-y-4 pt-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3 gap-3">
-            <div className="flex items-center gap-2">
+          <div className="flex flex-col gap-3 border-b border-slate-200 pb-3 dark:border-slate-800 sm:flex-row sm:items-center sm:justify-between xl:flex-nowrap">
+            <div className="flex min-w-0 items-center gap-2 xl:flex-1">
               <span className="p-1 rounded-md bg-blue-50 dark:bg-blue-950/60 text-blue-600">
                 <ListTodo className="w-4 h-4" />
               </span>
-              <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">
+              <h3 className="text-base font-bold text-slate-900 dark:text-slate-100 xl:text-lg">
                 Daily Tasks Analytics: Completion Consistency &amp; Status Share
               </h3>
             </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-slate-400 mr-1 hidden sm:inline">Grain:</span>
-              <div className="flex items-center p-1 bg-slate-100 dark:bg-slate-800 rounded-lg text-xs font-medium">
-                {(['day', 'week', 'month', 'year'] as const).map(g => (
-                  <button
-                    key={g}
-                    onClick={() => setTaskTimeGrain(g)}
-                    className={`px-2.5 py-1 rounded-md uppercase tracking-wider transition-colors cursor-pointer ${
-                      taskTimeGrain === g
-                        ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs font-bold'
-                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-                    }`}
-                  >
-                    {g}
-                  </button>
-                ))}
-              </div>
+            <div className="grid w-full min-w-0 grid-cols-2 items-center gap-2 sm:flex sm:w-auto sm:flex-wrap xl:max-w-[68%] xl:flex-nowrap xl:overflow-x-auto">
+              <DateRangeControl label="Task analytics" value={taskRange} onChange={setTaskRange} startDate={taskStartDate} onStartDateChange={setTaskStartDate} endDate={taskEndDate} onEndDateChange={setTaskEndDate} />
+              <select aria-label="Filter tasks by category" value={taskCategoryFilter} onChange={event => setTaskCategoryFilter(event.target.value)} className="min-w-0 w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 sm:w-auto">
+                <option value="all">All categories</option>
+                {taskCategories.map(category => <option key={category} value={category}>{category}</option>)}
+              </select>
+              <select aria-label="Filter tasks by priority" value={taskPriorityFilter} onChange={event => setTaskPriorityFilter(event.target.value as typeof taskPriorityFilter)} className="min-w-0 w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 sm:w-auto">
+                <option value="all">All priorities</option>
+                <option value="high">High priority</option>
+                <option value="medium">Medium priority</option>
+                <option value="low">Low priority</option>
+              </select>
+              <select aria-label="Filter tasks by status" value={taskStatusFilter} onChange={event => setTaskStatusFilter(event.target.value as typeof taskStatusFilter)} className="min-w-0 w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 sm:w-auto">
+                <option value="all">All statuses</option>
+                <option value="completed">Completed</option>
+                <option value="pending">Pending</option>
+              </select>
             </div>
           </div>
 
@@ -965,10 +1022,10 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
             <div className="lg:col-span-8 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs space-y-3">
               <div>
                 <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                  Task Execution Velocity ({taskTimeGrain.toUpperCase()})
+                  Daily Task Execution
                 </h4>
                 <p className="text-xs text-slate-400">
-                  Completed vs. Pending throughput grouped by {taskTimeGrain}
+                  Completed and pending tasks for each day in this range
                 </p>
               </div>
 
@@ -1072,6 +1129,29 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
                 </ResponsiveContainer>
               </div>
             </div>
+
+            {/* Chart 4: Task Category Breakdown */}
+            <div className="lg:col-span-12 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs space-y-3">
+              <div>
+                <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Tasks by Category</h4>
+                <p className="text-xs text-slate-400">Completed and pending tasks in each category for the selected filters</p>
+              </div>
+              <div className="h-64 w-full">
+                {taskCategoryData.length === 0 ? <div className="flex h-full items-center justify-center text-xs text-slate-400">No tasks match these filters.</div> : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={taskCategoryData} margin={{ top: 10, right: 10, left: -20, bottom: 24 }}>
+                      <CartesianGrid strokeDasharray="3 3" opacity={0.12} />
+                      <XAxis dataKey="category" tick={{ fontSize: 11 }} angle={-20} textAnchor="end" interval={0} />
+                      <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                      <Tooltip contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.9)', borderRadius: '8px', color: '#fff', fontSize: '12px', border: 'none' }} />
+                      <Legend wrapperStyle={{ fontSize: '11px' }} />
+                      <Bar dataKey="Completed" stackId="task-category" fill="#10B981" radius={[0, 0, 2, 2]} />
+                      <Bar dataKey="Pending" stackId="task-category" fill="#94A3B8" radius={[3, 3, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -1081,25 +1161,39 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
       {/* ------------------------------------------------------------- */}
       {(selectedModule === 'all' || selectedModule === 'wellness') && (
         <div className="space-y-4 pt-4">
-          <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
-            <div className="flex items-center gap-2">
+          <div className="flex flex-col gap-3 border-b border-slate-200 pb-3 dark:border-slate-800 sm:flex-row sm:items-center sm:justify-between xl:flex-nowrap">
+            <div className="flex min-w-0 items-center gap-2 xl:flex-1">
               <span className="p-1 rounded-md bg-cyan-50 dark:bg-cyan-950/60 text-cyan-600">
                 <Moon className="w-4 h-4" />
               </span>
-              <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">
+              <h3 className="text-base font-bold text-slate-900 dark:text-slate-100 xl:text-lg">
                 Wellness Analytics: Sleep vs. Hydration Curves
               </h3>
             </div>
-            <span className="text-xs text-slate-400 font-mono">
-              Module 4: Daily Wellness
-            </span>
+            <div className="grid w-full min-w-0 grid-cols-2 items-center gap-2 sm:flex sm:w-auto sm:flex-wrap xl:max-w-[68%] xl:flex-nowrap xl:overflow-x-auto">
+              <select aria-label="Select wellness chart metric" value={wellnessMetric} onChange={event => setWellnessMetric(event.target.value as typeof wellnessMetric)} className="min-w-0 w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 sm:w-auto">
+                <option value="sleep_water">Sleep &amp; water</option>
+                <option value="sleep">Sleep hours</option>
+                <option value="water">Water intake</option>
+                <option value="energy">Energy score</option>
+              </select>
+              <select aria-label="Filter wellness by mood" value={wellnessMoodFilter} onChange={event => setWellnessMoodFilter(event.target.value as typeof wellnessMoodFilter)} className="min-w-0 w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 sm:w-auto">
+                <option value="all">All moods</option>
+                <option value="great">Great</option>
+                <option value="good">Good</option>
+                <option value="neutral">Neutral</option>
+                <option value="low">Low</option>
+                <option value="stressed">Stressed</option>
+              </select>
+              <DateRangeControl label="Wellness analytics" value={wellnessRange} onChange={setWellnessRange} startDate={wellnessStartDate} onStartDateChange={setWellnessStartDate} endDate={wellnessEndDate} onEndDateChange={setWellnessEndDate} />
+            </div>
           </div>
 
           <div className="p-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div>
-                <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                  Sleep Hours vs. Water Hydration (Liters) Correlation
+                  <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                  {wellnessMetric === 'energy' ? 'Daily Energy Score Trend' : wellnessMetric === 'sleep' ? 'Daily Sleep Hours' : wellnessMetric === 'water' ? 'Daily Water Intake' : 'Sleep Hours vs. Water Hydration (Liters)'}
                 </h4>
                 <p className="text-xs text-slate-400">
                   Dual-axis health curve tracking restorative rest and hydration intake
@@ -1131,7 +1225,7 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
                     }}
                   />
                   <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }} />
-                  <Line
+                  {(wellnessMetric === 'sleep_water' || wellnessMetric === 'sleep') && <Line
                     type="monotone"
                     dataKey="SleepHours"
                     name="Sleep (Hours)"
@@ -1139,8 +1233,8 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
                     strokeWidth={2.5}
                     dot={{ r: 3 }}
                     activeDot={{ r: 5 }}
-                  />
-                  <Line
+                  />}
+                  {(wellnessMetric === 'sleep_water' || wellnessMetric === 'water') && <Line
                     type="monotone"
                     dataKey="WaterLiters"
                     name="Water Hydration (Liters)"
@@ -1148,9 +1242,38 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
                     strokeWidth={2.5}
                     dot={{ r: 3 }}
                     activeDot={{ r: 5 }}
-                  />
+                  />}
+                  {wellnessMetric === 'energy' && <Line
+                    type="monotone"
+                    dataKey="EnergyScore"
+                    name="Energy Score (1–5)"
+                    stroke="#F59E0B"
+                    strokeWidth={2.5}
+                    dot={{ r: 3 }}
+                    activeDot={{ r: 5 }}
+                  />}
                 </LineChart>
               </ResponsiveContainer>
+            </div>
+          </div>
+
+          <div className="p-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs space-y-3">
+            <div>
+              <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Mood Distribution</h4>
+              <p className="text-xs text-slate-400">Daily mood logs in the selected date range</p>
+            </div>
+            <div className="h-60 w-full flex items-center justify-center">
+              {wellnessMoodData.length === 0 ? <p className="text-xs text-slate-400">No mood entries in this range.</p> : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={wellnessMoodData} dataKey="value" nameKey="name" innerRadius={48} outerRadius={78} paddingAngle={3}>
+                      {wellnessMoodData.map(item => <Cell key={item.name} fill={item.color} />)}
+                    </Pie>
+                    <Tooltip contentStyle={{ backgroundColor: 'rgba(15, 23, 42, 0.9)', borderRadius: '8px', color: '#fff', fontSize: '12px', border: 'none' }} />
+                    <Legend wrapperStyle={{ fontSize: '11px' }} />
+                  </PieChart>
+                </ResponsiveContainer>
+              )}
             </div>
           </div>
         </div>

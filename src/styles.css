@@ -41,6 +41,22 @@
   background: rgba(148, 163, 184, 0.5);
 }
 
+@media (max-width: 639px) {
+  .report-module-tabs {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    scroll-snap-type: x proximity;
+  }
+
+  .report-module-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .report-module-tabs > button {
+    scroll-snap-align: start;
+  }
+}
+
 /* Tactile card styles and surface utilities */
 .surface-card {
   background-color: #ffffff;
