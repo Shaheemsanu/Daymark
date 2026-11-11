@@ -185,6 +185,8 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
   const [historyTimeframe, setHistoryTimeframe] = useState<'this_month' | 'last_30_days' | 'custom' | 'all'>('this_month');
   const [historyStartDate, setHistoryStartDate] = useState('');
   const [historyEndDate, setHistoryEndDate] = useState('');
+  const [mobileHistoryPage, setMobileHistoryPage] = useState(1);
+  const [desktopHistoryPage, setDesktopHistoryPage] = useState(1);
 
   const resetHistoryFilters = () => {
     setHistorySearch('');
@@ -376,8 +378,14 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
 
       return true;
     }).sort((a, b) => {
-      if (historySort === 'date_desc') return new Date(b.date).getTime() - new Date(a.date).getTime();
-      if (historySort === 'date_asc') return new Date(a.date).getTime() - new Date(b.date).getTime();
+      if (historySort === 'date_desc') {
+        const dateOrder = new Date(b.date).getTime() - new Date(a.date).getTime();
+        return dateOrder || (b.createdAt ?? 0) - (a.createdAt ?? 0);
+      }
+      if (historySort === 'date_asc') {
+        const dateOrder = new Date(a.date).getTime() - new Date(b.date).getTime();
+        return dateOrder || (a.createdAt ?? 0) - (b.createdAt ?? 0);
+      }
       if (historySort === 'amount_desc') return b.amount - a.amount;
       if (historySort === 'amount_asc') return a.amount - b.amount;
       return 0;
@@ -395,6 +403,35 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
     historySort,
     currentYear,
     currentMonth
+  ]);
+
+  const MOBILE_HISTORY_PAGE_SIZE = 15;
+  const DESKTOP_HISTORY_PAGE_SIZE = 25;
+  const mobileHistoryPageCount = Math.max(1, Math.ceil(filteredHistory.length / MOBILE_HISTORY_PAGE_SIZE));
+  const desktopHistoryPageCount = Math.max(1, Math.ceil(filteredHistory.length / DESKTOP_HISTORY_PAGE_SIZE));
+  const mobileHistoryItems = filteredHistory.slice(
+    (mobileHistoryPage - 1) * MOBILE_HISTORY_PAGE_SIZE,
+    mobileHistoryPage * MOBILE_HISTORY_PAGE_SIZE
+  );
+  const desktopHistoryItems = filteredHistory.slice(
+    (desktopHistoryPage - 1) * DESKTOP_HISTORY_PAGE_SIZE,
+    desktopHistoryPage * DESKTOP_HISTORY_PAGE_SIZE
+  );
+
+  useEffect(() => {
+    setMobileHistoryPage(1);
+    setDesktopHistoryPage(1);
+  }, [
+    expenses,
+    historySearch,
+    historyAccountFilter,
+    historyTypeFilter,
+    historyTimeframe,
+    historyStartDate,
+    historyEndDate,
+    historyCategory,
+    historyPayment,
+    historySort
   ]);
 
   const classificationAnalyticsExpenses = useMemo(() => expenses.filter(expense => {
@@ -585,6 +622,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
 
   const handleCloseAdd = () => {
     setIsAddModalOpen(false);
+    setEditingExpense(null);
     onQuickAddDismiss?.();
   };
 
@@ -647,6 +685,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
   // Submit Edit Expense
   const handleOpenEdit = (exp: Expense) => {
     setEditingExpense(exp);
+    setTransactionUpdateError(null);
     setFormAccount(exp.account || 'expense');
     setFormTransactionType(exp.isTransfer ? 'transfer' : (exp.type || 'expense'));
     setFormTitle(exp.title);
@@ -1453,50 +1492,63 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
             </div>
 
             {/* Mobile transaction cards */}
-            <div className="divide-y divide-slate-200 dark:divide-slate-800 md:hidden">
+            <div className="py-0.5 md:hidden">
               {filteredHistory.length === 0 ? (
                 <p className="px-4 py-10 text-center text-sm text-slate-500 dark:text-slate-400">No transactions match these filters.</p>
-              ) : filteredHistory.map(item => {
+              ) : mobileHistoryItems.map(item => {
                 const catColor = categoriesMap[item.category]?.color || '#94A3B8';
                 const isIncome = item.type === 'income';
                 const isTransfer = item.isTransfer;
-                const accountLabel = item.account === 'savings' ? 'Savings' : item.account === 'cash' ? 'Cash' : 'Expense';
+                const accountLabel = item.account === 'savings' ? 'Savings account' : item.account === 'cash' ? 'Cash account' : 'Expense account';
                 return (
-                  <article key={item.id} className="space-y-3 p-4">
-                    <div className="flex min-w-0 items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <h4 className="break-words text-sm font-semibold text-slate-900 dark:text-slate-100">{item.title}</h4>
-                        <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
-                          <span>{formatDisplayDate(item.date)}</span>
-                          <span className="text-slate-300 dark:text-slate-600">•</span>
-                          <span className="rounded-full bg-slate-100 px-2 py-0.5 font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">{accountLabel}</span>
-                          <span className={`rounded-full px-2 py-0.5 font-semibold ${isTransfer ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300' : isIncome ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300' : 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300'}`}>
-                            {isTransfer ? 'Transfer' : isIncome ? 'Inflow' : 'Outflow'}
-                          </span>
-                        </div>
+                  <article key={item.id} className={`mx-3 my-1.5 grid gap-y-2 overflow-hidden rounded-xl border border-slate-200 bg-white p-3 shadow-sm transition-all duration-200 hover:shadow-md dark:border-slate-800 dark:bg-slate-950/60 dark:hover:border-slate-700 ${isTransfer ? 'border-l-2 border-l-amber-500' : isIncome ? 'border-l-2 border-l-emerald-500' : 'border-l-2 border-l-rose-500'}`}>
+                    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2.5 gap-y-1.5">
+                      <h4 className="min-w-0 break-words text-sm font-bold leading-snug tracking-tight text-slate-900 dark:text-slate-100">{item.title}</h4>
+                      <div className="flex shrink-0 items-center gap-1.5">
+                        <button type="button" onClick={() => handleOpenEdit(item)} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-600 transition-all duration-150 hover:-translate-y-0.5 hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 active:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:border-slate-700 dark:bg-slate-800/70 dark:text-slate-300 dark:hover:border-indigo-500/50 dark:hover:bg-indigo-500/10 dark:hover:text-indigo-300" aria-label={`Edit ${item.title}`} title="Edit">
+                          <Edit2 className="h-3.5 w-3.5" />
+                        </button>
+                        <button type="button" onClick={() => setExpenseToDelete(item)} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-rose-200 bg-rose-50 text-rose-700 transition-all duration-150 hover:-translate-y-0.5 hover:bg-rose-100 active:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-400 dark:hover:bg-rose-950/50" aria-label={`Delete ${item.title}`} title="Delete">
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
                       </div>
-                      <strong className={`shrink-0 text-sm font-mono font-bold tabular-nums ${isIncome ? 'text-emerald-600 dark:text-emerald-400' : isTransfer ? 'text-amber-600 dark:text-amber-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                      <div className="col-span-full row-start-2 mt-0 flex flex-wrap items-center text-[10px] text-slate-500 dark:text-slate-400">
+                        <span>{formatDisplayDate(item.date)}</span>
+                      </div>
+                    </div>
+                    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                        <span className="inline-flex max-w-full items-center gap-1.5 break-words rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                          <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: catColor }} />{item.category}
+                        </span>
+                        <span className="inline-block w-fit max-w-full break-words rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">{item.paymentMethod}</span>
+                    </div>
+                    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
+                      <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-[10px]">
+                        <span className="whitespace-nowrap rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 font-medium text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">{accountLabel}</span>
+                        <span className={`whitespace-nowrap rounded-full border px-2 py-0.5 font-semibold ${isTransfer ? 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/70 dark:bg-amber-950/50 dark:text-amber-300' : isIncome ? 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/70 dark:bg-emerald-950/50 dark:text-emerald-300' : 'border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-900/70 dark:bg-rose-950/50 dark:text-rose-300'}`}>
+                          {isTransfer ? 'Transfer' : isIncome ? 'Inflow' : 'Outflow'}
+                        </span>
+                      </div>
+                      <strong className={`shrink-0 whitespace-nowrap rounded-lg border px-2.5 py-1.5 text-base leading-none font-extrabold tracking-tight tabular-nums shadow-sm ${isIncome ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-400/20 dark:bg-emerald-400/10 dark:text-emerald-300' : isTransfer ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-300' : 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-400/20 dark:bg-rose-400/10 dark:text-rose-300'}`}>
                         {isIncome ? '+' : '-'}{formatCurrency(item.amount, currencySymbol)}
                       </strong>
                     </div>
-                    <div className="flex flex-wrap items-center gap-2 text-xs">
-                      <span className="inline-flex max-w-full items-center gap-1.5 break-words rounded-lg bg-slate-50 px-2.5 py-1.5 text-slate-700 dark:bg-slate-800 dark:text-slate-200">
-                        <span className="h-2 w-2 rounded-full" style={{ backgroundColor: catColor }} />{item.category}
-                      </span>
-                      <span className="inline-block max-w-full break-words rounded-lg bg-slate-50 px-2.5 py-1.5 text-slate-600 dark:bg-slate-800 dark:text-slate-300">{item.paymentMethod}</span>
-                    </div>
                     {item.notes && <p className="break-words text-xs text-slate-500 dark:text-slate-400">{item.notes}</p>}
-                    <div className="flex justify-end gap-2 border-t border-slate-100 pt-2 dark:border-slate-800">
-                      <button type="button" onClick={() => handleOpenEdit(item)} className="inline-flex min-h-10 items-center gap-1.5 rounded-lg px-3 text-xs font-semibold text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800" aria-label={`Edit ${item.title}`}>
-                        <Edit2 className="h-3.5 w-3.5" /> Edit
-                      </button>
-                      <button type="button" onClick={() => setExpenseToDelete(item)} className="inline-flex min-h-10 items-center gap-1.5 rounded-lg px-3 text-xs font-semibold text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/30" aria-label={`Delete ${item.title}`}>
-                        <Trash2 className="h-3.5 w-3.5" /> Delete
-                      </button>
-                    </div>
                   </article>
                 );
               })}
+              {filteredHistory.length > MOBILE_HISTORY_PAGE_SIZE && (
+                <div className="mx-3 my-3 flex items-center justify-between gap-3 border-t border-slate-200 pt-3 text-xs dark:border-slate-800">
+                  <span className="text-slate-500 dark:text-slate-400">
+                    {(mobileHistoryPage - 1) * MOBILE_HISTORY_PAGE_SIZE + 1}–{Math.min(mobileHistoryPage * MOBILE_HISTORY_PAGE_SIZE, filteredHistory.length)} of {filteredHistory.length}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button type="button" onClick={() => setMobileHistoryPage(page => Math.max(1, page - 1))} disabled={mobileHistoryPage === 1} className="rounded-lg border border-slate-200 px-3 py-1.5 font-medium text-slate-700 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">Previous</button>
+                    <span className="whitespace-nowrap font-medium text-slate-600 dark:text-slate-300">{mobileHistoryPage} / {mobileHistoryPageCount}</span>
+                    <button type="button" onClick={() => setMobileHistoryPage(page => Math.min(mobileHistoryPageCount, page + 1))} disabled={mobileHistoryPage === mobileHistoryPageCount} className="rounded-lg border border-slate-200 px-3 py-1.5 font-medium text-slate-700 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">Next</button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Desktop transaction table */}
@@ -1522,7 +1574,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                       </td>
                     </tr>
                   ) : (
-                    filteredHistory.map(item => {
+                    desktopHistoryItems.map(item => {
                       const catInfo = categoriesMap[item.category];
                       const catColor = catInfo?.color || '#94A3B8';
                       const isSavings = item.account === 'savings';
@@ -1611,6 +1663,18 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                   )}
                 </tbody>
               </table>
+              {filteredHistory.length > DESKTOP_HISTORY_PAGE_SIZE && (
+                <div className="flex items-center justify-between gap-4 border-t border-slate-200 px-4 py-3 text-xs dark:border-slate-800">
+                  <span className="text-slate-500 dark:text-slate-400">
+                    Showing {(desktopHistoryPage - 1) * DESKTOP_HISTORY_PAGE_SIZE + 1}–{Math.min(desktopHistoryPage * DESKTOP_HISTORY_PAGE_SIZE, filteredHistory.length)} of {filteredHistory.length} transactions
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button type="button" onClick={() => setDesktopHistoryPage(page => Math.max(1, page - 1))} disabled={desktopHistoryPage === 1} className="rounded-lg border border-slate-200 px-3 py-1.5 font-medium text-slate-700 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">Previous</button>
+                    <span className="whitespace-nowrap font-medium text-slate-600 dark:text-slate-300">Page {desktopHistoryPage} of {desktopHistoryPageCount}</span>
+                    <button type="button" onClick={() => setDesktopHistoryPage(page => Math.min(desktopHistoryPageCount, page + 1))} disabled={desktopHistoryPage === desktopHistoryPageCount} className="rounded-lg border border-slate-200 px-3 py-1.5 font-medium text-slate-700 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">Next</button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -1629,7 +1693,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
       </button>
 
       {/* 4. MODAL: Scrollable Add/Edit Transaction Modal */}
-      {isAddModalOpen && (
+      {(isAddModalOpen || editingExpense) && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs">
           <div className="w-full max-w-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
             {/* Modal Header */}
@@ -1641,7 +1705,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                   ₹
                 </div>
                 <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-slate-100">
-                  {formAccount === 'savings' ? 'Savings Account Transaction' : formAccount === 'cash' ? 'Cash in Hand Transaction' : 'Expense Account Transaction'}
+                  {editingExpense ? 'Edit ' : ''}{formAccount === 'savings' ? 'Savings Account Transaction' : formAccount === 'cash' ? 'Cash in Hand Transaction' : 'Expense Account Transaction'}
                 </h3>
               </div>
               <button
@@ -1657,8 +1721,12 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
             <form
               noValidate
               onSubmit={event => {
-                event.preventDefault();
-                void handleSubmitAdd();
+                if (editingExpense) {
+                  void handleSubmitEdit(event);
+                } else {
+                  event.preventDefault();
+                  void handleSubmitAdd();
+                }
               }}
               className="p-5 space-y-3.5 max-h-[75vh] overflow-y-auto pr-1"
             >
@@ -1950,25 +2018,25 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
               </div>
 
               {/* Submit Buttons */}
-              {transactionSaveError && (
+              {(editingExpense ? transactionUpdateError : transactionSaveError) && (
                 <div role="alert" className="rounded-xl border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
-                  {transactionSaveError}
+                  {editingExpense ? transactionUpdateError : transactionSaveError}
                 </div>
               )}
               <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
                 <button
                   type="button"
                   onClick={handleCloseAdd}
-                  disabled={isSavingTransaction}
+                  disabled={isSavingTransaction || isUpdatingTransaction}
                   className="px-3.5 py-1.5 text-xs font-medium text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 cursor-pointer"
                 >
                   Cancel
                 </button>
 
                 <button
-                  type="button"
-                  onClick={handleSubmitAdd}
-                  disabled={isSavingTransaction ||
+                  type={editingExpense ? 'submit' : 'button'}
+                  onClick={editingExpense ? undefined : handleSubmitAdd}
+                  disabled={isSavingTransaction || isUpdatingTransaction ||
                     isNaN(parseFloat(formAmount)) ||
                     parseFloat(formAmount) <= 0 ||
                     (formTransactionType !== 'transfer' && (!formCategory || !formCategory.trim()))
@@ -1977,7 +2045,9 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                     formTransactionType === 'income' ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-600/30' : formTransactionType === 'transfer' ? 'bg-amber-600 hover:bg-amber-700 shadow-amber-600/30' : 'bg-rose-600 hover:bg-rose-700 shadow-rose-600/30'
                   }`}
                 >
-                  {isSavingTransaction ? 'Saving…' : `Save Transaction (${currencySymbol}${parseFloat(formAmount) > 0 ? parseFloat(formAmount).toFixed(2) : '0.00'})`}
+                  {editingExpense
+                    ? isUpdatingTransaction ? 'Updating...' : `Update Transaction (${currencySymbol}${parseFloat(formAmount) > 0 ? parseFloat(formAmount).toFixed(2) : '0.00'})`
+                    : isSavingTransaction ? 'Saving...' : `Save Transaction (${currencySymbol}${parseFloat(formAmount) > 0 ? parseFloat(formAmount).toFixed(2) : '0.00'})`}
                 </button>
               </div>
             </form>
@@ -2180,120 +2250,6 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                 {isDeletingCategory ? 'Deleting…' : 'Delete Category'}
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* 6. MODAL: Edit Expense */}
-      {editingExpense && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs">
-          <div className="w-full max-w-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden">
-            <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-              <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
-                Edit Transaction
-              </h3>
-              <button
-                onClick={() => setEditingExpense(null)}
-                className="p-1 text-slate-400 hover:text-slate-600"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSubmitEdit} className="p-5 sm:p-6 space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Amount ({currencySymbol}) *
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0.01"
-                  required
-                  value={formAmount}
-                  onChange={e => setFormAmount(e.target.value)}
-                  className="w-full px-3 py-2 text-lg font-mono font-bold bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-slate-100"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Description *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={formTitle}
-                  onChange={e => setFormTitle(e.target.value)}
-                  className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-slate-100"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Category *
-                  </label>
-                  <select
-                    value={formCategory}
-                    onChange={e => setFormCategory(e.target.value)}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-slate-100"
-                  >
-                    {Object.keys(categoriesMap).map(cat => (
-                      <option key={cat} value={cat}>
-                        {cat}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Payment Method
-                  </label>
-                  <select
-                    value={formPaymentMethod}
-                    onChange={e => setFormPaymentMethod(e.target.value as PaymentMethod)}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-slate-100"
-                  >
-                    {availablePaymentMethods.map(pm => (
-                      <option key={pm} value={pm}>
-                        {pm}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {budgetTargetOrderError && (
-                <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-300" role="alert">
-                  {budgetTargetOrderError}
-                </p>
-              )}
-
-              {transactionUpdateError && (
-                <div role="alert" className="rounded-xl border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
-                  {transactionUpdateError}
-                </div>
-              )}
-              <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-2.5">
-                <button
-                  type="button"
-                  onClick={() => setEditingExpense(null)}
-                  disabled={isUpdatingTransaction}
-                  className="px-4 py-2 text-xs font-medium text-slate-500"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isUpdatingTransaction}
-                  className="px-5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 rounded-xl"
-                >
-                  {isUpdatingTransaction ? 'Updating…' : 'Update Transaction'}
-                </button>
-              </div>
-            </form>
           </div>
         </div>
       )}
