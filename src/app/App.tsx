@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { LoaderCircle } from 'lucide-react';
 import {
   Expense,
@@ -55,11 +55,14 @@ export default function App() {
   const [habits, setHabits] = useState<Habit[]>([]);
   const [tasks, setTasks] = useState<DailyTask[]>([]);
   const [wellness, setWellness] = useState<Record<string, DailyWellness>>({});
+  const wellnessRef = useRef(wellness);
+  const wellnessSaveQueue = useRef(new Map<string, Promise<void>>());
   const [categories, setCategories] = useState<CategorySettings>({ expenses: {}, habits: [], tasks: [] });
   const [dataLoading, setDataLoading] = useState(false);
   const [workspaceRefreshing, setWorkspaceRefreshing] = useState(false);
   const [dataError, setDataError] = useState<string | null>(null);
   const [cloudPendingCount, setCloudPendingCount] = useState(0);
+  const [savingKeys, setSavingKeys] = useState<Set<string>>(() => new Set());
 
   // Quick Log Drawer
   const [isQuickLogOpen, setIsQuickLogOpen] = useState(false);
@@ -191,6 +194,7 @@ export default function App() {
     setBudget(data.budget);
     setHabits(data.habits);
     setTasks(data.tasks);
+    wellnessRef.current = data.wellness;
     setWellness(data.wellness);
     setCategories(data.categories);
   };
@@ -229,13 +233,43 @@ export default function App() {
     }
   };
 
+  const trackKeyedCloudRequest = async (key: string, request: Promise<unknown>): Promise<boolean> => {
+    setSavingKeys(current => new Set(current).add(key));
+    try {
+      return await trackCloudRequest(request);
+    } finally {
+      setSavingKeys(current => {
+        const next = new Set(current);
+        next.delete(key);
+        return next;
+      });
+    }
+  };
+
   const updateCategories = (next: CategorySettings) => {
     setCategories(next);
     if (user) trackCloudRequest(dataService.saveCategories(user.id, next));
   };
 
+  const saveHabitCategories = async (habitCategories: string[]): Promise<boolean> => {
+    const next = { ...categories, habits: habitCategories };
+    setCategories(next);
+    if (!user) return false;
+    return trackKeyedCloudRequest('habit:categories', dataService.saveCategories(user.id, next));
+  };
+
+  const saveHabitOrder = async (habitOrder: string[]): Promise<boolean> => {
+    const next = { ...categories, habitOrder };
+    setCategories(next);
+    if (!user) return false;
+    return trackKeyedCloudRequest('habit:order', dataService.saveCategories(user.id, next));
+  };
+
   // Habit Handlers (Module 1 - same as previous first code)
   const handleToggleHabit = (habitId: string, dateIso: string) => {
+    const targetWeekday = new Date(`${dateIso}T00:00:00`).getDay();
+    const targetHabit = habits.find(habit => habit.id === habitId);
+    if (!targetHabit || !(targetHabit.weekdays || [0, 1, 2, 3, 4, 5, 6]).includes(targetWeekday)) return;
     const updated = habits.map(h => {
       if (h.id !== habitId) return h;
       const isCompleted = h.completedDates.includes(dateIso);
@@ -270,10 +304,10 @@ export default function App() {
 
     setHabits(updated);
     const changed = updated.find(h => h.id === habitId);
-    if (user && changed) trackCloudRequest(dataService.saveHabit(user.id, changed));
+    if (user && changed) void trackKeyedCloudRequest(`habit:${habitId}:${dateIso}`, dataService.saveHabit(user.id, changed));
   };
 
-  const handleAddHabit = (newHabit: Omit<Habit, 'id' | 'completedDates' | 'streak' | 'bestStreak'>) => {
+  const handleAddHabit = async (newHabit: Omit<Habit, 'id' | 'completedDates' | 'streak' | 'bestStreak'>): Promise<boolean> => {
     const created: Habit = {
       ...newHabit,
       id: createUuid(),
@@ -283,20 +317,23 @@ export default function App() {
     };
     const updated = [...habits, created];
     setHabits(updated);
-    if (user) trackCloudRequest(dataService.saveHabit(user.id, created));
+    if (!user) return false;
+    return trackKeyedCloudRequest('habit:add', dataService.saveHabit(user.id, created));
   };
 
-  const handleUpdateHabit = (id: string, partial: Partial<Habit>) => {
+  const handleUpdateHabit = async (id: string, partial: Partial<Habit>): Promise<boolean> => {
     const updated = habits.map(h => (h.id === id ? { ...h, ...partial } : h));
     setHabits(updated);
     const changed = updated.find(h => h.id === id);
-    if (user && changed) trackCloudRequest(dataService.saveHabit(user.id, changed));
+    if (!user || !changed) return false;
+    return trackKeyedCloudRequest(`habit:update:${id}`, dataService.saveHabit(user.id, changed));
   };
 
-  const handleDeleteHabit = (id: string) => {
+  const handleDeleteHabit = async (id: string): Promise<boolean> => {
     const updated = habits.filter(h => h.id !== id);
     setHabits(updated);
-    if (user) trackCloudRequest(dataService.deleteHabit(user.id, id));
+    if (!user) return false;
+    return trackKeyedCloudRequest(`habit:delete:${id}`, dataService.deleteHabit(user.id, id));
   };
 
   // Task Handlers (Module 2 - same as previous first code)
@@ -395,7 +432,7 @@ export default function App() {
 
   // Wellness Handler
   const handleUpdateWellness = (date: string, partial: Partial<DailyWellness>) => {
-    const existing = wellness[date] || {
+    const existing = wellnessRef.current[date] || {
       date,
       waterGlasses: 0,
       sleepHours: 7.5,
@@ -403,12 +440,18 @@ export default function App() {
       journalNotes: '',
       gratitude: ''
     };
-    const updated = {
-      ...wellness,
-      [date]: { ...existing, ...partial }
-    };
+    const updatedItem = { ...existing, ...partial };
+    const updated = { ...wellnessRef.current, [date]: updatedItem };
+    wellnessRef.current = updated;
     setWellness(updated);
-    if (user) trackCloudRequest(dataService.saveWellness(user.id, updated[date]));
+    if (user) {
+      const previousSave = wellnessSaveQueue.current.get(date) || Promise.resolve();
+      const saveRequest = previousSave.catch(() => undefined).then(() => dataService.saveWellness(user.id, updatedItem));
+      wellnessSaveQueue.current.set(date, saveRequest);
+      void trackKeyedCloudRequest(`wellness:${date}`, saveRequest).finally(() => {
+        if (wellnessSaveQueue.current.get(date) === saveRequest) wellnessSaveQueue.current.delete(date);
+      });
+    }
   };
 
   // Export & Backup
@@ -496,9 +539,8 @@ export default function App() {
       onToggleDarkMode={() => setIsDarkMode(!isDarkMode)}
       onRefreshData={refreshWorkspace}
       isRefreshingData={workspaceRefreshing}
-      isSyncing={cloudPendingCount > 0}
+      isSyncing={false}
     >
-      {cloudPendingCount > 0 && <div role="status" aria-live="polite" className="mx-4 mt-3 flex items-center gap-2 rounded-lg bg-sky-50 px-4 py-2 text-sm text-sky-800 dark:bg-sky-950 dark:text-sky-200"><LoaderCircle className="h-4 w-4 animate-spin" /> Syncing with Supabase…</div>}
       {dataLoading && <div role="status" aria-live="polite" className="mx-4 mt-3 flex items-center gap-2 rounded-lg bg-slate-100 px-4 py-2 text-sm text-slate-700 dark:bg-slate-800 dark:text-slate-200"><LoaderCircle className="h-4 w-4 animate-spin" /> Loading your Supabase workspace…</div>}
       {dataError && <div role="alert" className="mx-4 mt-3 rounded-lg bg-rose-50 px-4 py-2 text-sm text-rose-700">{dataError}</div>}
       {/* 1. Daily Overview Dashboard */}
@@ -533,7 +575,10 @@ export default function App() {
           onUpdateWellness={handleUpdateWellness}
           selectedDate={selectedDate}
           customCategories={categories.habits}
-          onSaveCustomCategories={next => updateCategories({ ...categories, habits: next })}
+          savingKeys={savingKeys}
+          habitOrder={categories.habitOrder}
+          onSaveCustomCategories={saveHabitCategories}
+          onSaveHabitOrder={saveHabitOrder}
         />
       )}
 

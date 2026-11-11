@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   ResponsiveContainer,
   BarChart,
@@ -12,7 +12,8 @@ import {
   YAxis,
   Tooltip,
   CartesianGrid,
-  Legend
+  Legend,
+  ReferenceLine
 } from 'recharts';
 import {
   Plus,
@@ -27,10 +28,17 @@ import {
   Sparkles,
   Tag,
   Check,
+  Pencil,
+  AlertCircle,
   Droplet,
   Moon,
   Zap,
-  Smile
+  Smile,
+  LoaderCircle,
+  ArrowDown,
+  ArrowUp,
+  ListOrdered,
+  ChevronDown
 } from 'lucide-react';
 import { Habit, HabitCategory, DailyWellness, MoodType } from '../types';
 import { formatDate } from '../utils/constants';
@@ -39,23 +47,28 @@ import {
   getPastNWeeks,
   getPastNMonths,
   getPastNYears,
+  getDaysInInterval,
   formatShortDate
 } from '../lib/dateUtils';
 
 interface HabitsViewProps {
   habits: Habit[];
-  onAddHabit: (habit: Omit<Habit, 'id' | 'completedDates' | 'streak' | 'bestStreak'>) => void;
-  onUpdateHabit: (id: string, habit: Partial<Habit>) => void;
-  onDeleteHabit: (id: string) => void;
+  onAddHabit: (habit: Omit<Habit, 'id' | 'completedDates' | 'streak' | 'bestStreak'>) => void | Promise<boolean>;
+  onUpdateHabit: (id: string, habit: Partial<Habit>) => void | Promise<boolean>;
+  onDeleteHabit: (id: string) => void | Promise<boolean>;
   onToggleHabit: (habitId: string, date: string) => void;
   wellness?: Record<string, DailyWellness>;
   onUpdateWellness?: (date: string, data: Partial<DailyWellness>) => void;
   selectedDate?: string;
   customCategories: string[];
-  onSaveCustomCategories: (categories: string[]) => void;
+  savingKeys?: Set<string>;
+  habitOrder?: string[];
+  onSaveCustomCategories: (categories: string[]) => void | Promise<boolean>;
+  onSaveHabitOrder: (habitOrder: string[]) => void | Promise<boolean>;
 }
 
-export type AnalyticsTimeGrain = 'day' | 'week' | 'month' | 'year';
+export type AnalyticsTimeGrain = 'day' | 'week' | 'month' | 'year' | 'custom';
+type HabitsViewMode = 'matrix' | 'analytics' | 'wellnessAnalytics';
 
 const DEFAULT_HABIT_CATEGORIES: string[] = [
   'Health',
@@ -109,21 +122,44 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
   onUpdateWellness,
   selectedDate,
   customCategories,
-  onSaveCustomCategories
+  savingKeys,
+  habitOrder,
+  onSaveCustomCategories,
+  onSaveHabitOrder
 }) => {
-  const [viewMode, setViewMode] = useState<'matrix' | 'analytics'>('matrix');
+  const [viewMode, setViewMode] = useState<HabitsViewMode>('matrix');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [selectedAnalyticsHabitId, setSelectedAnalyticsHabitId] = useState('all');
+  const [isMobileCategoryMenuOpen, setIsMobileCategoryMenuOpen] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [editingHabit, setEditingHabit] = useState<Habit | null>(null);
+  const [habitToDelete, setHabitToDelete] = useState<Habit | null>(null);
+  const [isCategoryManagerOpen, setIsCategoryManagerOpen] = useState(false);
+  const [newHabitCategory, setNewHabitCategory] = useState('');
+  const [editingCategory, setEditingCategory] = useState<string | null>(null);
+  const [editingCategoryName, setEditingCategoryName] = useState('');
+  const [categoryToDelete, setCategoryToDelete] = useState<string | null>(null);
+  const [categoryActionError, setCategoryActionError] = useState('');
+  const [isEditingOrder, setIsEditingOrder] = useState(false);
 
-  // Time grain for analytics: Day, Week, Month, Year
+  // Analytics timeframe and optional custom date range.
   const [timeGrain, setTimeGrain] = useState<AnalyticsTimeGrain>('day');
+  const [customStartDate, setCustomStartDate] = useState(() => {
+    const date = new Date();
+    date.setDate(date.getDate() - 13);
+    return formatDate(date);
+  });
+  const [customEndDate, setCustomEndDate] = useState(() => formatDate(new Date()));
+
+  // Older Supabase category JSON can omit the habits list or store it in an unexpected shape.
+  const safeCustomCategories = Array.isArray(customCategories) ? customCategories : [];
 
   // Custom categories state
   // All available categories: defaults + custom + categories found in existing habits
   const allCategories = useMemo(() => {
-    const set = new Set([...DEFAULT_HABIT_CATEGORIES, ...customCategories, ...habits.map(h => h.category)]);
+    const set = new Set([...DEFAULT_HABIT_CATEGORIES, ...safeCustomCategories, ...habits.map(h => h.category)]);
     return Array.from(set);
-  }, [customCategories, habits]);
+  }, [safeCustomCategories, habits]);
 
   // Form states
   const [title, setTitle] = useState('');
@@ -145,10 +181,17 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
     journalNotes: '',
     gratitude: ''
   };
+  const [waterGlassesDraft, setWaterGlassesDraft] = useState<number | null>(null);
+  const waterGlasses = waterGlassesDraft ?? dayWellness.waterGlasses ?? 0;
+
+  useEffect(() => {
+    setWaterGlassesDraft(wellness?.[targetDate]?.waterGlasses ?? 0);
+  }, [targetDate, wellness?.[targetDate]?.waterGlasses]);
 
   const handleAdjustWater = (delta: number) => {
     if (!onUpdateWellness) return;
-    const next = Math.max(0, Math.min(16, (dayWellness.waterGlasses || 0) + delta));
+    const next = Math.max(0, Math.min(20, waterGlasses + delta));
+    setWaterGlassesDraft(next);
     onUpdateWellness(targetDate, { waterGlasses: next });
   };
 
@@ -184,26 +227,84 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
     });
   }, [todayIso]);
 
-  const filteredHabits = habits.filter(
+  const orderedHabits = useMemo(() => {
+    const ranks = new Map((habitOrder || []).map((id, index) => [id, index]));
+    return habits.map((habit, index) => ({ habit, index })).sort((a, b) => {
+      const aRank = ranks.get(a.habit.id) ?? Number.MAX_SAFE_INTEGER;
+      const bRank = ranks.get(b.habit.id) ?? Number.MAX_SAFE_INTEGER;
+      return aRank === bRank ? a.index - b.index : aRank - bRank;
+    }).map(({ habit }) => habit);
+  }, [habits, habitOrder]);
+
+  const filteredHabits = orderedHabits.filter(
     h => selectedCategory === 'all' || h.category === selectedCategory
   );
+  const selectedAnalyticsHabit = habits.find(habit => habit.id === selectedAnalyticsHabitId);
+  const analyticsHabits = selectedAnalyticsHabit ? [selectedAnalyticsHabit] : habits;
+
+  const moveHabit = (habitId: string, direction: -1 | 1) => {
+    const visibleIndex = filteredHabits.findIndex(habit => habit.id === habitId);
+    const neighbor = filteredHabits[visibleIndex + direction];
+    if (!neighbor) return;
+    const nextOrder = orderedHabits.map(habit => habit.id);
+    const currentIndex = nextOrder.indexOf(habitId);
+    const neighborIndex = nextOrder.indexOf(neighbor.id);
+    [nextOrder[currentIndex], nextOrder[neighborIndex]] = [nextOrder[neighborIndex], nextOrder[currentIndex]];
+    void onSaveHabitOrder(nextOrder);
+  };
 
   // -------------------------------------------------------------
   // TIME GRAIN ANALYTICS CALCULATIONS (Day, Week, Month, Year)
   // -------------------------------------------------------------
   const grainAnalyticsData = useMemo(() => {
+    if (timeGrain === 'custom') {
+      const isValidCustomRange = Boolean(customStartDate && customEndDate && customStartDate <= customEndDate);
+      const days = isValidCustomRange
+        ? getDaysInInterval(customStartDate, customEndDate)
+        : [];
+      const chartPoints = days.map(day => {
+        const completedCount = analyticsHabits.filter(habit => habit.completedDates.includes(day)).length;
+        const total = analyticsHabits.length;
+        return {
+          label: formatShortDate(day),
+          subLabel: day,
+          Completed: completedCount,
+          Rate: total > 0 ? Math.round((completedCount / total) * 100) : 0,
+          Total: total
+        };
+      });
+      const totalCompleted = chartPoints.reduce((sum, point) => sum + point.Completed, 0);
+      const avgRate = chartPoints.length
+        ? Math.round(chartPoints.reduce((sum, point) => sum + point.Rate, 0) / chartPoints.length)
+        : 0;
+      const bestPoint = [...chartPoints].sort((a, b) => b.Completed - a.Completed)[0];
+      const periodName = isValidCustomRange && days.length
+        ? `${formatShortDate(customStartDate)} – ${formatShortDate(customEndDate)}`
+        : 'Choose a valid date range';
+
+      return {
+        chartPoints,
+        periodName,
+        unitLabel: 'Daily Completions',
+        totalCompleted,
+        avgRate,
+        bestPeriod: bestPoint ? `${bestPoint.label} (${bestPoint.Completed} habits)` : '—',
+        activeDays: days
+      };
+    }
+
     if (timeGrain === 'day') {
       // Past 14 days
       const days = past14Days.map(d => d.iso);
       const chartPoints = past14Days.map(day => {
-        const completedCount = habits.filter(h => h.completedDates.includes(day.iso)).length;
-        const rate = habits.length > 0 ? Math.round((completedCount / habits.length) * 100) : 0;
+        const completedCount = analyticsHabits.filter(h => h.completedDates.includes(day.iso)).length;
+        const rate = analyticsHabits.length > 0 ? Math.round((completedCount / analyticsHabits.length) * 100) : 0;
         return {
           label: day.dayDisplay,
           subLabel: day.iso,
           Completed: completedCount,
           Rate: rate,
-          Total: habits.length
+          Total: analyticsHabits.length
         };
       });
 
@@ -228,9 +329,9 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
       const chartPoints = intervals.map(w => {
         let completedCount = 0;
         w.days.forEach(d => {
-          completedCount += habits.filter(h => h.completedDates.includes(d)).length;
+          completedCount += analyticsHabits.filter(h => h.completedDates.includes(d)).length;
         });
-        const maxPossible = habits.length * w.days.length;
+        const maxPossible = analyticsHabits.length * w.days.length;
         const rate = maxPossible > 0 ? Math.round((completedCount / maxPossible) * 100) : 0;
         return {
           label: w.label,
@@ -263,9 +364,9 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
       const chartPoints = intervals.map(m => {
         let completedCount = 0;
         m.days.forEach(d => {
-          completedCount += habits.filter(h => h.completedDates.includes(d)).length;
+          completedCount += analyticsHabits.filter(h => h.completedDates.includes(d)).length;
         });
-        const maxPossible = habits.length * m.days.length;
+        const maxPossible = analyticsHabits.length * m.days.length;
         const rate = maxPossible > 0 ? Math.round((completedCount / maxPossible) * 100) : 0;
         return {
           label: m.label,
@@ -297,9 +398,9 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
     const chartPoints = intervals.map(y => {
       let completedCount = 0;
       y.days.forEach(d => {
-        completedCount += habits.filter(h => h.completedDates.includes(d)).length;
+        completedCount += analyticsHabits.filter(h => h.completedDates.includes(d)).length;
       });
-      const maxPossible = habits.length * y.days.length;
+      const maxPossible = analyticsHabits.length * y.days.length;
       const rate = maxPossible > 0 ? Math.round((completedCount / maxPossible) * 100) : 0;
       return {
         label: y.label,
@@ -324,7 +425,72 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
       bestPeriod: bestPoint ? `${bestPoint.label} (${bestPoint.Completed} check-offs)` : '—',
       activeDays: allDays
     };
-  }, [timeGrain, past14Days, habits]);
+  }, [timeGrain, past14Days, analyticsHabits, customStartDate, customEndDate]);
+
+  const wellnessAnalyticsData = useMemo(() => {
+    let intervals: Array<{ label: string; days: string[] }> = [];
+    if (timeGrain === 'day') {
+      intervals = past14Days.map(day => ({ label: day.dayDisplay, days: [day.iso] }));
+    } else if (timeGrain === 'week') {
+      intervals = getPastNWeeks(8).map(({ label, days }) => ({ label, days }));
+    } else if (timeGrain === 'month') {
+      intervals = getPastNMonths(6).map(({ label, days }) => ({ label, days }));
+    } else if (timeGrain === 'year') {
+      intervals = getPastNYears(3).map(({ label, days }) => ({ label, days }));
+    } else if (customStartDate && customEndDate && customStartDate <= customEndDate) {
+      intervals = getDaysInInterval(customStartDate, customEndDate).map(day => ({
+        label: formatShortDate(day),
+        days: [day]
+      }));
+    }
+
+    const activeDays = intervals.flatMap(interval => interval.days);
+    const records = [...new Set(activeDays)]
+      .map(day => wellness?.[day])
+      .filter((record): record is DailyWellness => Boolean(record));
+    const average = (values: number[]) => values.length
+      ? values.reduce((sum, value) => sum + value, 0) / values.length
+      : null;
+    const chartPoints = intervals.map(interval => {
+      const periodRecords = interval.days
+        .map(day => wellness?.[day])
+        .filter((record): record is DailyWellness => Boolean(record));
+      return {
+        label: interval.label,
+        Water: average(periodRecords.map(record => record.waterGlasses * 250)),
+        Sleep: average(periodRecords.map(record => record.sleepHours)),
+        Energy: average(periodRecords.map(record => record.energyScore)),
+        LoggedDays: periodRecords.length
+      };
+    });
+    const moodDistribution = MOODS.map((mood, index) => ({
+      name: mood.label,
+      value: records.filter(record => record.mood === mood.type).length,
+      color: DYNAMIC_PALETTE[index % DYNAMIC_PALETTE.length]
+    })).filter(item => item.value > 0);
+    const moodCounts = MOODS.map(mood => ({
+      type: mood.type,
+      label: mood.label,
+      count: records.filter(record => record.mood === mood.type).length
+    }));
+    const mostCommonMood = [...moodCounts].sort((a, b) => b.count - a.count)[0];
+    const avgWater = average(records.map(record => record.waterGlasses * 250));
+    const avgSleep = average(records.map(record => record.sleepHours));
+    const avgEnergy = average(records.map(record => record.energyScore));
+
+    return {
+      chartPoints,
+      periodName: grainAnalyticsData.periodName,
+      loggedDays: records.length,
+      avgWater,
+      avgSleep,
+      avgEnergy,
+      waterGoalDays: records.filter(record => record.waterGlasses * 250 >= 3000).length,
+      sleepGoalDays: records.filter(record => record.sleepHours >= 7 && record.sleepHours <= 9).length,
+      moodDistribution,
+      mostCommonMood: mostCommonMood?.count ? mostCommonMood.label : '—'
+    };
+  }, [timeGrain, past14Days, customStartDate, customEndDate, wellness, grainAnalyticsData.periodName]);
 
   // Dynamic category completion share within selected grain
   const habitCategoryChartData = useMemo(() => {
@@ -335,7 +501,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
       categoryCompletions[cat] = 0;
     });
 
-    habits.forEach(h => {
+    analyticsHabits.forEach(h => {
       const inWindow = h.completedDates.filter(d => activeDaysSet.has(d)).length;
       categoryCompletions[h.category] = (categoryCompletions[h.category] || 0) + inWindow;
     });
@@ -347,23 +513,23 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
         value,
         color: CATEGORY_COLORS[name] || DYNAMIC_PALETTE[idx % DYNAMIC_PALETTE.length]
       }));
-  }, [grainAnalyticsData, allCategories, habits]);
+  }, [grainAnalyticsData, allCategories, analyticsHabits]);
 
   // Streak comparison data
   const streakComparisonData = useMemo(() => {
-    return habits.map(h => ({
+    return analyticsHabits.map(h => ({
       name: h.title.length > 15 ? h.title.substring(0, 14) + '…' : h.title,
       Current: h.streak,
       Best: h.bestStreak
     }));
-  }, [habits]);
+  }, [analyticsHabits]);
 
   // Handle adding custom category
   const handleAddNewCategory = () => {
     const trimmed = newCatInput.trim();
     if (!trimmed) return;
     if (!allCategories.includes(trimmed)) {
-      const updated = [...customCategories, trimmed];
+      const updated = [...safeCustomCategories, trimmed];
       onSaveCustomCategories(updated);
     }
     setCategory(trimmed);
@@ -371,7 +537,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
     setIsCreatingNewCat(false);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) return;
 
@@ -379,23 +545,114 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
     if (isCreatingNewCat && newCatInput.trim()) {
       finalCategory = newCatInput.trim();
       if (!allCategories.includes(finalCategory)) {
-        const updated = [...customCategories, finalCategory];
+        const updated = [...safeCustomCategories, finalCategory];
         onSaveCustomCategories(updated);
       }
     }
 
-    onAddHabit({
+    const changes = {
       title: title.trim(),
       category: finalCategory,
       targetDaysPerWeek: selectedWeekdays.length || 1,
+      weekdays: [...selectedWeekdays].sort((a, b) => a - b),
       color
-    });
+    };
+    const saved = editingHabit
+      ? onUpdateHabit(editingHabit.id, changes)
+      : onAddHabit(changes);
+    if (saved && !(await saved)) return;
 
     setTitle('');
     setSelectedWeekdays([1, 2, 3, 4, 5, 6, 0]);
     setIsCreatingNewCat(false);
     setNewCatInput('');
+    setEditingHabit(null);
     setIsAddModalOpen(false);
+  };
+
+  const openCreateHabit = () => {
+    setEditingHabit(null);
+    setTitle('');
+    setCategory('Health');
+    setSelectedWeekdays([1, 2, 3, 4, 5, 6, 0]);
+    setColor('#10B981');
+    setIsCreatingNewCat(false);
+    setIsAddModalOpen(true);
+  };
+
+  const openEditHabit = (habit: Habit) => {
+    setEditingHabit(habit);
+    setTitle(habit.title);
+    setCategory(habit.category);
+    setSelectedWeekdays(Array.isArray(habit.weekdays) && habit.weekdays.length
+      ? [...habit.weekdays]
+      : [1, 2, 3, 4, 5, 6, 0].slice(0, Math.max(1, Math.min(7, habit.targetDaysPerWeek))));
+    setColor(habit.color);
+    setIsCreatingNewCat(false);
+    setIsAddModalOpen(true);
+  };
+
+  const confirmDeleteHabit = async () => {
+    if (!habitToDelete) return;
+    const deleted = onDeleteHabit(habitToDelete.id);
+    if (deleted && !(await deleted)) return;
+    setHabitToDelete(null);
+  };
+
+  const addHabitCategory = async () => {
+    const name = newHabitCategory.trim();
+    if (!name || allCategories.some(item => item.toLowerCase() === name.toLowerCase())) {
+      setCategoryActionError(name ? 'That category already exists.' : 'Enter a category name.');
+      return;
+    }
+    setCategoryActionError('');
+    const saved = await onSaveCustomCategories([...safeCustomCategories, name]);
+    if (saved === false) return;
+    setNewHabitCategory('');
+  };
+
+  const saveHabitCategoryEdit = async () => {
+    if (!editingCategory) return;
+    const oldName = editingCategory;
+    const newName = editingCategoryName.trim();
+    if (!newName) {
+      setCategoryActionError('Enter a category name.');
+      return;
+    }
+    if (allCategories.some(item => item.toLowerCase() === newName.toLowerCase() && item !== oldName)) {
+      setCategoryActionError('That category already exists.');
+      return;
+    }
+    setCategoryActionError('');
+    const affected = habits.filter(habit => habit.category === oldName);
+    for (const habit of affected) {
+      const saved = await onUpdateHabit(habit.id, { category: newName });
+      if (saved === false) return;
+    }
+    const updatedCategories = safeCustomCategories.includes(oldName)
+      ? safeCustomCategories.map(item => item === oldName ? newName : item)
+      : [...safeCustomCategories, newName];
+    const saved = await onSaveCustomCategories(updatedCategories);
+    if (saved === false) return;
+    if (selectedCategory === oldName) setSelectedCategory(newName);
+    if (category === oldName) setCategory(newName);
+    setEditingCategory(null);
+    setEditingCategoryName('');
+  };
+
+  const confirmDeleteCategory = async () => {
+    if (!categoryToDelete) return;
+    setCategoryActionError('');
+    const affected = habits.filter(habit => habit.category === categoryToDelete);
+    for (const habit of affected) {
+      const saved = await onUpdateHabit(habit.id, { category: 'Personal' });
+      if (saved === false) return;
+    }
+    const saved = await onSaveCustomCategories(safeCustomCategories.filter(item => item !== categoryToDelete));
+    if (saved === false) return;
+    if (selectedCategory === categoryToDelete) setSelectedCategory('all');
+    if (category === categoryToDelete) setCategory('Personal');
+    setCategoryToDelete(null);
   };
 
   return (
@@ -416,42 +673,74 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
         </div>
 
         <div className="flex items-center gap-2.5 flex-wrap">
-          {/* Mode Switcher: Matrix vs Analytics */}
-          <div className="flex items-center p-1 bg-slate-100 dark:bg-slate-800 rounded-lg text-xs font-medium">
+          {/* Matrix and analytics views */}
+          <div className="grid w-full grid-cols-2 items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-100 p-1.5 text-xs font-medium dark:border-slate-800 dark:bg-slate-950/70 lg:flex lg:w-auto lg:gap-0.5 lg:rounded-lg lg:border-0 lg:bg-slate-100 lg:p-1 lg:dark:bg-slate-800">
             <button
+              type="button"
+              aria-pressed={viewMode === 'matrix'}
               onClick={() => setViewMode('matrix')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-colors ${
+              className={`col-span-2 flex min-h-9 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-2 py-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 lg:col-span-1 lg:min-h-0 lg:rounded-md lg:gap-1.5 lg:px-3 lg:py-1.5 ${
                 viewMode === 'matrix'
-                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-xs'
-                  : 'text-slate-600 dark:text-slate-400'
+                  ? 'bg-blue-600 text-white shadow-sm dark:bg-blue-500 lg:bg-white lg:text-blue-600 lg:dark:bg-slate-900 lg:dark:text-blue-400'
+                  : 'bg-white/70 text-slate-600 hover:bg-white hover:text-slate-900 dark:bg-slate-800/70 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white'
               }`}
             >
               <LayoutGrid className="w-3.5 h-3.5" />
-              <span>14-Day Matrix</span>
+              <span className="lg:hidden">Matrix</span>
+              <span className="hidden lg:inline">14-Day Matrix</span>
             </button>
             <button
+              type="button"
+              aria-pressed={viewMode === 'analytics'}
               onClick={() => setViewMode('analytics')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-colors ${
+              className={`flex min-h-9 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-2 py-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 lg:min-h-0 lg:rounded-md lg:gap-1.5 lg:px-3 lg:py-1.5 ${
                 viewMode === 'analytics'
-                  ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-xs'
-                  : 'text-slate-600 dark:text-slate-400'
+                  ? 'bg-blue-600 text-white shadow-sm dark:bg-blue-500 lg:bg-white lg:text-blue-600 lg:dark:bg-slate-900 lg:dark:text-blue-400'
+                  : 'bg-white/70 text-slate-600 hover:bg-white hover:text-slate-900 dark:bg-slate-800/70 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white'
               }`}
             >
               <BarChart3 className="w-3.5 h-3.5" />
-              <span>Habit Analytics</span>
+              <span className="lg:hidden">Habits</span>
+              <span className="hidden lg:inline">Habit Analytics</span>
+            </button>
+            <button
+              type="button"
+              aria-pressed={viewMode === 'wellnessAnalytics'}
+              onClick={() => setViewMode('wellnessAnalytics')}
+              className={`flex min-h-9 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-2 py-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 lg:min-h-0 lg:rounded-md lg:gap-1.5 lg:px-3 lg:py-1.5 ${
+                viewMode === 'wellnessAnalytics'
+                  ? 'bg-blue-600 text-white shadow-sm dark:bg-blue-500 lg:bg-white lg:text-blue-600 lg:dark:bg-slate-900 lg:dark:text-blue-400'
+                  : 'bg-white/70 text-slate-600 hover:bg-white hover:text-slate-900 dark:bg-slate-800/70 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white'
+              }`}
+            >
+              <Droplet className="h-3.5 w-3.5" />
+              <span className="lg:hidden">Wellness</span>
+              <span className="hidden lg:inline">Wellness Analytics</span>
             </button>
           </div>
 
-          <button
-            onClick={() => setIsAddModalOpen(true)}
-            className="flex items-center gap-1.5 px-4 py-2 text-xs font-medium text-white bg-slate-900 dark:bg-slate-100 dark:text-slate-950 rounded-lg hover:bg-slate-800 dark:hover:bg-white transition-colors shadow-xs whitespace-nowrap cursor-pointer"
-          >
-            <Plus className="w-4 h-4" />
-            <span>New Habit</span>
-          </button>
+          <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
+            <button
+              type="button"
+              onClick={() => { setCategoryActionError(''); setIsCategoryManagerOpen(true); }}
+              className="flex min-h-10 w-full cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-2 py-2 text-[11px] font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 sm:w-auto sm:px-3 sm:text-xs"
+            >
+              <Tag className="w-3.5 h-3.5" />
+              <span>Manage Categories</span>
+            </button>
+            <button
+              type="button"
+              onClick={openCreateHabit}
+              className="flex min-h-10 w-full cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-slate-900 px-2 py-2 text-[11px] font-semibold text-white shadow-xs transition-colors hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-white sm:w-auto sm:px-4 sm:text-xs"
+            >
+              <Plus className="w-4 h-4" />
+              <span>New Habit</span>
+            </button>
+          </div>
         </div>
       </div>
 
+      {viewMode === 'matrix' && <>
       {/* Quick Daily Wellness Tracker Bar (Water, Sleep, Mood & Energy) */}
       <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3 pb-3 border-b border-slate-100 dark:border-slate-800/80">
@@ -463,10 +752,16 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
             <span className="text-xs font-mono text-slate-400 dark:text-slate-500">
               ({targetDate})
             </span>
+            {savingKeys?.has(`wellness:${targetDate}`) && <span role="status" className="hidden items-center gap-1 text-[11px] font-medium text-sky-600 dark:text-sky-400 sm:inline-flex"><LoaderCircle className="h-3.5 w-3.5 animate-spin" /> Saving</span>}
           </div>
           <div className="text-xs text-slate-500 dark:text-slate-400">
             Quickly track water, sleep &amp; mood alongside your habits
           </div>
+        </div>
+        <div className="-mt-1 mb-2 flex h-4 items-center justify-end sm:hidden">
+          <span role="status" aria-hidden={!savingKeys?.has(`wellness:${targetDate}`)} className={`flex items-center gap-1 text-right text-[11px] font-medium text-sky-600 transition-opacity dark:text-sky-400 ${savingKeys?.has(`wellness:${targetDate}`) ? 'visible opacity-100' : 'invisible opacity-0'}`}>
+            <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> Saving to Supabase
+          </span>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -478,50 +773,55 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
                 <span>Water Intake</span>
               </div>
               <span className="text-xs font-mono font-bold text-blue-700 dark:text-blue-300 tabular-nums">
-                {(dayWellness.waterGlasses || 0) * 250} / 2,000 ml
+                {(waterGlasses * 250).toLocaleString()} / 3,000 ml
               </span>
             </div>
 
             {/* Progress bar */}
-            <div className="w-full h-2 rounded-full bg-blue-200 dark:bg-blue-900/50 overflow-hidden">
+            <div className="relative w-full h-2 rounded-full bg-blue-200 dark:bg-blue-900/50 overflow-hidden">
               <div
                 className="h-full bg-blue-500 rounded-full transition-all duration-300"
-                style={{ width: `${Math.min(100, ((dayWellness.waterGlasses || 0) / 8) * 100)}%` }}
+                style={{ width: `${Math.min(100, (waterGlasses / 20) * 100)}%` }}
               />
+              <span aria-hidden="true" className="absolute inset-y-0 left-[60%] w-px bg-white/90 dark:bg-white/80" />
             </div>
 
-            <div className="flex items-center justify-between gap-1 pt-1">
+            <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-2 pt-1">
               <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
-                {dayWellness.waterGlasses || 0}/8 glasses
+                {waterGlasses}/12 glasses to target
               </span>
-              <div className="flex items-center gap-1">
+              <div className="ml-auto flex shrink-0 items-center gap-1.5">
                 <button
                   type="button"
                   onClick={() => handleAdjustWater(-1)}
-                  className="w-7 h-7 rounded-md border border-blue-200 dark:border-blue-800 bg-white dark:bg-slate-900 text-xs font-mono font-bold text-slate-700 dark:text-slate-300 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors cursor-pointer flex items-center justify-center"
-                  title="Subtract 1 glass (-250ml)"
+                  disabled={waterGlasses <= 0}
+                  className="h-10 w-10 shrink-0 whitespace-nowrap rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm font-mono font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer flex items-center justify-center disabled:cursor-not-allowed disabled:opacity-40"
+                  title="Remove 1 glass (−250 ml)"
+                  aria-label="Remove one glass of water"
                 >
                   -
                 </button>
                 <button
                   type="button"
                   onClick={() => handleAdjustWater(1)}
-                  className="px-2.5 h-7 rounded-md bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 transition-colors cursor-pointer flex items-center gap-1 shadow-xs"
+                  disabled={waterGlasses >= 20}
+                  className="h-10 w-10 shrink-0 whitespace-nowrap rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm font-mono font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer flex items-center justify-center disabled:cursor-not-allowed disabled:opacity-40"
                   title="Add 1 glass (+250ml)"
                 >
-                  <Plus className="w-3 h-3" />
-                  <span>1 Glass</span>
+                  +
                 </button>
                 <button
                   type="button"
                   onClick={() => handleAdjustWater(2)}
-                  className="px-2 h-7 rounded-md border border-blue-200 dark:border-blue-800 bg-white dark:bg-slate-900 text-[11px] font-mono font-semibold text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors cursor-pointer flex items-center justify-center"
+                  disabled={waterGlasses >= 20}
+                  className="h-10 min-w-[70px] shrink-0 whitespace-nowrap rounded-lg border border-slate-300 dark:border-slate-700 bg-white px-2 dark:bg-slate-900 text-xs font-mono font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer flex items-center justify-center disabled:cursor-not-allowed disabled:opacity-40"
                   title="Add 2 glasses (+500ml)"
                 >
-                  +500ml
+                  +500
                 </button>
               </div>
             </div>
+            <p className="text-[10px] leading-relaxed text-slate-500 dark:text-slate-400">Minimum 1,800–2,000 ml/day · healthy target 3,000 ml · safe ceiling 4,500–5,000 ml</p>
           </div>
 
           {/* 😴 Sleep Hours Tracker */}
@@ -629,10 +929,10 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
       </div>
 
       {/* Category Filter Toolbar with custom categories */}
-      <div className="flex items-center p-1 bg-slate-100 dark:bg-slate-800 rounded-lg text-xs font-medium overflow-x-auto gap-1">
+      <div className="hidden items-center gap-1 overflow-x-auto rounded-xl bg-slate-100 p-1 text-xs font-medium dark:bg-slate-800 sm:flex">
         <button
           onClick={() => setSelectedCategory('all')}
-          className={`px-3 py-1.5 rounded-md transition-colors whitespace-nowrap cursor-pointer ${
+          className={`w-full rounded-lg px-2 py-2 text-center leading-tight transition-colors cursor-pointer sm:w-auto sm:whitespace-nowrap sm:px-3 sm:py-1.5 sm:rounded-md ${
             selectedCategory === 'all'
               ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-xs'
               : 'text-slate-600 dark:text-slate-400'
@@ -644,7 +944,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
           <button
             key={cat}
             onClick={() => setSelectedCategory(cat)}
-            className={`px-3 py-1.5 rounded-md transition-colors whitespace-nowrap cursor-pointer ${
+            className={`w-full rounded-lg px-2 py-2 text-center leading-tight transition-colors cursor-pointer sm:w-auto sm:whitespace-nowrap sm:px-3 sm:py-1.5 sm:rounded-md ${
               selectedCategory === cat
                 ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-xs'
                 : 'text-slate-600 dark:text-slate-400'
@@ -654,25 +954,55 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
           </button>
         ))}
       </div>
+      <div className="flex items-center gap-2 sm:hidden">
+        <button
+          type="button"
+          onClick={() => setSelectedCategory('all')}
+          className={`shrink-0 rounded-xl px-3.5 py-3 text-xs font-semibold transition-colors ${selectedCategory === 'all' ? 'bg-slate-900 text-white shadow-sm dark:bg-slate-100 dark:text-slate-950' : 'border border-slate-200 bg-white text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300'}`}
+        >
+          All Categories <span className="ml-1 opacity-75">({habits.length})</span>
+        </button>
+        <div className="relative min-w-0 flex-1">
+          <button type="button" aria-label="Filter by habit category" aria-haspopup="listbox" aria-expanded={isMobileCategoryMenuOpen} onClick={() => setIsMobileCategoryMenuOpen(open => !open)} className={`flex w-full items-center justify-between gap-2 rounded-xl border py-3 pl-3 pr-3 text-left text-xs font-semibold outline-none ${selectedCategory === 'all' ? 'border-slate-200 bg-white text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400' : 'border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300'}`}>
+            <span className="truncate">{selectedCategory === 'all' ? 'Choose a category' : `${selectedCategory} (${habits.filter(habit => habit.category === selectedCategory).length})`}</span>
+            <ChevronDown className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${isMobileCategoryMenuOpen ? 'rotate-180' : ''}`} />
+          </button>
+          {isMobileCategoryMenuOpen && <>
+            <button type="button" aria-label="Close category menu" className="fixed inset-0 z-20 cursor-default" onClick={() => setIsMobileCategoryMenuOpen(false)} />
+            <div role="listbox" aria-label="Habit categories" className="absolute right-0 top-full z-30 mt-2 max-h-64 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+              {allCategories.map(cat => <button key={cat} type="button" role="option" aria-selected={selectedCategory === cat} onClick={() => { setSelectedCategory(cat); setIsMobileCategoryMenuOpen(false); }} className={`flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left text-xs transition-colors ${selectedCategory === cat ? 'bg-blue-50 font-semibold text-blue-700 dark:bg-blue-950/50 dark:text-blue-300' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800'}`}>
+                <span>{cat}</span><span className="ml-2 text-[11px] opacity-70">{habits.filter(habit => habit.category === cat).length}</span>
+              </button>)}
+            </div>
+          </>}
+        </div>
+      </div>
+      </>}
 
       {/* VIEW 1: 14-DAY CONSISTENCY MATRIX */}
       {viewMode === 'matrix' && (
         <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs overflow-hidden">
-          <div className="p-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+          <div className="flex flex-col gap-3 border-b border-slate-200 p-4 dark:border-slate-800 sm:flex-row sm:items-center sm:justify-between sm:p-5">
             <div>
               <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
                 14-Day Consistency Matrix
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                Click any day cell to toggle past completion state
+                Scheduled days are available to check off; other days are disabled
               </p>
             </div>
-            <span className="text-xs font-mono text-slate-400">
-              Showing {filteredHabits.length} of {habits.length} habits
-            </span>
+            <div className="flex w-full items-center justify-between gap-2 sm:w-auto sm:justify-end">
+              <span className="text-[11px] font-mono text-slate-400 sm:text-xs">
+                Showing {filteredHabits.length} of {habits.length} habits
+              </span>
+              {savingKeys?.has('habit:order') && <span role="status" className="inline-flex items-center gap-1 text-[11px] font-medium text-sky-500"><LoaderCircle className="h-3.5 w-3.5 animate-spin" /> Saving order</span>}
+              <button type="button" onClick={() => setIsEditingOrder(value => !value)} className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${isEditingOrder ? 'border-blue-500 bg-blue-600 text-white' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'}`}>
+                <ListOrdered className="h-3.5 w-3.5" />{isEditingOrder ? 'Done' : 'Edit Order'}
+              </button>
+            </div>
           </div>
 
-          <div className="overflow-x-auto">
+          <div className="hidden overflow-x-auto sm:block">
             <table className="w-full text-left text-xs text-slate-600 dark:text-slate-300">
               <thead className="bg-slate-50/75 dark:bg-slate-800/50 text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800">
                 <tr>
@@ -703,7 +1033,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
                     </td>
                   </tr>
                 ) : (
-                  filteredHabits.map(habit => {
+                  filteredHabits.map((habit, habitIndex) => {
                     const doneCount14d = past14Days.filter(day => habit.completedDates.includes(day.iso)).length;
                     const rate14d = Math.round((doneCount14d / 14) * 100);
 
@@ -755,6 +1085,8 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
 
                         {past14Days.map((day, idx) => {
                           const isDone = habit.completedDates.includes(day.iso);
+                          const scheduledDay = (habit.weekdays || [0, 1, 2, 3, 4, 5, 6]).includes(new Date(`${day.iso}T00:00:00`).getDay());
+                          const isSavingDay = savingKeys?.has(`habit:${habit.id}:${day.iso}`);
                           return (
                             <td
                               key={day.iso}
@@ -763,14 +1095,18 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
                               } ${idx === 7 ? 'border-l border-slate-200 dark:border-slate-800' : ''}`}
                             >
                               <button
+                                disabled={!scheduledDay || isSavingDay}
                                 onClick={() => onToggleHabit(habit.id, day.iso)}
-                                className={`w-6 h-6 rounded-md mx-auto flex items-center justify-center transition-all cursor-pointer ${
+                                className={`w-6 h-6 rounded-md mx-auto flex items-center justify-center transition-all ${
                                   isDone
                                     ? 'bg-emerald-500 text-white shadow-xs hover:scale-105 active:scale-95'
-                                    : 'border border-slate-200 dark:border-slate-700 hover:border-slate-400 dark:hover:border-slate-500 text-transparent hover:bg-slate-50 dark:hover:bg-slate-800'
-                                }`}
-                                title={`${habit.title} on ${day.iso}: ${isDone ? 'Completed' : 'Not completed'}`}
+                                    : scheduledDay
+                                      ? 'border border-slate-200 dark:border-slate-700 hover:border-slate-400 dark:hover:border-slate-500 text-transparent hover:bg-slate-50 dark:hover:bg-slate-800'
+                                      : 'border border-transparent bg-slate-100/70 dark:bg-slate-800/50 text-transparent opacity-40 cursor-not-allowed'
+                                } ${scheduledDay ? 'cursor-pointer' : 'cursor-not-allowed'} disabled:cursor-wait disabled:opacity-50`}
+                                title={`${habit.title} on ${day.iso}: ${scheduledDay ? (isDone ? 'Completed' : 'Not completed') : 'Not scheduled'}`}
                               >
+                                {isSavingDay && <LoaderCircle className="h-3.5 w-3.5 animate-spin" />}
                                 ✓
                               </button>
                             </td>
@@ -778,13 +1114,27 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
                         })}
 
                         <td className="py-3.5 px-3 text-right">
+                          {isEditingOrder ? <div className="flex items-center justify-end gap-1">
+                            <button type="button" onClick={() => moveHabit(habit.id, -1)} disabled={habitIndex === 0 || savingKeys?.has('habit:order')} aria-label={`Move ${habit.title} up`} title="Move up" className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-30 dark:hover:bg-slate-800 dark:hover:text-slate-200"><ArrowUp className="h-4 w-4" /></button>
+                            <button type="button" onClick={() => moveHabit(habit.id, 1)} disabled={habitIndex === filteredHabits.length - 1 || savingKeys?.has('habit:order')} aria-label={`Move ${habit.title} down`} title="Move down" className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-30 dark:hover:bg-slate-800 dark:hover:text-slate-200"><ArrowDown className="h-4 w-4" /></button>
+                          </div> : <>
                           <button
-                            onClick={() => onDeleteHabit(habit.id)}
-                            className="p-1.5 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 transition-colors rounded-md hover:bg-rose-50 dark:hover:bg-rose-950/30 cursor-pointer"
+                            type="button"
+                            onClick={() => openEditHabit(habit)}
+                            className="mr-1.5 p-1.5 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors rounded-md hover:bg-blue-50 dark:hover:bg-blue-950/30 cursor-pointer"
+                            title={`Edit ${habit.title}`}
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            disabled={savingKeys?.has(`habit:delete:${habit.id}`)}
+                            onClick={() => setHabitToDelete(habit)}
+                            className="p-1.5 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 transition-colors rounded-md hover:bg-rose-50 dark:hover:bg-rose-950/30 cursor-pointer disabled:cursor-wait disabled:opacity-60"
                             title="Delete habit"
                           >
-                            <Trash2 className="w-3.5 h-3.5" />
+                            {savingKeys?.has(`habit:delete:${habit.id}`) ? <LoaderCircle className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
                           </button>
+                          </>}
                         </td>
                       </tr>
                     );
@@ -793,6 +1143,51 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
               </tbody>
             </table>
           </div>
+
+          <div className="divide-y divide-slate-200 dark:divide-slate-800 sm:hidden">
+            {filteredHabits.length === 0 ? <div className="px-4 py-10 text-center text-sm text-slate-400">No habits in this category yet.</div> : filteredHabits.map((habit, habitIndex) => {
+              const doneCount = past14Days.filter(day => habit.completedDates.includes(day.iso)).length;
+              const rate = Math.round((doneCount / 14) * 100);
+              const isSavingHabit = savingKeys?.has(`habit:update:${habit.id}`) || savingKeys?.has(`habit:delete:${habit.id}`);
+              return <article key={habit.id} className="space-y-3.5 p-3.5">
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: habit.color }} />
+                  <div className="min-w-0 flex-1">
+                    <h4 className="truncate text-sm font-bold text-slate-900 dark:text-slate-100">{habit.title}</h4>
+                    <p className="truncate text-[11px] text-slate-500 dark:text-slate-400">{habit.category}</p>
+                  </div>
+                  {isEditingOrder ? <div className="flex shrink-0 items-center gap-1">
+                    <button type="button" onClick={() => moveHabit(habit.id, -1)} disabled={habitIndex === 0 || savingKeys?.has('habit:order')} aria-label={`Move ${habit.title} up`} className="rounded-lg border border-slate-200 p-2 text-slate-500 disabled:opacity-30 dark:border-slate-700"><ArrowUp className="h-4 w-4" /></button>
+                    <button type="button" onClick={() => moveHabit(habit.id, 1)} disabled={habitIndex === filteredHabits.length - 1 || savingKeys?.has('habit:order')} aria-label={`Move ${habit.title} down`} className="rounded-lg border border-slate-200 p-2 text-slate-500 disabled:opacity-30 dark:border-slate-700"><ArrowDown className="h-4 w-4" /></button>
+                  </div> : <div className="flex shrink-0 items-center gap-1">
+                    <button type="button" onClick={() => openEditHabit(habit)} aria-label={`Edit ${habit.title}`} className="rounded-lg border border-slate-200 p-2 text-slate-500 dark:border-slate-700"><Pencil className="h-4 w-4" /></button>
+                    <button type="button" onClick={() => setHabitToDelete(habit)} disabled={savingKeys?.has(`habit:delete:${habit.id}`)} aria-label={`Delete ${habit.title}`} className="rounded-lg border border-slate-200 p-2 text-slate-500 disabled:opacity-50 dark:border-slate-700"><Trash2 className="h-4 w-4" /></button>
+                  </div>}
+                </div>
+
+                <div className="grid grid-cols-4 gap-1.5">
+                  <div className="rounded-lg bg-slate-50 px-2 py-1.5 dark:bg-slate-800/70"><span className="block text-[9px] uppercase tracking-wide text-slate-500">Streak</span><span className="text-xs font-bold tabular-nums text-amber-500">🔥 {habit.streak}d</span></div>
+                  <div className="rounded-lg bg-slate-50 px-2 py-1.5 dark:bg-slate-800/70"><span className="block text-[9px] uppercase tracking-wide text-slate-500">Best</span><span className="text-xs font-bold tabular-nums text-slate-600 dark:text-slate-300">🏆 {habit.bestStreak}d</span></div>
+                  <div className="rounded-lg bg-slate-50 px-2 py-1.5 dark:bg-slate-800/70"><span className="block text-[9px] uppercase tracking-wide text-slate-500">Target</span><span className="text-xs font-bold tabular-nums text-slate-700 dark:text-slate-200">{habit.targetDaysPerWeek}d/wk</span></div>
+                  <div className="rounded-lg bg-slate-50 px-2 py-1.5 dark:bg-slate-800/70"><span className="block text-[9px] uppercase tracking-wide text-slate-500">14d Rate</span><span className="text-xs font-bold tabular-nums text-blue-600 dark:text-blue-400">{rate}%</span></div>
+                </div>
+
+                <div className="grid grid-cols-7 gap-1">
+                  {past14Days.map(day => {
+                    const isDone = habit.completedDates.includes(day.iso);
+                    const scheduled = (habit.weekdays || [0, 1, 2, 3, 4, 5, 6]).includes(new Date(`${day.iso}T00:00:00`).getDay());
+                    const isSaving = savingKeys?.has(`habit:${habit.id}:${day.iso}`);
+                    return <div key={day.iso} className={`rounded-lg py-1 text-center ${day.isToday ? 'bg-blue-50 ring-1 ring-blue-200 dark:bg-blue-950/40 dark:ring-blue-900' : ''}`}>
+                      <span className={`block text-[9px] leading-3 ${day.isToday ? 'font-bold text-blue-600 dark:text-blue-400' : 'text-slate-500'}`}>{day.dayLetter}</span>
+                      <button type="button" disabled={!scheduled || isSaving} onClick={() => onToggleHabit(habit.id, day.iso)} aria-label={`${habit.title}, ${day.iso}: ${scheduled ? (isDone ? 'completed' : 'not completed') : 'not scheduled'}`} title={scheduled ? day.iso : `${day.iso}: not scheduled`} className={`mx-auto mt-1 flex h-7 w-7 items-center justify-center rounded-lg text-[10px] font-semibold tabular-nums transition-colors disabled:cursor-not-allowed ${isDone ? 'bg-emerald-500 text-white' : scheduled ? 'border border-slate-200 bg-white text-slate-500 hover:border-emerald-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400' : 'bg-slate-100 text-slate-300 opacity-50 dark:bg-slate-800 dark:text-slate-600'}`}>
+                        {isSaving ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : isDone ? <Check className="h-3.5 w-3.5" /> : day.dateNum}
+                      </button>
+                    </div>;
+                  })}
+                </div>
+              </article>;
+            })}
+          </div>
         </div>
       )}
 
@@ -800,7 +1195,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
       {viewMode === 'analytics' && (
         <div className="space-y-6">
           {/* Grain Switcher & Overview Cards */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
+          <div className="flex flex-col justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900 lg:flex-row lg:items-center">
             <div>
               <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
                 Analytics Timeframe
@@ -810,13 +1205,28 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
               </div>
             </div>
 
-            {/* Day / Week / Month / Year Pills */}
-            <div className="flex items-center p-1 bg-slate-100 dark:bg-slate-800 rounded-lg text-xs font-medium">
-              {(['day', 'week', 'month', 'year'] as AnalyticsTimeGrain[]).map(g => (
+            {/* Timeframe controls */}
+            <div className="grid w-full grid-cols-1 gap-3 lg:w-auto lg:grid-cols-[220px_auto] lg:items-end">
+              <label className="w-full text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                Habit
+                <select
+                  aria-label="Filter analytics by habit"
+                  value={selectedAnalyticsHabit?.id ?? 'all'}
+                  onChange={event => setSelectedAnalyticsHabitId(event.target.value)}
+                  className="mt-1 block h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium normal-case tracking-normal text-slate-800 outline-none focus:border-emerald-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                >
+                  <option value="all">All Habits ({habits.length})</option>
+                  {habits.map(habit => (
+                    <option key={habit.id} value={habit.id}>{habit.title} · {habit.category}</option>
+                  ))}
+                </select>
+              </label>
+              <div className="grid w-full grid-cols-5 items-center gap-0.5 rounded-lg bg-slate-100 p-1 text-xs font-medium dark:bg-slate-800 lg:flex lg:w-auto lg:gap-0">
+              {(['day', 'week', 'month', 'year', 'custom'] as AnalyticsTimeGrain[]).map(g => (
                 <button
                   key={g}
                   onClick={() => setTimeGrain(g)}
-                  className={`px-3 py-1.5 rounded-md uppercase tracking-wider transition-colors cursor-pointer ${
+                  className={`min-w-0 flex-1 whitespace-nowrap rounded-md px-1 py-1.5 text-[10px] uppercase tracking-wide transition-colors cursor-pointer lg:min-w-fit lg:px-3 lg:text-xs lg:tracking-wider ${
                     timeGrain === g
                       ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-xs font-bold'
                       : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
@@ -825,6 +1235,34 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
                   {g}
                 </button>
               ))}
+              </div>
+              {timeGrain === 'custom' && (
+                <div className="grid grid-cols-2 gap-2 lg:col-start-2 lg:min-w-[300px]">
+                  <label className="min-w-0 text-[10px] font-medium uppercase tracking-wide text-slate-500">
+                    From
+                    <input
+                      aria-label="Analytics start date"
+                      type="date"
+                      value={customStartDate}
+                      max={customEndDate < todayIso ? customEndDate : todayIso}
+                      onChange={event => setCustomStartDate(event.target.value)}
+                      className="mt-1 block h-9 w-full min-w-0 rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                    />
+                  </label>
+                  <label className="min-w-0 text-[10px] font-medium uppercase tracking-wide text-slate-500">
+                    To
+                    <input
+                      aria-label="Analytics end date"
+                      type="date"
+                      value={customEndDate}
+                      min={customStartDate}
+                      max={todayIso}
+                      onChange={event => setCustomEndDate(event.target.value)}
+                      className="mt-1 block h-9 w-full min-w-0 rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                    />
+                  </label>
+                </div>
+              )}
             </div>
           </div>
 
@@ -836,7 +1274,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
                 {grainAnalyticsData.totalCompleted}
               </div>
               <div className="text-[11px] text-slate-500 mt-1">
-                Across {habits.length} habits in {grainAnalyticsData.periodName}
+                Across {analyticsHabits.length} {analyticsHabits.length === 1 ? 'habit' : 'habits'} in {grainAnalyticsData.periodName}
               </div>
             </div>
 
@@ -846,7 +1284,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
                 {grainAnalyticsData.avgRate}%
               </div>
               <div className="text-[11px] text-slate-500 mt-1">
-                Average adherence score for {timeGrain} grain
+                Average adherence score for {timeGrain === 'custom' ? 'selected date range' : `${timeGrain} grain`}
               </div>
             </div>
 
@@ -861,7 +1299,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
             <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs">
               <div className="text-xs text-slate-400">Active Streaks</div>
               <div className="text-2xl font-bold font-mono text-amber-500 mt-1">
-                {habits.filter(h => h.streak > 0).length} / {habits.length}
+                {analyticsHabits.filter(h => h.streak > 0).length} / {analyticsHabits.length}
               </div>
               <div className="text-[11px] text-slate-500 mt-1">Habits currently on active streaks</div>
             </div>
@@ -873,7 +1311,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
               <div className="flex items-center justify-between">
                 <div>
                   <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                    Habit Consistency by {timeGrain.toUpperCase()}
+                    Habit Consistency by {timeGrain === 'custom' ? 'DATE' : timeGrain.toUpperCase()}
                   </h4>
                   <p className="text-xs text-slate-400">
                     {grainAnalyticsData.unitLabel} and adherence percentage ({grainAnalyticsData.periodName})
@@ -1025,14 +1463,158 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
         </div>
       )}
 
-      {/* NEW HABIT MODAL WITH OPTION TO CREATE NEW CATEGORY */}
+      {viewMode === 'wellnessAnalytics' && (
+        <section className="space-y-5" aria-label="Wellness analytics">
+          <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Wellness Analytics</p>
+              <h3 className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">Showing {wellnessAnalyticsData.periodName}</h3>
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Trends use days with a saved wellness entry.</p>
+            </div>
+            <div className="flex w-full flex-col gap-2 lg:w-auto">
+              <div className="grid w-full grid-cols-5 items-center gap-0.5 rounded-lg bg-slate-100 p-1 text-xs font-medium dark:bg-slate-800 lg:flex lg:w-auto">
+                {(['day', 'week', 'month', 'year', 'custom'] as AnalyticsTimeGrain[]).map(grain => (
+                  <button
+                    key={grain}
+                    type="button"
+                    onClick={() => setTimeGrain(grain)}
+                    className={`min-w-0 flex-1 whitespace-nowrap rounded-md px-1 py-1.5 text-[10px] uppercase tracking-wide transition-colors lg:min-w-fit lg:px-3 lg:text-xs lg:tracking-wider ${timeGrain === grain ? 'bg-white font-bold text-blue-600 shadow-xs dark:bg-slate-900 dark:text-blue-400' : 'text-slate-600 dark:text-slate-400'}`}
+                  >
+                    {grain}
+                  </button>
+                ))}
+              </div>
+              {timeGrain === 'custom' && (
+                <div className="grid grid-cols-2 gap-2 lg:min-w-[300px]">
+                  <label className="min-w-0 text-[10px] font-medium uppercase tracking-wide text-slate-500">
+                    From
+                    <input type="date" aria-label="Wellness analytics start date" value={customStartDate} max={customEndDate < todayIso ? customEndDate : todayIso} onChange={event => setCustomStartDate(event.target.value)} className="mt-1 block h-9 w-full min-w-0 rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200" />
+                  </label>
+                  <label className="min-w-0 text-[10px] font-medium uppercase tracking-wide text-slate-500">
+                    To
+                    <input type="date" aria-label="Wellness analytics end date" value={customEndDate} min={customStartDate} max={todayIso} onChange={event => setCustomEndDate(event.target.value)} className="mt-1 block h-9 w-full min-w-0 rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200" />
+                  </label>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
+            <div className="rounded-xl border border-blue-200 bg-blue-50/60 p-4 dark:border-blue-950 dark:bg-blue-950/30">
+              <p className="text-xs font-medium text-blue-700 dark:text-blue-300">Average Water</p>
+              <p className="mt-1 text-xl font-bold tabular-nums text-blue-700 dark:text-blue-200">{wellnessAnalyticsData.avgWater === null ? '—' : `${Math.round(wellnessAnalyticsData.avgWater).toLocaleString()} ml`}</p>
+              <p className="mt-1 text-[11px] text-slate-500">{wellnessAnalyticsData.loggedDays ? `${wellnessAnalyticsData.waterGoalDays} of ${wellnessAnalyticsData.loggedDays} logged days met 3,000 ml` : 'No saved entries in this range'}</p>
+            </div>
+            <div className="rounded-xl border border-indigo-200 bg-indigo-50/60 p-4 dark:border-indigo-950 dark:bg-indigo-950/30">
+              <p className="text-xs font-medium text-indigo-700 dark:text-indigo-300">Average Sleep</p>
+              <p className="mt-1 text-xl font-bold tabular-nums text-indigo-700 dark:text-indigo-200">{wellnessAnalyticsData.avgSleep === null ? '—' : `${wellnessAnalyticsData.avgSleep.toFixed(1)} hrs`}</p>
+              <p className="mt-1 text-[11px] text-slate-500">{wellnessAnalyticsData.sleepGoalDays} logged {wellnessAnalyticsData.sleepGoalDays === 1 ? 'night' : 'nights'} within 7–9 hrs</p>
+            </div>
+            <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 dark:border-amber-950 dark:bg-amber-950/30">
+              <p className="text-xs font-medium text-amber-700 dark:text-amber-300">Average Energy</p>
+              <p className="mt-1 text-xl font-bold tabular-nums text-amber-700 dark:text-amber-200">{wellnessAnalyticsData.avgEnergy === null ? '—' : `${wellnessAnalyticsData.avgEnergy.toFixed(1)} / 5`}</p>
+              <p className="mt-1 text-[11px] text-slate-500">Across {wellnessAnalyticsData.loggedDays} saved {wellnessAnalyticsData.loggedDays === 1 ? 'day' : 'days'}</p>
+            </div>
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 dark:border-emerald-950 dark:bg-emerald-950/30">
+              <p className="text-xs font-medium text-emerald-700 dark:text-emerald-300">Most Common Mood</p>
+              <p className="mt-1 truncate text-xl font-bold text-emerald-700 dark:text-emerald-200">{wellnessAnalyticsData.mostCommonMood}</p>
+              <p className="mt-1 text-[11px] text-slate-500">{wellnessAnalyticsData.moodDistribution.reduce((sum, mood) => sum + mood.value, 0)} mood ratings recorded</p>
+            </div>
+          </div>
+
+          {wellnessAnalyticsData.loggedDays === 0 ? (
+            <div className="rounded-2xl border border-dashed border-slate-300 p-8 text-center dark:border-slate-700">
+              <Droplet className="mx-auto h-8 w-8 text-blue-400" />
+              <h4 className="mt-3 text-sm font-semibold text-slate-800 dark:text-slate-200">No wellness entries for this timeframe</h4>
+              <p className="mt-1 text-xs text-slate-500">Log water, sleep, mood, or energy from the 14-Day Matrix to see trends here.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+              <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900">
+                <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Hydration Trend</h4>
+                <p className="text-xs text-slate-500">Average daily intake · target 3,000 ml</p>
+                <div className="mt-3 h-56 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={wellnessAnalyticsData.chartPoints} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
+                      <defs><linearGradient id="wellnessWaterGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#3B82F6" stopOpacity={0.35} /><stop offset="95%" stopColor="#3B82F6" stopOpacity={0.02} /></linearGradient></defs>
+                      <CartesianGrid strokeDasharray="3 3" opacity={0.12} />
+                      <XAxis dataKey="label" tick={{ fontSize: 10 }} />
+                      <YAxis tick={{ fontSize: 10 }} />
+                      <Tooltip formatter={(value: unknown) => [typeof value !== 'number' ? 'No entry' : `${Math.round(value).toLocaleString()} ml`, 'Average water']} />
+                      <ReferenceLine y={3000} stroke="#10B981" strokeDasharray="4 4" />
+                      <Area type="monotone" dataKey="Water" connectNulls={false} stroke="#3B82F6" fill="url(#wellnessWaterGradient)" strokeWidth={2} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900">
+                <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Sleep Trend</h4>
+                <p className="text-xs text-slate-500">Average hours per logged day · target range 7–9 hrs</p>
+                <div className="mt-3 h-56 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={wellnessAnalyticsData.chartPoints} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" opacity={0.12} />
+                      <XAxis dataKey="label" tick={{ fontSize: 10 }} />
+                      <YAxis domain={[0, 12]} tick={{ fontSize: 10 }} />
+                      <Tooltip formatter={(value: unknown) => [typeof value !== 'number' ? 'No entry' : `${value.toFixed(1)} hrs`, 'Average sleep']} />
+                      <ReferenceLine y={7} stroke="#6366F1" strokeDasharray="4 4" />
+                      <ReferenceLine y={9} stroke="#6366F1" strokeDasharray="4 4" />
+                      <Bar dataKey="Sleep" fill="#6366F1" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900">
+                <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Mood Distribution</h4>
+                <p className="text-xs text-slate-500">Mood ratings saved in this timeframe</p>
+                <div className="mt-3 h-56 w-full">
+                  {wellnessAnalyticsData.moodDistribution.length === 0 ? (
+                    <div className="flex h-full items-center justify-center text-xs text-slate-400">No mood ratings recorded.</div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie data={wellnessAnalyticsData.moodDistribution} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={48} outerRadius={78} paddingAngle={3}>
+                          {wellnessAnalyticsData.moodDistribution.map(item => <Cell key={item.name} fill={item.color} />)}
+                        </Pie>
+                        <Tooltip />
+                        <Legend wrapperStyle={{ fontSize: '11px' }} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900">
+                <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Energy Trend</h4>
+                <p className="text-xs text-slate-500">Average self-reported energy · scale of 1 to 5</p>
+                <div className="mt-3 h-56 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={wellnessAnalyticsData.chartPoints} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
+                      <defs><linearGradient id="wellnessEnergyGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#F59E0B" stopOpacity={0.35} /><stop offset="95%" stopColor="#F59E0B" stopOpacity={0.02} /></linearGradient></defs>
+                      <CartesianGrid strokeDasharray="3 3" opacity={0.12} />
+                      <XAxis dataKey="label" tick={{ fontSize: 10 }} />
+                      <YAxis domain={[0, 5]} ticks={[1, 2, 3, 4, 5]} tick={{ fontSize: 10 }} />
+                      <Tooltip formatter={(value: unknown) => [typeof value !== 'number' ? 'No entry' : value.toFixed(1), 'Average energy']} />
+                      <Area type="monotone" dataKey="Energy" connectNulls={false} stroke="#F59E0B" fill="url(#wellnessEnergyGradient)" strokeWidth={2} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* CREATE OR EDIT HABIT MODAL */}
       {isAddModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/40 backdrop-blur-xs">
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xl w-full max-w-md overflow-hidden">
             <div className="p-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
               <div>
                 <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
-                  Create New Habit
+                  {editingHabit ? 'Edit Habit' : 'Create New Habit'}
                 </h3>
                 <p className="text-xs text-slate-400 mt-0.5">
                   Define frequency, category, and visual cue
@@ -1041,6 +1623,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
               <button
                 onClick={() => {
                   setIsAddModalOpen(false);
+                    setEditingHabit(null);
                   setIsCreatingNewCat(false);
                 }}
                 className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-sm cursor-pointer"
@@ -1233,12 +1816,120 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 text-xs font-medium text-white bg-slate-900 dark:bg-slate-100 dark:text-slate-950 rounded-lg hover:bg-slate-800 dark:hover:bg-white cursor-pointer"
+                  disabled={savingKeys?.has(editingHabit ? `habit:update:${editingHabit.id}` : 'habit:add')}
+                  className="inline-flex items-center gap-2 px-4 py-2 text-xs font-medium text-white bg-slate-900 dark:bg-slate-100 dark:text-slate-950 rounded-lg hover:bg-slate-800 dark:hover:bg-white cursor-pointer disabled:cursor-wait disabled:opacity-70"
                 >
-                  Save Habit
+                  {savingKeys?.has(editingHabit ? `habit:update:${editingHabit.id}` : 'habit:add') && <LoaderCircle className="h-3.5 w-3.5 animate-spin" />}
+                  {savingKeys?.has(editingHabit ? `habit:update:${editingHabit.id}` : 'habit:add') ? 'Saving…' : editingHabit ? 'Save Changes' : 'Save Habit'}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {isCategoryManagerOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs" role="dialog" aria-modal="true" aria-labelledby="habit-categories-title">
+          <div className="flex max-h-[88vh] w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-900">
+            <div className="flex items-start justify-between border-b border-slate-200 p-5 dark:border-slate-800">
+              <div>
+                <h3 id="habit-categories-title" className="text-base font-bold text-slate-900 dark:text-slate-100">Manage Habit Categories</h3>
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Add, rename, or remove categories used by your habits.</p>
+              </div>
+              <button type="button" onClick={() => setIsCategoryManagerOpen(false)} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200" aria-label="Close category manager"><Circle className="h-4 w-4" /></button>
+            </div>
+
+            <div className="space-y-5 overflow-y-auto p-5">
+              <form className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/60" onSubmit={event => { event.preventDefault(); void addHabitCategory(); }}>
+                <h4 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100"><Plus className="h-4 w-4 text-emerald-500" /> Add New Category</h4>
+                <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-slate-300" htmlFor="new-habit-category">Category name</label>
+                <div className="flex gap-2">
+                  <input id="new-habit-category" value={newHabitCategory} onChange={event => setNewHabitCategory(event.target.value)} maxLength={40} placeholder="e.g. Learning, Reading, Fitness" className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-emerald-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" />
+                  <button type="submit" disabled={savingKeys?.has('habit:categories')} className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-60">
+                    {savingKeys?.has('habit:categories') ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                    Add
+                  </button>
+                </div>
+              </form>
+
+              {categoryActionError && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-300">{categoryActionError}</p>}
+
+              <div>
+                <h4 className="mb-2 text-xs font-bold text-slate-700 dark:text-slate-300">All Categories ({allCategories.length})</h4>
+                <div className="space-y-2">
+                  {allCategories.map(item => {
+                    const isDefaultCategory = DEFAULT_HABIT_CATEGORIES.includes(item);
+                    const usage = habits.filter(habit => habit.category === item).length;
+                    const isEditing = editingCategory === item;
+                    return <div key={item} className="flex min-h-12 items-center gap-3 rounded-xl border border-slate-200 px-3 py-2 dark:border-slate-700">
+                      <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: CATEGORY_COLORS[item] || DYNAMIC_PALETTE[allCategories.indexOf(item) % DYNAMIC_PALETTE.length] }} />
+                      {isEditing ? <input autoFocus value={editingCategoryName} onChange={event => setEditingCategoryName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); void saveHabitCategoryEdit(); } }} maxLength={40} className="min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100" /> : <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-800 dark:text-slate-200">{item}</span>}
+                      <span className="shrink-0 text-[11px] text-slate-400">{usage} {usage === 1 ? 'habit' : 'habits'}</span>
+                      {isDefaultCategory ? <span className="shrink-0 text-[10px] font-medium text-slate-400">Default</span> : isEditing ? <>
+                        <button type="button" onClick={() => void saveHabitCategoryEdit()} disabled={savingKeys?.has('habit:categories')} className="rounded-md px-2 py-1 text-xs font-semibold text-emerald-600 hover:bg-emerald-50 disabled:opacity-50 dark:hover:bg-emerald-950/30">Save</button>
+                        <button type="button" onClick={() => { setEditingCategory(null); setEditingCategoryName(''); }} className="rounded-md px-2 py-1 text-xs font-medium text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800">Cancel</button>
+                      </> : <div className="flex shrink-0 items-center gap-1">
+                        <button type="button" onClick={() => { setCategoryActionError(''); setEditingCategory(item); setEditingCategoryName(item); }} className="rounded-md p-2 text-slate-400 hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-950/30 dark:hover:text-blue-400" aria-label={`Edit ${item}`}><Pencil className="h-3.5 w-3.5" /></button>
+                        <button type="button" onClick={() => { setCategoryActionError(''); setCategoryToDelete(item); }} className="rounded-md p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/30 dark:hover:text-rose-400" aria-label={`Delete ${item}`}><Trash2 className="h-3.5 w-3.5" /></button>
+                      </div>}
+                    </div>;
+                  })}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end border-t border-slate-200 p-4 dark:border-slate-800">
+              <button type="button" onClick={() => setIsCategoryManagerOpen(false)} className="rounded-lg bg-slate-900 px-5 py-2 text-xs font-semibold text-white hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-white">Done</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {categoryToDelete && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs" role="alertdialog" aria-modal="true" aria-labelledby="delete-habit-category-title">
+          <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-800 dark:bg-slate-900">
+            <div className="flex items-start gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-rose-100 text-rose-600 dark:bg-rose-950/50 dark:text-rose-400"><AlertCircle className="h-5 w-5" /></div>
+              <div>
+                <h3 id="delete-habit-category-title" className="text-sm font-bold text-slate-900 dark:text-slate-100">Delete “{categoryToDelete}”?</h3>
+                <p className="mt-1 text-xs leading-relaxed text-slate-600 dark:text-slate-400">{habits.filter(habit => habit.category === categoryToDelete).length ? `Habits in this category will be moved to Personal.` : 'This category will be removed from your list.'}</p>
+              </div>
+            </div>
+            {categoryActionError && <p role="alert" className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:bg-rose-950/30 dark:text-rose-300">{categoryActionError}</p>}
+            <div className="mt-5 flex justify-end gap-2">
+              <button type="button" onClick={() => setCategoryToDelete(null)} disabled={savingKeys?.has('habit:categories')} className="rounded-lg px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800 disabled:opacity-60">Cancel</button>
+              <button type="button" onClick={() => void confirmDeleteCategory()} disabled={savingKeys?.has('habit:categories') || habits.some(habit => habit.category === categoryToDelete && savingKeys?.has(`habit:update:${habit.id}`))} className="inline-flex min-w-28 items-center justify-center gap-2 rounded-lg bg-rose-600 px-4 py-2 text-xs font-semibold text-white hover:bg-rose-700 disabled:cursor-wait disabled:opacity-70">
+                {(savingKeys?.has('habit:categories') || habits.some(habit => habit.category === categoryToDelete && savingKeys?.has(`habit:update:${habit.id}`))) && <LoaderCircle className="h-3.5 w-3.5 animate-spin" />}
+                Delete Category
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {habitToDelete && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs" role="alertdialog" aria-modal="true" aria-labelledby="delete-habit-title">
+          <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-800 dark:bg-slate-900">
+            <div className="flex items-start gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-rose-100 text-rose-600 dark:bg-rose-950/50 dark:text-rose-400">
+                <AlertCircle className="h-5 w-5" />
+              </div>
+              <div>
+                <h3 id="delete-habit-title" className="text-sm font-bold text-slate-900 dark:text-slate-100">Delete this habit?</h3>
+                <p className="mt-1 text-xs leading-relaxed text-slate-600 dark:text-slate-400">
+                  “{habitToDelete.title}” and its completion history will be permanently deleted.
+                </p>
+              </div>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button type="button" onClick={() => setHabitToDelete(null)} disabled={savingKeys?.has(`habit:delete:${habitToDelete.id}`)} className="rounded-xl px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800 disabled:opacity-60">
+                Cancel
+              </button>
+              <button type="button" onClick={confirmDeleteHabit} disabled={savingKeys?.has(`habit:delete:${habitToDelete.id}`)} className="inline-flex min-w-32 items-center justify-center gap-2 rounded-xl bg-rose-600 px-4 py-2 text-xs font-semibold text-white hover:bg-rose-700 disabled:cursor-wait disabled:opacity-70">
+                {savingKeys?.has(`habit:delete:${habitToDelete.id}`) && <LoaderCircle className="h-3.5 w-3.5 animate-spin" />}
+                {savingKeys?.has(`habit:delete:${habitToDelete.id}`) ? 'Deleting…' : 'Delete Habit'}
+              </button>
+            </div>
           </div>
         </div>
       )}

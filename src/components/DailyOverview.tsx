@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
@@ -127,6 +127,12 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
     journalNotes: '',
     gratitude: ''
   };
+  const [waterGlassesDraft, setWaterGlassesDraft] = useState<number | null>(null);
+  const waterGlasses = waterGlassesDraft ?? dayWellness.waterGlasses ?? 0;
+
+  useEffect(() => {
+    setWaterGlassesDraft(wellness[selectedDate]?.waterGlasses ?? 0);
+  }, [selectedDate, wellness[selectedDate]?.waterGlasses]);
 
   // Submit new task
   const handleCreateTask = (e: React.FormEvent) => {
@@ -150,7 +156,8 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
 
   // Water helper
   const adjustWater = (delta: number) => {
-    const next = Math.max(0, Math.min(16, (dayWellness.waterGlasses || 0) + delta));
+    const next = Math.max(0, Math.min(20, waterGlasses + delta));
+    setWaterGlassesDraft(next);
     onUpdateWellness(selectedDate, { waterGlasses: next });
   };
 
@@ -364,48 +371,56 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
           <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 mb-1">
             <span className="font-medium">Hydration (250ml)</span>
             <span className="font-mono text-[11px] font-semibold text-blue-500">
-              {Math.round(((dayWellness.waterGlasses || 0) / 8) * 100)}%
+              {Math.min(100, Math.round((waterGlasses / 12) * 100))}%
             </span>
           </div>
           <div className="text-2xl font-bold font-mono tracking-tight text-slate-900 dark:text-slate-100 tabular-nums">
-            {(dayWellness.waterGlasses || 0) * 250} <span className="text-sm text-slate-400 font-normal">/ 2,000 ml</span>
+            {(waterGlasses * 250).toLocaleString()} <span className="text-sm text-slate-400 font-normal">/ 3,000 ml target</span>
           </div>
-          <div className="w-full h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 mt-3 overflow-hidden">
+          <div className="relative w-full h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 mt-3 overflow-hidden">
             <div
               className="h-full bg-blue-500 rounded-full transition-all duration-300"
               style={{
-                width: `${Math.min(100, ((dayWellness.waterGlasses || 0) / 8) * 100)}%`
+                width: `${Math.min(100, (waterGlasses / 20) * 100)}%`
               }}
             />
+            <span aria-hidden="true" className="absolute inset-y-0 left-[60%] w-px bg-white/90 dark:bg-white/80" />
           </div>
-          <div className="flex items-center justify-between gap-1.5 mt-2">
-            <div className="flex items-center gap-1">
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-x-2 gap-y-2">
+            <div className="flex shrink-0 items-center gap-1">
               <button
                 onClick={() => adjustWater(-1)}
-                className="w-6 h-6 rounded-md border border-slate-200 dark:border-slate-700 text-xs font-mono font-bold hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors cursor-pointer"
+                disabled={waterGlasses <= 0}
+                aria-label="Remove one glass of water"
+                className="h-8 w-8 shrink-0 whitespace-nowrap rounded-md border border-slate-200 dark:border-slate-700 text-sm font-mono font-bold hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
                 title="Subtract 250ml"
               >
                 -
               </button>
               <button
                 onClick={() => adjustWater(1)}
-                className="w-6 h-6 rounded-md border border-slate-200 dark:border-slate-700 text-xs font-mono font-bold hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors cursor-pointer"
+                disabled={waterGlasses >= 20}
+                aria-label="Add one glass of water"
+                className="h-8 w-8 shrink-0 whitespace-nowrap rounded-md border border-slate-200 dark:border-slate-700 text-sm font-mono font-bold hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
                 title="Add 250ml (1 glass)"
               >
                 +
               </button>
               <button
                 onClick={() => adjustWater(2)}
-                className="px-1.5 h-6 rounded-md border border-slate-200 dark:border-slate-700 text-[10px] font-mono hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors cursor-pointer"
+                disabled={waterGlasses >= 20}
+                aria-label="Add two glasses of water"
+                className="h-8 min-w-[56px] shrink-0 whitespace-nowrap rounded-md border border-slate-200 dark:border-slate-700 px-2 text-[11px] font-mono hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
                 title="Add 500ml (2 glasses)"
               >
                 +500
               </button>
             </div>
-            <span className="text-[10px] text-slate-400 font-mono">
-              {dayWellness.waterGlasses || 0}/8 glasses
+            <span className="ml-auto whitespace-nowrap text-[10px] text-slate-400 font-mono">
+              {waterGlasses}/12 glasses to target
             </span>
           </div>
+          <p className="mt-1 text-[10px] leading-relaxed text-slate-500 dark:text-slate-400">Minimum 1,800–2,000 ml/day · healthy target 3,000 ml · safe ceiling 4,500–5,000 ml</p>
         </div>
       </div>
 

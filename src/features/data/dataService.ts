@@ -6,6 +6,7 @@ export type CategorySettings = {
   expenses: Record<string, CategoryInfo>;
   habits: string[];
   tasks: string[];
+  habitOrder?: string[];
 };
 
 export type WorkspaceData = {
@@ -19,7 +20,18 @@ export type WorkspaceData = {
 };
 
 const DEFAULT_BUDGET: BudgetConfig = { monthlyBudget: 30000, dailyBudget: 1000, weeklyBudget: 7000, currency: '₹', categoryBudgets: {} };
-const DEFAULT_CATEGORIES: CategorySettings = { expenses: {}, habits: [], tasks: [] };
+const DEFAULT_CATEGORIES: CategorySettings = { expenses: {}, habits: [], tasks: [], habitOrder: [] };
+
+function normalizeCategories(value: unknown): CategorySettings {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return DEFAULT_CATEGORIES;
+  const categories = value as Partial<CategorySettings>;
+  return {
+    expenses: categories.expenses && typeof categories.expenses === 'object' && !Array.isArray(categories.expenses) ? categories.expenses : {},
+    habits: Array.isArray(categories.habits) ? categories.habits.filter((item): item is string => typeof item === 'string') : [],
+    tasks: Array.isArray(categories.tasks) ? categories.tasks.filter((item): item is string => typeof item === 'string') : [],
+    habitOrder: Array.isArray(categories.habitOrder) ? categories.habitOrder.filter((item): item is string => typeof item === 'string') : []
+  };
+}
 
 function client() {
   if (!isSupabaseConfigured() || !supabase) {
@@ -100,6 +112,7 @@ function mappedHabit(row: any, completedDates: string[]): Habit {
     title: row.name,
     category: row.unit || 'Health',
     targetDaysPerWeek: Number(row.target_value) || 1,
+    weekdays: Array.isArray(row.weekdays) ? row.weekdays.map(Number).filter((day: number) => Number.isInteger(day) && day >= 0 && day <= 6) : [0, 1, 2, 3, 4, 5, 6],
     completedDates: sorted,
     streak,
     bestStreak,
@@ -225,7 +238,7 @@ export const dataService = {
           createdAt: new Date(row.created_at).getTime(),
           updatedAt: row.updated_at ? new Date(row.updated_at).getTime() : undefined
         })),
-        categories: budgetRow?.custom_categories || DEFAULT_CATEGORIES
+        categories: normalizeCategories(budgetRow?.custom_categories)
       };
     } finally {
       if (timeout) clearTimeout(timeout);
@@ -250,7 +263,7 @@ export const dataService = {
     const id = uuid(item.id);
     const { error: trackerError } = await db.from('custom_trackers').upsert({
       id, user_id: userId, name: item.title, type: 'boolean', unit: item.category,
-      target_value: item.targetDaysPerWeek, color: item.color, icon: null
+      target_value: item.targetDaysPerWeek, weekdays: item.weekdays || [0, 1, 2, 3, 4, 5, 6], color: item.color, icon: null
     }, { onConflict: 'id' });
     if (trackerError) throw trackerError;
     const { data: current, error: readError } = await db.from('tracker_entries')
@@ -315,14 +328,15 @@ export const dataService = {
   },
   async saveCategories(userId: string, item: CategorySettings): Promise<void> {
     const db = client();
-    const { data, error } = await db.from('budget_configs').update({ custom_categories: item })
+    const safeItem = normalizeCategories(item);
+    const { data, error } = await db.from('budget_configs').update({ custom_categories: safeItem })
       .eq('user_id', userId).select('user_id').maybeSingle();
     if (error) throw error;
     if (!data) {
       const { error: insertError } = await db.from('budget_configs').insert({
         user_id: userId, monthly_budget: DEFAULT_BUDGET.monthlyBudget,
         daily_budget: DEFAULT_BUDGET.dailyBudget, weekly_budget: DEFAULT_BUDGET.weeklyBudget,
-        currency: DEFAULT_BUDGET.currency, category_budgets: {}, custom_categories: item
+        currency: DEFAULT_BUDGET.currency, category_budgets: {}, custom_categories: safeItem
       });
       if (insertError) throw insertError;
     }

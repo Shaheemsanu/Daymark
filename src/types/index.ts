@@ -63,6 +63,7 @@ export interface Habit {
   title: string;
   category: HabitCategory;
   targetDaysPerWeek: number;
+  weekdays?: number[]; // 0=Sun, 1=Mon, ..., 6=Sat
   completedDates: string[]; // YYYY-MM-DD
   streak: number;
   bestStreak: number;

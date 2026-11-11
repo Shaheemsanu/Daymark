@@ -115,10 +115,14 @@ CREATE TABLE IF NOT EXISTS public.custom_trackers (
   type TEXT NOT NULL CHECK (type IN ('numeric', 'boolean')),
   unit TEXT, -- e.g. 'ml', 'hours', 'pages', 'mins'
   target_value NUMERIC DEFAULT 1,
+  weekdays INTEGER[] NOT NULL DEFAULT '{0,1,2,3,4,5,6}', -- 0=Sun, 1=Mon, ..., 6=Sat
   color TEXT DEFAULT '#3B82F6',
   icon TEXT,
   created_at TIMESTAMPTZ DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
 );
+
+ALTER TABLE public.custom_trackers
+  ADD COLUMN IF NOT EXISTS weekdays INTEGER[] NOT NULL DEFAULT '{0,1,2,3,4,5,6}';
 
 ALTER TABLE public.custom_trackers ENABLE ROW LEVEL SECURITY;
 
