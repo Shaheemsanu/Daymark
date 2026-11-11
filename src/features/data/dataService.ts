@@ -7,6 +7,7 @@ export type CategorySettings = {
   habits: string[];
   tasks: string[];
   habitOrder?: string[];
+  notes: string[];
 };
 
 export type WorkspaceData = {
@@ -20,7 +21,7 @@ export type WorkspaceData = {
 };
 
 const DEFAULT_BUDGET: BudgetConfig = { monthlyBudget: 30000, dailyBudget: 1000, weeklyBudget: 7000, currency: '₹', categoryBudgets: {} };
-const DEFAULT_CATEGORIES: CategorySettings = { expenses: {}, habits: [], tasks: [], habitOrder: [] };
+const DEFAULT_CATEGORIES: CategorySettings = { expenses: {}, habits: [], tasks: [], habitOrder: [], notes: [] };
 
 function normalizeCategories(value: unknown): CategorySettings {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return DEFAULT_CATEGORIES;
@@ -29,7 +30,8 @@ function normalizeCategories(value: unknown): CategorySettings {
     expenses: categories.expenses && typeof categories.expenses === 'object' && !Array.isArray(categories.expenses) ? categories.expenses : {},
     habits: Array.isArray(categories.habits) ? categories.habits.filter((item): item is string => typeof item === 'string') : [],
     tasks: Array.isArray(categories.tasks) ? categories.tasks.filter((item): item is string => typeof item === 'string') : [],
-    habitOrder: Array.isArray(categories.habitOrder) ? categories.habitOrder.filter((item): item is string => typeof item === 'string') : []
+    habitOrder: Array.isArray(categories.habitOrder) ? categories.habitOrder.filter((item): item is string => typeof item === 'string') : [],
+    notes: Array.isArray(categories.notes) ? categories.notes.filter((item): item is string => typeof item === 'string') : []
   };
 }
 

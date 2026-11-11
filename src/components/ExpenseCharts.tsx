@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Expense, ExpenseCategory, BudgetConfig, SpendType } from '../types';
 import { CATEGORIES, formatCurrency } from '../utils/constants';
+import { formatDisplayDate } from '../utils/dateFormatting';
 
 interface ExpenseChartsProps {
   expenses: Expense[];
@@ -257,7 +258,7 @@ export const DailySpendingTrendChart: React.FC<{
         </div>
         {hoveredDay && (
           <div className="font-mono text-slate-800 dark:text-slate-200">
-            {hoveredDay.date}:{' '}
+            {formatDisplayDate(hoveredDay.date)}:{' '}
             <strong className="text-emerald-600 dark:text-emerald-400">
               {formatCurrency(hoveredDay.amount, currencySymbol)}
             </strong>{' '}

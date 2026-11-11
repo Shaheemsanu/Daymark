@@ -9,6 +9,7 @@ import {
   BudgetConfig
 } from '../../lib/types';
 import { formatHeaderDate, formatShortDate } from '../../lib/dateUtils';
+import { formatDisplayDate } from '../../utils/dateFormatting';
 import { exportTasksAsCSV, exportExpensesAsCSV, exportFullBackupJSON, downloadBlob } from '../../lib/exportUtils';
 import {
   Calendar,
@@ -292,7 +293,7 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
                     return (
                       <tr key={entry.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40">
                         <td className="py-3 px-4 font-mono text-slate-500 whitespace-nowrap">
-                          {entry.entry_date}
+                          {formatDisplayDate(entry.entry_date)}
                         </td>
                         <td className="py-3 px-4 font-medium text-slate-900 dark:text-slate-100">
                           {task?.title || 'Unknown Task'}
@@ -349,7 +350,7 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
                   filteredExpenses.map(item => (
                     <tr key={item.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40">
                       <td className="py-3 px-4 font-mono text-slate-500 whitespace-nowrap">
-                        {item.entry_date}
+                        {formatDisplayDate(item.entry_date)}
                       </td>
                       <td className="py-3 px-4 font-medium text-slate-900 dark:text-slate-100">
                         {item.title}
@@ -376,7 +377,7 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
                 <div key={note.id} className="p-4 hover:bg-slate-50/80 dark:hover:bg-slate-800/40 space-y-1">
                   <div className="flex items-center justify-between text-xs">
                     <span className="font-mono font-bold text-slate-900 dark:text-slate-100">
-                      {note.entry_date}
+                      {formatDisplayDate(note.entry_date)}
                     </span>
                     <span className="text-slate-400 capitalize">{note.mood || 'neutral'}</span>
                   </div>

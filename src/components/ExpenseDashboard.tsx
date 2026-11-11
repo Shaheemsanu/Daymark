@@ -23,6 +23,7 @@ import {
   X
 } from 'lucide-react';
 import { Expense, ExpenseCategory, BudgetConfig, PaymentMethod, SpendType, CategoryInfo } from '../types';
+import { formatDisplayDate } from '../utils/dateFormatting';
 import {
   CATEGORIES,
   PAYMENT_METHODS,
@@ -1424,7 +1425,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                       <div className="min-w-0">
                         <h4 className="break-words text-sm font-semibold text-slate-900 dark:text-slate-100">{item.title}</h4>
                         <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
-                          <span>{item.date}</span>
+                          <span>{formatDisplayDate(item.date)}</span>
                           <span className="text-slate-300 dark:text-slate-600">•</span>
                           <span className="rounded-full bg-slate-100 px-2 py-0.5 font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">{accountLabel}</span>
                           {isTransfer && <span className="rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-800 dark:bg-amber-950/60 dark:text-amber-300">Transfer</span>}
@@ -1490,7 +1491,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                           className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors"
                         >
                           <td className="py-3 px-4 font-mono text-slate-500 whitespace-nowrap">
-                            {item.date}
+                            {formatDisplayDate(item.date)}
                           </td>
                           <td className="py-3 px-4 whitespace-nowrap">
                             <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${

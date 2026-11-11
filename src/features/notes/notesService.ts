@@ -16,6 +16,16 @@ export const notesService = {
     return (await dataService.loadWorkspace(await currentUserId())).notes;
   },
 
+  async getCategories(): Promise<string[]> {
+    return (await dataService.loadWorkspace(await currentUserId())).categories.notes;
+  },
+
+  async saveCategories(categories: string[]): Promise<void> {
+    const userId = await currentUserId();
+    const current = await dataService.loadWorkspace(userId);
+    await dataService.saveCategories(userId, { ...current.categories, notes: categories });
+  },
+
   async saveNote(note: Omit<NoteItem, 'id' | 'createdAt'>): Promise<NoteItem> {
     const newNote: NoteItem = {
       ...note,

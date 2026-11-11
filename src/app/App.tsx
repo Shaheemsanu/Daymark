@@ -57,7 +57,7 @@ export default function App() {
   const [wellness, setWellness] = useState<Record<string, DailyWellness>>({});
   const wellnessRef = useRef(wellness);
   const wellnessSaveQueue = useRef(new Map<string, Promise<void>>());
-  const [categories, setCategories] = useState<CategorySettings>({ expenses: {}, habits: [], tasks: [] });
+  const [categories, setCategories] = useState<CategorySettings>({ expenses: {}, habits: [], tasks: [], notes: [] });
   const [dataLoading, setDataLoading] = useState(false);
   const [workspaceRefreshing, setWorkspaceRefreshing] = useState(false);
   const [dataError, setDataError] = useState<string | null>(null);
@@ -104,7 +104,7 @@ export default function App() {
       setHabits([]);
       setTasks([]);
       setWellness({});
-      setCategories({ expenses: {}, habits: [], tasks: [] });
+      setCategories({ expenses: {}, habits: [], tasks: [], notes: [] });
       setDataError(null);
       setDataLoading(false);
       return;
@@ -115,7 +115,7 @@ export default function App() {
     setHabits([]);
     setTasks([]);
     setWellness({});
-    setCategories({ expenses: {}, habits: [], tasks: [] });
+    setCategories({ expenses: {}, habits: [], tasks: [], notes: [] });
     setDataLoading(true);
     setDataError(null);
     dataService.loadWorkspace(userId).then((data: WorkspaceData) => {
@@ -535,7 +535,7 @@ export default function App() {
       setHabits([]);
       setTasks([]);
       setWellness({});
-      setCategories({ expenses: {}, habits: [], tasks: [] });
+      setCategories({ expenses: {}, habits: [], tasks: [], notes: [] });
       setDataError(null);
     })());
   };

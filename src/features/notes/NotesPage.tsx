@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { DailyNote, MoodType } from '../../lib/types';
 import { formatHeaderDate } from '../../lib/dateUtils';
+import { formatDisplayDate } from '../../utils/dateFormatting';
 import { Calendar, Search, Sparkles, Heart, Moon, Zap, Save, Check } from 'lucide-react';
 
 interface NotesPageProps {
@@ -251,7 +252,7 @@ export const NotesPage: React.FC<NotesPageProps> = ({
                     >
                       <div className="flex items-center justify-between text-xs mb-1">
                         <span className="font-mono font-medium text-slate-900 dark:text-slate-100">
-                          {n.entry_date}
+                          {formatDisplayDate(n.entry_date)}
                         </span>
                         {n.mood && (
                           <span className="capitalize text-[11px] text-slate-400">

@@ -14,6 +14,7 @@ import {
 } from 'recharts';
 import { Expense, ExpenseCategory, BudgetConfig, PaymentMethod, SpendType } from '../../lib/types';
 import { formatShortDate, getPastNDays, getTodayIso } from '../../lib/dateUtils';
+import { formatDisplayDate } from '../../utils/dateFormatting';
 import { exportExpensesAsCSV, downloadBlob } from '../../lib/exportUtils';
 import {
   Plus,
@@ -693,7 +694,7 @@ export const ExpensePage: React.FC<ExpensePageProps> = ({
                   return (
                     <tr key={item.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors">
                       <td className="py-3 px-4 font-mono text-slate-500 whitespace-nowrap">
-                        {item.entry_date}
+                        {formatDisplayDate(item.entry_date)}
                       </td>
                       <td className="py-3 px-4">
                         <div className="font-medium text-slate-900 dark:text-slate-100">

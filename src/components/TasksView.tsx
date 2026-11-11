@@ -35,6 +35,7 @@ import {
 } from 'lucide-react';
 import { DailyTask, TaskPriority } from '../types';
 import { formatDate } from '../utils/constants';
+import { formatDisplayDate } from '../utils/dateFormatting';
 import {
   getPastNDays,
   getPastNWeeks,
@@ -717,7 +718,7 @@ interface TaskChartPoint {
                         <div className="flex items-center gap-2 text-[11px] text-slate-400 dark:text-slate-500 mt-1 flex-wrap">
                           <span className="flex items-center gap-1 font-mono">
                             <Calendar className="w-3 h-3" />
-                            {task.date}
+                            {formatDisplayDate(task.date)}
                           </span>
                           <span aria-hidden="true">·</span>
 
