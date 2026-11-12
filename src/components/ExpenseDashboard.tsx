@@ -68,6 +68,15 @@ const getTransferTarget = (expense: Expense): 'expense' | 'savings' | 'cash' => 
   return (target as 'expense' | 'savings' | 'cash' | undefined) || 'expense';
 };
 
+type LedgerExpense = Expense & {
+  ledgerKey?: string;
+  transferDirection?: 'sent' | 'received';
+  originalId?: string;
+};
+
+const accountDisplayName = (account: 'expense' | 'savings' | 'cash') =>
+  account === 'expense' ? 'Expense' : account === 'savings' ? 'Savings' : 'Cash';
+
 const COLOR_PALETTE = [
   '#10B981', // Emerald
   '#06B6D4', // Cyan
@@ -98,6 +107,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
   onQuickAddDismiss
 }) => {
   const currencySymbol = budget.currency || '₹';
+  const monthlyBudget = Math.max(budget.monthlyBudget || 30000, 1);
   const todayIso = formatDate(new Date());
 
   // Category State (includes default + custom categories)
@@ -190,7 +200,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
   const [historyPayment, setHistoryPayment] = useState<string>('all');
   const [historyTypeFilter, setHistoryTypeFilter] = useState<'all' | 'inflow' | 'outflow' | 'transfer'>('all');
   const [historySort, setHistorySort] = useState<'date_desc' | 'date_asc' | 'amount_desc' | 'amount_asc'>('date_desc');
-  const [historyTimeframe, setHistoryTimeframe] = useState<'this_month' | 'last_30_days' | 'custom' | 'all'>('this_month');
+  const [historyTimeframe, setHistoryTimeframe] = useState<'today' | 'yesterday' | 'last_7_days' | 'this_month' | 'last_30_days' | 'custom' | 'all'>('last_7_days');
   const [historyStartDate, setHistoryStartDate] = useState('');
   const [historyEndDate, setHistoryEndDate] = useState('');
   const [mobileHistoryPage, setMobileHistoryPage] = useState(1);
@@ -200,7 +210,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
     setHistorySearch('');
     setHistoryAccountFilter('all');
     setHistoryTypeFilter('all');
-    setHistoryTimeframe('this_month');
+    setHistoryTimeframe('last_7_days');
     setHistoryStartDate('');
     setHistoryEndDate('');
     setHistoryCategory('all');
@@ -285,13 +295,34 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
   }, [expenseAccTransactions, todayIso]);
 
   const weeklyExpenseSpend = useMemo(() => {
-    const d = new Date();
-    d.setDate(d.getDate() - 7);
+    const d = new Date(`${todayIso}T00:00:00`);
+    d.setDate(d.getDate() - 6);
     const sevenDaysAgoIso = formatDate(d);
     return expenseAccTransactions
       .filter(e => e.date >= sevenDaysAgoIso && e.type !== 'income' && !e.isTransfer)
       .reduce((sum, e) => sum + e.amount, 0);
-  }, [expenseAccTransactions]);
+  }, [expenseAccTransactions, todayIso]);
+
+  const previousDayExpenseSpend = useMemo(() => {
+    const previousDay = new Date(`${todayIso}T00:00:00`);
+    previousDay.setDate(previousDay.getDate() - 1);
+    const previousDayIso = formatDate(previousDay);
+    return expenseAccTransactions
+      .filter(e => e.date === previousDayIso && e.type !== 'income' && !e.isTransfer)
+      .reduce((sum, e) => sum + e.amount, 0);
+  }, [expenseAccTransactions, todayIso]);
+
+  const previousWeekExpenseSpend = useMemo(() => {
+    const end = new Date(`${todayIso}T00:00:00`);
+    end.setDate(end.getDate() - 7);
+    const start = new Date(end);
+    start.setDate(start.getDate() - 6);
+    const startIso = formatDate(start);
+    const endIso = formatDate(end);
+    return expenseAccTransactions
+      .filter(e => e.date >= startIso && e.date <= endIso && e.type !== 'income' && !e.isTransfer)
+      .reduce((sum, e) => sum + e.amount, 0);
+  }, [expenseAccTransactions, todayIso]);
 
   const monthlyExpenseSpend = useMemo(() => {
     return expenseAccTransactions
@@ -301,6 +332,71 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
       })
       .reduce((sum, e) => sum + e.amount, 0);
   }, [expenseAccTransactions, currentYear, currentMonth]);
+
+  const previousMonthExpenseSpend = useMemo(() => {
+    const previousMonthDate = new Date(currentYear, currentMonth - 1, 1);
+    const previousYear = previousMonthDate.getFullYear();
+    const previousMonth = previousMonthDate.getMonth();
+    return expenseAccTransactions
+      .filter(e => {
+        const eDate = new Date(`${e.date}T00:00:00`);
+        return eDate.getFullYear() === previousYear && eDate.getMonth() === previousMonth && e.type !== 'income' && !e.isTransfer;
+      })
+      .reduce((sum, e) => sum + e.amount, 0);
+  }, [expenseAccTransactions, currentYear, currentMonth]);
+
+  const weeklyDailyOverTargetTotal = useMemo(() => {
+    const weekStart = new Date(`${todayIso}T00:00:00`);
+    const daysSinceMonday = (weekStart.getDay() + 6) % 7;
+    weekStart.setDate(weekStart.getDate() - daysSinceMonday);
+    const dailyTarget = budget.dailyBudget || 1000;
+    let total = 0;
+    for (let offset = 0; offset < 7; offset += 1) {
+      const day = new Date(weekStart);
+      day.setDate(weekStart.getDate() + offset);
+      const dayIso = formatDate(day);
+      const spend = expenseAccTransactions
+        .filter(e => e.date === dayIso && e.type !== 'income' && !e.isTransfer)
+        .reduce((sum, e) => sum + e.amount, 0);
+      total += Math.max(0, spend - dailyTarget);
+    }
+    return total;
+  }, [expenseAccTransactions, todayIso, budget.dailyBudget]);
+
+  const fourWeekOverTargetTotal = useMemo(() => {
+    const currentWeekStart = new Date(`${todayIso}T00:00:00`);
+    currentWeekStart.setDate(currentWeekStart.getDate() - ((currentWeekStart.getDay() + 6) % 7));
+    const weeklyTarget = budget.weeklyBudget || 7000;
+    let total = 0;
+    for (let weekOffset = 0; weekOffset < 4; weekOffset += 1) {
+      const start = new Date(currentWeekStart);
+      start.setDate(start.getDate() - weekOffset * 7);
+      const end = new Date(start);
+      end.setDate(end.getDate() + 6);
+      const startIso = formatDate(start);
+      const endIso = formatDate(end);
+      const spend = expenseAccTransactions
+        .filter(e => e.date >= startIso && e.date <= endIso && e.type !== 'income' && !e.isTransfer)
+        .reduce((sum, e) => sum + e.amount, 0);
+      total += Math.max(0, spend - weeklyTarget);
+    }
+    return total;
+  }, [expenseAccTransactions, todayIso, budget.weeklyBudget]);
+
+  const twelveMonthOverTargetTotal = useMemo(() => {
+    let total = 0;
+    for (let monthOffset = 0; monthOffset < 12; monthOffset += 1) {
+      const month = new Date(currentYear, currentMonth - monthOffset, 1);
+      const spend = expenseAccTransactions
+        .filter(e => {
+          const date = new Date(`${e.date}T00:00:00`);
+          return date.getFullYear() === month.getFullYear() && date.getMonth() === month.getMonth() && e.type !== 'income' && !e.isTransfer;
+        })
+        .reduce((sum, e) => sum + e.amount, 0);
+      total += Math.max(0, spend - monthlyBudget);
+    }
+    return total;
+  }, [expenseAccTransactions, currentYear, currentMonth, monthlyBudget]);
 
   const renderTargetSummary = (target: number, spend: number, tone: 'rose' | 'amber' | 'indigo') => {
     const remaining = target - spend;
@@ -328,6 +424,22 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
     );
   };
 
+  const renderPreviousTargetSummary = (label: string, target: number, spend: number) => {
+    const remaining = target - spend;
+    return (
+      <div className="mt-1 inline-flex max-w-full flex-wrap items-center justify-center gap-x-1.5 rounded-full border border-slate-200/80 bg-white/70 px-2.5 py-1 text-[10px] leading-4 dark:border-slate-700/80 dark:bg-slate-900/50">
+        {label}: {formatCurrency(spend, currencySymbol)} · {remaining < 0 ? `Over target ${formatCurrency(Math.abs(remaining), currencySymbol)}` : `Remaining ${formatCurrency(remaining, currencySymbol)}`}
+      </div>
+    );
+  };
+
+  const renderCumulativeOverTarget = (label: string, total: number) => (
+    <div className={`mt-2 flex items-center justify-between gap-2 rounded-lg border px-2.5 py-1.5 text-[10px] leading-4 ${total > 0 ? 'border-rose-200/80 bg-rose-50/80 dark:border-rose-900/60 dark:bg-rose-950/25' : 'border-emerald-200/80 bg-emerald-50/80 dark:border-emerald-900/60 dark:bg-emerald-950/20'}`}>
+      <span className="font-medium text-slate-600 dark:text-slate-300">{label}</span>
+      <strong className={`font-mono font-bold tabular-nums ${total > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-700 dark:text-emerald-400'}`}>{formatCurrency(total, currencySymbol)}</strong>
+    </div>
+  );
+
   const thisMonthTransactions = useMemo(() => {
     return expenses.filter(e => {
       const eDate = new Date(e.date + 'T00:00:00');
@@ -343,11 +455,32 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
 
   // Combined Net Worth
   const combinedTotalBalance = savingsCurrentBalance + expenseAccCurrentBalance;
-  const monthlyBudget = Math.max(budget.monthlyBudget || 30000, 1);
 
   // Filtered History for Table
   const filteredHistory = useMemo(() => {
-    return expenses.filter(e => {
+    const ledgerEntries: LedgerExpense[] = expenses.flatMap(expense => {
+      const isTransfer = expense.isTransfer || expense.category.toLowerCase().includes('transfer');
+      const source = expense.account || 'expense';
+      const sent: LedgerExpense = { ...expense, isTransfer, ledgerKey: `${expense.id}-sent`, originalId: isTransfer ? expense.id : undefined, transferDirection: isTransfer ? 'sent' : undefined };
+      if (!isTransfer) return [sent];
+
+      const target = getTransferTarget(expense);
+      if (source === target) return [sent];
+      const received: LedgerExpense = {
+        ...expense,
+        id: `${expense.id}-received`,
+        originalId: expense.id,
+        ledgerKey: `${expense.id}-received`,
+        title: `Transfer from ${accountDisplayName(source)}`,
+        account: target,
+        type: 'income',
+        isTransfer: true,
+        transferDirection: 'received'
+      };
+      return [sent, received];
+    });
+
+    return ledgerEntries.filter(e => {
       const eDate = new Date(e.date + 'T00:00:00');
 
       // Account filter
@@ -358,18 +491,28 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
 
       // Flow Type Filter (Inflow vs Outflow vs Transfer)
       if (historyTypeFilter !== 'all') {
-        const isTransfer = e.isTransfer || e.category.includes('Transfer');
+        const isTransfer = e.isTransfer || e.category.toLowerCase().includes('transfer');
         if (historyTypeFilter === 'inflow') {
-          if (e.type !== 'income' || isTransfer) return false;
+          if (isTransfer ? e.transferDirection !== 'received' : e.type !== 'income') return false;
         } else if (historyTypeFilter === 'outflow') {
-          if (e.type === 'income' || isTransfer) return false;
+          if (isTransfer ? e.transferDirection !== 'sent' : e.type === 'income') return false;
         } else if (historyTypeFilter === 'transfer') {
           if (!isTransfer) return false;
         }
       }
 
       // Timeframe & Custom Date Range
-      if (historyTimeframe === 'this_month') {
+      if (historyTimeframe === 'today') {
+        if (e.date !== todayIso) return false;
+      } else if (historyTimeframe === 'yesterday') {
+        const yesterday = new Date(`${todayIso}T00:00:00`);
+        yesterday.setDate(yesterday.getDate() - 1);
+        if (e.date !== formatDate(yesterday)) return false;
+      } else if (historyTimeframe === 'last_7_days') {
+        const start = new Date(`${todayIso}T00:00:00`);
+        start.setDate(start.getDate() - 6);
+        if (e.date < formatDate(start) || e.date > todayIso) return false;
+      } else if (historyTimeframe === 'this_month') {
         if (eDate.getFullYear() !== currentYear || eDate.getMonth() !== currentMonth) return false;
       } else if (historyTimeframe === 'last_30_days') {
         const thirtyDaysAgo = new Date();
@@ -397,16 +540,19 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
 
       return true;
     }).sort((a, b) => {
+      const pairedTransferOrder = a.originalId && a.originalId === b.originalId
+        ? (a.transferDirection === 'received' ? -1 : 1)
+        : 0;
       if (historySort === 'date_desc') {
         const dateOrder = new Date(b.date).getTime() - new Date(a.date).getTime();
-        return dateOrder || (b.createdAt ?? 0) - (a.createdAt ?? 0);
+        return dateOrder || (b.createdAt ?? 0) - (a.createdAt ?? 0) || pairedTransferOrder;
       }
       if (historySort === 'date_asc') {
         const dateOrder = new Date(a.date).getTime() - new Date(b.date).getTime();
-        return dateOrder || (a.createdAt ?? 0) - (b.createdAt ?? 0);
+        return dateOrder || (a.createdAt ?? 0) - (b.createdAt ?? 0) || pairedTransferOrder;
       }
-      if (historySort === 'amount_desc') return b.amount - a.amount;
-      if (historySort === 'amount_asc') return a.amount - b.amount;
+      if (historySort === 'amount_desc') return b.amount - a.amount || pairedTransferOrder;
+      if (historySort === 'amount_asc') return a.amount - b.amount || pairedTransferOrder;
       return 0;
     });
   }, [
@@ -555,10 +701,17 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
     }, 50);
   };
 
+  const setHistoryToAllDates = () => {
+    const sortedDates = expenses.map(expense => expense.date).sort();
+    setHistoryTimeframe('custom');
+    setHistoryStartDate(sortedDates[0] || todayIso);
+    setHistoryEndDate(sortedDates[sortedDates.length - 1] || todayIso);
+  };
+
   const handleFilterExpenseAccount = () => {
     setHistoryAccountFilter('expense');
     setHistoryTypeFilter('all');
-    setHistoryTimeframe('all');
+    setHistoryToAllDates();
     setHistoryCategory('all');
     setHistoryPayment('all');
     setHistorySearch('');
@@ -578,8 +731,8 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
   };
 
   const handleFilterWeeklySpend = () => {
-    const d = new Date();
-    d.setDate(d.getDate() - 7);
+    const d = new Date(`${todayIso}T00:00:00`);
+    d.setDate(d.getDate() - 6);
     const sevenDaysAgo = formatDate(d);
     setHistoryAccountFilter('expense');
     setHistoryTypeFilter('outflow');
@@ -595,7 +748,9 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
   const handleFilterMonthlySpend = () => {
     setHistoryAccountFilter('expense');
     setHistoryTypeFilter('outflow');
-    setHistoryTimeframe('this_month');
+    setHistoryTimeframe('custom');
+    setHistoryStartDate(formatDate(new Date(currentYear, currentMonth, 1)));
+    setHistoryEndDate(todayIso);
     setHistoryCategory('all');
     setHistoryPayment('all');
     setHistorySearch('');
@@ -605,7 +760,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
   const handleFilterSavingsAccount = () => {
     setHistoryAccountFilter('savings');
     setHistoryTypeFilter('all');
-    setHistoryTimeframe('all');
+    setHistoryToAllDates();
     setHistoryCategory('all');
     setHistoryPayment('all');
     setHistorySearch('');
@@ -615,7 +770,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
   const handleFilterCashAccount = () => {
     setHistoryAccountFilter('cash');
     setHistoryTypeFilter('all');
-    setHistoryTimeframe('all');
+    setHistoryToAllDates();
     setHistoryCategory('all');
     setHistoryPayment('all');
     setHistorySearch('');
@@ -977,50 +1132,56 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
               </div>
 
               {/* Daily, Weekly, Monthly Spend Breakdown */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-4 text-center">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-4 text-center">
                 <div 
                   onClick={(e) => { e.stopPropagation(); handleFilterDailySpend(); }}
-                  className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 hover:border-rose-400 dark:hover:border-rose-500 transition-colors cursor-pointer"
+                  className="rounded-2xl border border-slate-200/80 bg-gradient-to-b from-white to-rose-50/40 p-4 shadow-xs transition-all hover:-translate-y-0.5 hover:border-rose-300 hover:shadow-sm dark:border-slate-800 dark:from-slate-800/80 dark:to-rose-950/10 dark:hover:border-rose-800 cursor-pointer"
                   title="Click to view today's spend transactions"
                 >
-                  <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 block mb-1">
+                  <span className="text-xs font-semibold tracking-wide text-slate-600 dark:text-slate-300 block mb-1.5">
                     Daily Spend
                   </span>
-                  <span className="text-base sm:text-lg font-bold font-mono text-rose-600 dark:text-rose-400 tabular-nums">
+                  <span className="text-xl sm:text-2xl font-extrabold font-mono text-rose-600 dark:text-rose-400 tabular-nums tracking-tight">
                     {formatCurrency(dailyExpenseSpend, currencySymbol)}
                   </span>
                   <span className="text-[10px] text-slate-400 block mt-0.5">Today</span>
+                  {renderPreviousTargetSummary('Previous day', budget.dailyBudget || 1000, previousDayExpenseSpend)}
                   {renderTargetSummary(budget.dailyBudget || 1000, dailyExpenseSpend, 'rose')}
+                  {renderCumulativeOverTarget('Week total over target (daily)', weeklyDailyOverTargetTotal)}
                 </div>
 
                 <div 
                   onClick={(e) => { e.stopPropagation(); handleFilterWeeklySpend(); }}
-                  className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 hover:border-amber-400 dark:hover:border-amber-500 transition-colors cursor-pointer"
+                  className="rounded-2xl border border-slate-200/80 bg-gradient-to-b from-white to-amber-50/40 p-4 shadow-xs transition-all hover:-translate-y-0.5 hover:border-amber-300 hover:shadow-sm dark:border-slate-800 dark:from-slate-800/80 dark:to-amber-950/10 dark:hover:border-amber-800 cursor-pointer"
                   title="Click to view weekly spend transactions"
                 >
-                  <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 block mb-1">
+                  <span className="text-xs font-semibold tracking-wide text-slate-600 dark:text-slate-300 block mb-1.5">
                     Weekly Spend
                   </span>
-                  <span className="text-base sm:text-lg font-bold font-mono text-amber-600 dark:text-amber-400 tabular-nums">
+                  <span className="text-xl sm:text-2xl font-extrabold font-mono text-amber-600 dark:text-amber-400 tabular-nums tracking-tight">
                     {formatCurrency(weeklyExpenseSpend, currencySymbol)}
                   </span>
                   <span className="text-[10px] text-slate-400 block mt-0.5">Last 7 Days</span>
+                  {renderPreviousTargetSummary('Previous 7 days', budget.weeklyBudget || 7000, previousWeekExpenseSpend)}
                   {renderTargetSummary(budget.weeklyBudget || 7000, weeklyExpenseSpend, 'amber')}
+                  {renderCumulativeOverTarget('4-week total over target', fourWeekOverTargetTotal)}
                 </div>
 
                 <div 
                   onClick={(e) => { e.stopPropagation(); handleFilterMonthlySpend(); }}
-                  className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 hover:border-indigo-400 dark:hover:border-indigo-500 transition-colors cursor-pointer"
+                  className="rounded-2xl border border-slate-200/80 bg-gradient-to-b from-white to-indigo-50/40 p-4 shadow-xs transition-all hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-sm dark:border-slate-800 dark:from-slate-800/80 dark:to-indigo-950/10 dark:hover:border-indigo-800 cursor-pointer"
                   title="Click to view monthly spend transactions"
                 >
-                  <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 block mb-1">
+                  <span className="text-xs font-semibold tracking-wide text-slate-600 dark:text-slate-300 block mb-1.5">
                     Monthly Spend
                   </span>
-                  <span className="text-base sm:text-lg font-bold font-mono text-indigo-600 dark:text-indigo-400 tabular-nums">
+                  <span className="text-xl sm:text-2xl font-extrabold font-mono text-indigo-600 dark:text-indigo-400 tabular-nums tracking-tight">
                     {formatCurrency(monthlyExpenseSpend, currencySymbol)}
                   </span>
                   <span className="text-[10px] text-slate-400 block mt-0.5">This Month</span>
+                  {renderPreviousTargetSummary('Previous month', monthlyBudget, previousMonthExpenseSpend)}
                   {renderTargetSummary(monthlyBudget, monthlyExpenseSpend, 'indigo')}
+                  {renderCumulativeOverTarget('12-month total over target', twelveMonthOverTargetTotal)}
                 </div>
               </div>
             </div>
@@ -1453,10 +1614,11 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                   onChange={e => setHistoryTimeframe(e.target.value as any)}
                   className="w-full min-w-0 text-xs py-2.5 sm:w-auto sm:py-1.5 px-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-200 focus:outline-none"
                 >
-                  <option value="this_month">This Month</option>
+                  <option value="today">Today</option>
+                  <option value="yesterday">Yesterday</option>
+                  <option value="last_7_days">Last 7 Days</option>
                   <option value="last_30_days">Last 30 Days</option>
                   <option value="custom">📅 Custom Date Range</option>
-                  <option value="all">All Records</option>
                 </select>
 
                 {/* Custom Date Pickers */}
@@ -1538,16 +1700,17 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                 const catColor = categoriesMap[item.category]?.color || '#94A3B8';
                 const isIncome = item.type === 'income';
                 const isTransfer = item.isTransfer;
+                const originalItem = item.originalId ? expenses.find(expense => expense.id === item.originalId) || item : item;
                 const accountLabel = item.account === 'savings' ? 'Savings account' : item.account === 'cash' ? 'Cash account' : 'Expense account';
                 return (
-                  <article key={item.id} className={`mx-3 my-1.5 grid gap-y-2 overflow-hidden rounded-xl border border-slate-200 bg-white p-3 shadow-sm transition-all duration-200 hover:shadow-md dark:border-slate-800 dark:bg-slate-950/60 dark:hover:border-slate-700 ${isTransfer ? 'border-l-2 border-l-amber-500' : isIncome ? 'border-l-2 border-l-emerald-500' : 'border-l-2 border-l-rose-500'}`}>
+                  <article key={item.ledgerKey || item.id} className={`mx-3 my-1.5 grid gap-y-2 overflow-hidden rounded-xl border border-slate-200 bg-white p-3 shadow-sm transition-all duration-200 hover:shadow-md dark:border-slate-800 dark:bg-slate-950/60 dark:hover:border-slate-700 ${isTransfer ? item.transferDirection === 'received' ? 'border-l-2 border-l-cyan-500' : 'border-l-2 border-l-amber-500' : isIncome ? 'border-l-2 border-l-emerald-500' : 'border-l-2 border-l-rose-500'}`}>
                     <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2.5 gap-y-1.5">
                       <h4 className="min-w-0 break-words text-sm font-bold leading-snug tracking-tight text-slate-900 dark:text-slate-100">{item.title}</h4>
                       <div className="flex shrink-0 items-center gap-1.5">
-                        <button type="button" onClick={() => handleOpenEdit(item)} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-600 transition-all duration-150 hover:-translate-y-0.5 hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 active:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:border-slate-700 dark:bg-slate-800/70 dark:text-slate-300 dark:hover:border-indigo-500/50 dark:hover:bg-indigo-500/10 dark:hover:text-indigo-300" aria-label={`Edit ${item.title}`} title="Edit">
+                        <button type="button" onClick={() => handleOpenEdit(originalItem)} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-600 transition-all duration-150 hover:-translate-y-0.5 hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 active:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:border-slate-700 dark:bg-slate-800/70 dark:text-slate-300 dark:hover:border-indigo-500/50 dark:hover:bg-indigo-500/10 dark:hover:text-indigo-300" aria-label={`Edit ${item.title}`} title="Edit">
                           <Edit2 className="h-3.5 w-3.5" />
                         </button>
-                        <button type="button" onClick={() => setExpenseToDelete(item)} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-rose-200 bg-rose-50 text-rose-700 transition-all duration-150 hover:-translate-y-0.5 hover:bg-rose-100 active:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-400 dark:hover:bg-rose-950/50" aria-label={`Delete ${item.title}`} title="Delete">
+                        <button type="button" onClick={() => setExpenseToDelete(originalItem)} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-rose-200 bg-rose-50 text-rose-700 transition-all duration-150 hover:-translate-y-0.5 hover:bg-rose-100 active:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-400 dark:hover:bg-rose-950/50" aria-label={`Delete ${item.title}`} title="Delete">
                           <Trash2 className="h-3.5 w-3.5" />
                         </button>
                       </div>
@@ -1564,12 +1727,12 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                     <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
                       <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-[10px]">
                         <span className="whitespace-nowrap rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 font-medium text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">{accountLabel}</span>
-                        <span className={`whitespace-nowrap rounded-full border px-2 py-0.5 font-semibold ${isTransfer ? 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/70 dark:bg-amber-950/50 dark:text-amber-300' : isIncome ? 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/70 dark:bg-emerald-950/50 dark:text-emerald-300' : 'border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-900/70 dark:bg-rose-950/50 dark:text-rose-300'}`}>
+                        <span className={`whitespace-nowrap rounded-full border px-2 py-0.5 font-semibold ${isTransfer ? item.transferDirection === 'received' ? 'border-cyan-200 bg-cyan-50 text-cyan-800 dark:border-cyan-900/70 dark:bg-cyan-950/50 dark:text-cyan-300' : 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/70 dark:bg-amber-950/50 dark:text-amber-300' : isIncome ? 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/70 dark:bg-emerald-950/50 dark:text-emerald-300' : 'border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-900/70 dark:bg-rose-950/50 dark:text-rose-300'}`}>
                           {isTransfer ? 'Transfer' : isIncome ? 'Inflow' : 'Outflow'}
                         </span>
                       </div>
-                      <strong className={`shrink-0 whitespace-nowrap rounded-lg border px-2.5 py-1.5 text-base leading-none font-extrabold tracking-tight tabular-nums shadow-sm ${isIncome ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-400/20 dark:bg-emerald-400/10 dark:text-emerald-300' : isTransfer ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-300' : 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-400/20 dark:bg-rose-400/10 dark:text-rose-300'}`}>
-                        {isIncome ? '+' : '-'}{formatCurrency(item.amount, currencySymbol)}
+                      <strong className={`shrink-0 whitespace-nowrap rounded-lg border px-2.5 py-1.5 text-base leading-none font-extrabold tracking-tight tabular-nums shadow-sm ${isTransfer ? item.transferDirection === 'received' ? 'border-cyan-200 bg-cyan-50 text-cyan-700 dark:border-cyan-400/20 dark:bg-cyan-400/10 dark:text-cyan-300' : 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-300' : isIncome ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-400/20 dark:bg-emerald-400/10 dark:text-emerald-300' : 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-400/20 dark:bg-rose-400/10 dark:text-rose-300'}`}>
+                        {item.transferDirection === 'received' ? '+' : item.transferDirection === 'sent' ? '-' : isIncome ? '+' : '-'}{formatCurrency(item.amount, currencySymbol)}
                       </strong>
                     </div>
                     {item.notes && <p className="break-words text-xs text-slate-500 dark:text-slate-400">{item.notes}</p>}
@@ -1620,10 +1783,11 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                       const isCash = item.account === 'cash';
                       const isIncome = item.type === 'income';
                       const isTransfer = item.isTransfer;
+                      const originalItem = item.originalId ? expenses.find(expense => expense.id === item.originalId) || item : item;
 
                       return (
                         <tr
-                          key={item.id}
+                          key={item.ledgerKey || item.id}
                           className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors"
                         >
                           <td className="py-3 px-4 font-mono text-slate-500 whitespace-nowrap">
@@ -1662,7 +1826,9 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                           <td className="py-3 px-4 whitespace-nowrap">
                             <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold ${
                               isTransfer
-                                ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
+                                ? item.transferDirection === 'received'
+                                  ? 'bg-cyan-100 text-cyan-800 dark:bg-cyan-950/60 dark:text-cyan-300'
+                                  : 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
                                 : isIncome
                                   ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
                                   : 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300'
@@ -1674,21 +1840,21 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                             {item.paymentMethod}
                           </td>
                           <td className="py-3 px-4 text-right font-mono font-bold tabular-nums whitespace-nowrap">
-                            <span className={isIncome ? 'text-emerald-600 dark:text-emerald-400' : isTransfer ? 'text-amber-600 dark:text-amber-400' : 'text-rose-600 dark:text-rose-400'}>
-                              {isIncome ? '+' : '-'}{formatCurrency(item.amount, currencySymbol)}
+                            <span className={isTransfer ? item.transferDirection === 'received' ? 'text-cyan-600 dark:text-cyan-400' : 'text-amber-600 dark:text-amber-400' : isIncome ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}>
+                              {item.transferDirection === 'received' ? '+' : item.transferDirection === 'sent' ? '-' : isIncome ? '+' : '-'}{formatCurrency(item.amount, currencySymbol)}
                             </span>
                           </td>
                           <td className="py-3 px-4 text-right whitespace-nowrap">
                             <div className="flex items-center justify-end gap-1.5">
                               <button
-                                onClick={() => handleOpenEdit(item)}
+                                onClick={() => handleOpenEdit(originalItem)}
                                 className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
                                 title="Edit entry"
                               >
                                 <Edit2 className="w-3.5 h-3.5" />
                               </button>
                               <button
-                                onClick={() => setExpenseToDelete(item)}
+                                onClick={() => setExpenseToDelete(originalItem)}
                                 className="p-1 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 transition-colors"
                                 title="Delete entry"
                               >

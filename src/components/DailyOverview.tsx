@@ -112,8 +112,10 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
 
   // Day's specific records
   const dayExpenses = expenses.filter(e => e.date === selectedDate);
-  const dayOutflow = dayExpenses.filter(e => (e.type || 'expense') === 'expense').reduce((sum, e) => sum + e.amount, 0);
-  const dayInflow = dayExpenses.filter(e => e.type === 'income').reduce((sum, e) => sum + e.amount, 0);
+  const isTransferEntry = (expense: Expense) => expense.isTransfer || expense.category.toLowerCase().includes('transfer');
+  const dayOutflow = dayExpenses.filter(e => !isTransferEntry(e) && (e.type || 'expense') === 'expense').reduce((sum, e) => sum + e.amount, 0);
+  const dayInflow = dayExpenses.filter(e => !isTransferEntry(e) && e.type === 'income').reduce((sum, e) => sum + e.amount, 0);
+  const dayTransfers = dayExpenses.filter(isTransferEntry).reduce((sum, e) => sum + e.amount, 0);
   const dayTotalSpent = dayOutflow; // for backwards compatibility calculations
 
   const dayTasks = tasks.filter(t => t.date === selectedDate);
@@ -288,15 +290,19 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
             </span>
             <span className="font-mono text-[11px] text-slate-400">{dayExpenses.length} txns</span>
           </div>
-          <div className="flex items-baseline justify-between">
-            <div className="text-2xl font-bold font-mono tracking-tight text-slate-900 dark:text-slate-100 tabular-nums">
-              {formatCurrency(dayOutflow, budget.currency)}
+          <div className="mt-2 grid grid-cols-3 divide-x divide-slate-200 rounded-lg border border-slate-200/80 bg-slate-50/80 py-1.5 dark:divide-slate-700 dark:border-slate-800 dark:bg-slate-800/50">
+            <div className="min-w-0 px-1.5 text-center">
+              <span className="block text-[9px] font-semibold uppercase tracking-wide text-rose-600 dark:text-rose-400">Outflow</span>
+              <span className="mt-0.5 block whitespace-nowrap text-[clamp(0.58rem,2.7vw,0.75rem)] font-bold font-mono tabular-nums text-rose-700 dark:text-rose-300">{formatCurrency(dayOutflow, budget.currency)}</span>
             </div>
-            {dayInflow > 0 && (
-              <span className="text-xs font-mono font-bold text-emerald-600 dark:text-emerald-400">
-                +{formatCurrency(dayInflow, budget.currency)}
-              </span>
-            )}
+            <div className="min-w-0 px-1.5 text-center">
+              <span className="block text-[9px] font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">Inflow</span>
+              <span className="mt-0.5 block whitespace-nowrap text-[clamp(0.58rem,2.7vw,0.75rem)] font-bold font-mono tabular-nums text-emerald-700 dark:text-emerald-300">{formatCurrency(dayInflow, budget.currency)}</span>
+            </div>
+            <div className="min-w-0 px-1.5 text-center">
+              <span className="block text-[9px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">Transfer</span>
+              <span className="mt-0.5 block whitespace-nowrap text-[clamp(0.58rem,2.7vw,0.75rem)] font-bold font-mono tabular-nums text-amber-700 dark:text-amber-300">{formatCurrency(dayTransfers, budget.currency)}</span>
+            </div>
           </div>
           <div className="w-full h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 mt-3 overflow-hidden">
             <div
