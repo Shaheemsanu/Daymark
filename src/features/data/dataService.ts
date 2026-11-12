@@ -59,6 +59,9 @@ function mapExpense(row: any): Expense {
     type: row.transaction_type || 'expense',
     account: row.account || 'expense',
     isTransfer: Boolean(row.is_transfer),
+    transferToAccount: row.is_transfer
+      ? (/transfer to (expense|cash|savings)/i.exec(row.category || '')?.[1]?.toLowerCase() as 'expense' | 'cash' | 'savings' | undefined) || 'expense'
+      : undefined,
     notes: row.notes || undefined,
     isRecurring: Boolean(row.is_recurring),
     spendType: row.spend_type || 'need',

@@ -34,6 +34,7 @@ export interface Expense {
   type?: 'expense' | 'income'; // Outflow vs Inflow
   account?: 'expense' | 'savings' | 'cash'; // 💳 Expense Account vs 🏦 Savings Account vs 💵 Cash in Hand
   isTransfer?: boolean; // Transfer from Savings to Expense Account
+  transferToAccount?: 'expense' | 'savings' | 'cash';
   notes?: string;
   isRecurring?: boolean;
   spendType?: SpendType;

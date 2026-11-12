@@ -485,7 +485,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
       avgWater,
       avgSleep,
       avgEnergy,
-      waterGoalDays: records.filter(record => record.waterGlasses * 250 >= 3000).length,
+      waterGoalDays: records.filter(record => record.waterGlasses * 250 >= 2000).length,
       sleepGoalDays: records.filter(record => record.sleepHours >= 7 && record.sleepHours <= 9).length,
       moodDistribution,
       mostCommonMood: mostCommonMood?.count ? mostCommonMood.label : '—'
@@ -773,7 +773,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
                 <span>Water Intake</span>
               </div>
               <span className="text-xs font-mono font-bold text-blue-700 dark:text-blue-300 tabular-nums">
-                {(waterGlasses * 250).toLocaleString()} / 3,000 ml
+                {(waterGlasses * 250).toLocaleString()} / 2,000 ml
               </span>
             </div>
 
@@ -781,14 +781,13 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
             <div className="relative w-full h-2 rounded-full bg-blue-200 dark:bg-blue-900/50 overflow-hidden">
               <div
                 className="h-full bg-blue-500 rounded-full transition-all duration-300"
-                style={{ width: `${Math.min(100, (waterGlasses / 20) * 100)}%` }}
+                style={{ width: `${Math.min(100, (waterGlasses / 8) * 100)}%` }}
               />
-              <span aria-hidden="true" className="absolute inset-y-0 left-[60%] w-px bg-white/90 dark:bg-white/80" />
             </div>
 
             <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-2 pt-1">
               <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
-                {waterGlasses}/12 glasses to target
+                {waterGlasses}/8 glasses to target
               </span>
               <div className="ml-auto flex shrink-0 items-center gap-1.5">
                 <button
@@ -821,7 +820,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
                 </button>
               </div>
             </div>
-            <p className="text-[10px] leading-relaxed text-slate-500 dark:text-slate-400">Minimum 1,800–2,000 ml/day · healthy target 3,000 ml · safe ceiling 4,500–5,000 ml</p>
+            <p className="text-[10px] leading-relaxed text-slate-500 dark:text-slate-400">Daily target: 2,000 ml</p>
           </div>
 
           {/* 😴 Sleep Hours Tracker */}
@@ -1503,7 +1502,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
             <div className="rounded-xl border border-blue-200 bg-blue-50/60 p-4 dark:border-blue-950 dark:bg-blue-950/30">
               <p className="text-xs font-medium text-blue-700 dark:text-blue-300">Average Water</p>
               <p className="mt-1 text-xl font-bold tabular-nums text-blue-700 dark:text-blue-200">{wellnessAnalyticsData.avgWater === null ? '—' : `${Math.round(wellnessAnalyticsData.avgWater).toLocaleString()} ml`}</p>
-              <p className="mt-1 text-[11px] text-slate-500">{wellnessAnalyticsData.loggedDays ? `${wellnessAnalyticsData.waterGoalDays} of ${wellnessAnalyticsData.loggedDays} logged days met 3,000 ml` : 'No saved entries in this range'}</p>
+              <p className="mt-1 text-[11px] text-slate-500">{wellnessAnalyticsData.loggedDays ? `${wellnessAnalyticsData.waterGoalDays} of ${wellnessAnalyticsData.loggedDays} logged days met 2,000 ml` : 'No saved entries in this range'}</p>
             </div>
             <div className="rounded-xl border border-indigo-200 bg-indigo-50/60 p-4 dark:border-indigo-950 dark:bg-indigo-950/30">
               <p className="text-xs font-medium text-indigo-700 dark:text-indigo-300">Average Sleep</p>
@@ -1532,7 +1531,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
             <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
               <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900">
                 <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Hydration Trend</h4>
-                <p className="text-xs text-slate-500">Average daily intake · target 3,000 ml</p>
+                <p className="text-xs text-slate-500">Average daily intake · target 2,000 ml</p>
                 <div className="mt-3 h-56 w-full">
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={wellnessAnalyticsData.chartPoints} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
@@ -1541,7 +1540,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
                       <XAxis dataKey="label" tick={{ fontSize: 10 }} />
                       <YAxis tick={{ fontSize: 10 }} />
                       <Tooltip formatter={(value: unknown) => [typeof value !== 'number' ? 'No entry' : `${Math.round(value).toLocaleString()} ml`, 'Average water']} />
-                      <ReferenceLine y={3000} stroke="#10B981" strokeDasharray="4 4" />
+                      <ReferenceLine y={2000} stroke="#10B981" strokeDasharray="4 4" />
                       <Area type="monotone" dataKey="Water" connectNulls={false} stroke="#3B82F6" fill="url(#wellnessWaterGradient)" strokeWidth={2} />
                     </AreaChart>
                   </ResponsiveContainer>

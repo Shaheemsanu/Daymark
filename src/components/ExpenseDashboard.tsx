@@ -62,6 +62,12 @@ const QUICK_TITLES = [
   'Online Shopping'
 ];
 
+const getTransferTarget = (expense: Expense): 'expense' | 'savings' | 'cash' => {
+  if (expense.transferToAccount) return expense.transferToAccount;
+  const target = /transfer to (expense|cash|savings)/i.exec(expense.category)?.[1]?.toLowerCase();
+  return (target as 'expense' | 'savings' | 'cash' | undefined) || 'expense';
+};
+
 const COLOR_PALETTE = [
   '#10B981', // Emerald
   '#06B6D4', // Cyan
@@ -157,6 +163,8 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
   // Add/Edit Form states
   const [formAccount, setFormAccount] = useState<'expense' | 'savings' | 'cash'>('expense');
   const [formTransactionType, setFormTransactionType] = useState<'expense' | 'income' | 'transfer'>('expense');
+  const [isSelfTransfer, setIsSelfTransfer] = useState(false);
+  const [transferToAccount, setTransferToAccount] = useState<'expense' | 'savings' | 'cash'>('savings');
   const [formTitle, setFormTitle] = useState('');
   const [formAmount, setFormAmount] = useState('');
   const [formCategory, setFormCategory] = useState<string>('Food & Dining');
@@ -226,10 +234,16 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
   }, [savingsTransactions]);
 
   const savingsTransferredOutTotal = useMemo(() => {
-    return expenses.filter(e => e.isTransfer || e.category.includes('Transfer') || (e.account === 'savings' && e.type === 'expense')).reduce((sum, e) => sum + e.amount, 0);
+    return expenses.filter(e => e.isTransfer
+      ? (e.account || 'savings') === 'savings' && getTransferTarget(e) === 'expense'
+      : e.category.includes('Transfer'))
+      .reduce((sum, e) => sum + e.amount, 0);
   }, [expenses]);
 
-  const savingsCurrentBalance = savingsIncomeTotal - savingsTransferredOutTotal;
+  const savingsCurrentBalance = savingsTransactions.filter(e => e.type === 'income' && !e.isTransfer).reduce((sum, e) => sum + e.amount, 0)
+    - savingsTransactions.filter(e => e.type !== 'income' && !e.isTransfer).reduce((sum, e) => sum + e.amount, 0)
+    - expenses.filter(e => e.isTransfer && (e.account || 'savings') === 'savings').reduce((sum, e) => sum + e.amount, 0)
+    + expenses.filter(e => e.isTransfer && getTransferTarget(e) === 'savings').reduce((sum, e) => sum + e.amount, 0);
 
   // Cash in Hand Stats
   const cashIncomeTotal = useMemo(() => {
@@ -240,7 +254,9 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
     return cashTransactions.filter(e => e.type !== 'income' && !e.isTransfer).reduce((sum, e) => sum + e.amount, 0);
   }, [cashTransactions]);
 
-  const cashCurrentBalance = cashIncomeTotal - cashOutflowTotal;
+  const cashCurrentBalance = cashIncomeTotal - cashOutflowTotal
+    - expenses.filter(e => e.isTransfer && e.account === 'cash').reduce((sum, e) => sum + e.amount, 0)
+    + expenses.filter(e => e.isTransfer && getTransferTarget(e) === 'cash').reduce((sum, e) => sum + e.amount, 0);
 
   // Expense Account Stats
   const expenseDirectInflows = useMemo(() => {
@@ -251,7 +267,10 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
     return expenseAccTransactions.filter(e => e.type !== 'income' && !e.isTransfer).reduce((sum, e) => sum + e.amount, 0);
   }, [expenseAccTransactions]);
 
-  const expenseAccCurrentBalance = savingsTransferredOutTotal + expenseDirectInflows - expenseOutflowsTotal;
+  const expenseAccCurrentBalance = expenseDirectInflows - expenseOutflowsTotal
+    - expenses.filter(e => e.isTransfer && e.account === 'expense').reduce((sum, e) => sum + e.amount, 0)
+    + savingsTransferredOutTotal
+    + expenses.filter(e => e.isTransfer && getTransferTarget(e) === 'expense' && (e.account || 'savings') !== 'savings').reduce((sum, e) => sum + e.amount, 0);
 
   // Today's Date helpers
   const now = new Date();
@@ -509,6 +528,12 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
 
   // Handle Account change in Modal
   const handleFormAccountChange = (acc: 'expense' | 'savings' | 'cash') => {
+    if (isSelfTransfer) {
+      if (acc === transferToAccount) setTransferToAccount(formAccount);
+      setFormAccount(acc);
+      return;
+    }
+    setIsSelfTransfer(false);
     setFormAccount(acc);
     setFormCategoryError('');
     if (acc === 'savings') {
@@ -599,8 +624,10 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
 
   // Open Add Modal
   const handleOpenAdd = () => {
+    setIsSelfTransfer(false);
     setFormAccount('expense');
     setFormTransactionType('expense');
+    setTransferToAccount('savings');
     setFormTitle('');
     setFormAmount('');
     setFormCategory('');
@@ -635,7 +662,11 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
   // Submit Add Expense
   const handleSubmitAdd = async () => {
     if (isSavingTransaction) return;
-    const isTransfer = formTransactionType === 'transfer';
+    const isTransfer = isSelfTransfer || formTransactionType === 'transfer';
+    if (isSelfTransfer && formAccount === transferToAccount) {
+      setTransactionSaveError('Choose two different accounts for a transfer.');
+      return;
+    }
     if (!isTransfer && (!formCategory || !formCategory.trim())) {
       setFormCategoryError('Category is mandatory. Please select a category before submitting.');
       return;
@@ -647,7 +678,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
       return;
     }
 
-    const finalCategory = isTransfer ? 'Transfer to Expense Account' : formCategory;
+    const finalCategory = isTransfer ? `Transfer to ${isSelfTransfer ? transferToAccount : 'Expense Account'}` : formCategory;
     const finalType = isTransfer ? 'expense' : (formTransactionType as 'expense' | 'income');
     const fallbackDefault = isTransfer
       ? 'Transfer to Expense Account'
@@ -664,6 +695,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
       type: finalType,
       account: formAccount,
       isTransfer: isTransfer,
+      transferToAccount: isTransfer ? (isSelfTransfer ? transferToAccount : 'expense') : undefined,
       date: formDate || todayIso,
       paymentMethod: formPaymentMethod || 'UPI / QR',
       notes: formNotes.trim() || undefined,
@@ -687,6 +719,8 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
     setEditingExpense(exp);
     setTransactionUpdateError(null);
     setFormAccount(exp.account || 'expense');
+    setIsSelfTransfer(!!exp.isTransfer && ((exp.transferToAccount || 'expense') !== 'expense' || (exp.account || 'savings') !== 'savings'));
+    setTransferToAccount(exp.transferToAccount || 'expense');
     setFormTransactionType(exp.isTransfer ? 'transfer' : (exp.type || 'expense'));
     setFormTitle(exp.title);
     setFormAmount(exp.amount.toString());
@@ -701,7 +735,11 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
   const handleSubmitEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingExpense || isUpdatingTransaction) return;
-    const isTransfer = formTransactionType === 'transfer';
+    const isTransfer = isSelfTransfer || formTransactionType === 'transfer';
+    if (isSelfTransfer && formAccount === transferToAccount) {
+      setTransactionUpdateError('Choose two different accounts for a transfer.');
+      return;
+    }
     if (!isTransfer && (!formCategory || !formCategory.trim())) {
       setFormCategoryError('Category is mandatory. Please select a category before submitting.');
       return;
@@ -713,7 +751,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
       return;
     }
 
-    const finalCategory = isTransfer ? 'Transfer to Expense Account' : formCategory;
+    const finalCategory = isTransfer ? `Transfer to ${isSelfTransfer ? transferToAccount : 'Expense Account'}` : formCategory;
     const finalType = isTransfer ? 'expense' : (formTransactionType as 'expense' | 'income');
     const fallbackDefault = isTransfer
       ? 'Transfer to Expense Account'
@@ -730,6 +768,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
         type: finalType,
         account: formAccount,
         isTransfer,
+        transferToAccount: isTransfer ? (isSelfTransfer ? transferToAccount : 'expense') : undefined,
         date: formDate || todayIso,
         paymentMethod: formPaymentMethod || 'UPI / QR',
         notes: formNotes.trim() || undefined,
@@ -1705,7 +1744,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                   ₹
                 </div>
                 <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-slate-100">
-                  {editingExpense ? 'Edit ' : ''}{formAccount === 'savings' ? 'Savings Account Transaction' : formAccount === 'cash' ? 'Cash in Hand Transaction' : 'Expense Account Transaction'}
+                  {editingExpense ? 'Edit ' : ''}{isSelfTransfer ? 'Self Transfer' : formAccount === 'savings' ? 'Savings Account Transaction' : formAccount === 'cash' ? 'Cash in Hand Transaction' : 'Expense Account Transaction'}
                 </h3>
               </div>
               <button
@@ -1733,10 +1772,10 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
               {/* 1. Account Selection */}
               <div>
                 <label className="block text-xs font-semibold text-slate-800 dark:text-slate-200 mb-1 flex items-center justify-between">
-                  <span>Target Account</span>
+                  <span>{isSelfTransfer ? 'From Account' : 'Target Account'}</span>
                   <span className="text-[10px] text-slate-400 font-mono">Select account</span>
                 </label>
-                <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
+                <div className="grid grid-cols-4 gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
                   <button
                     type="button"
                     onClick={() => handleFormAccountChange('expense')}
@@ -1770,14 +1809,40 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                   >
                     🏦 Savings
                   </button>
+                  <button type="button" onClick={() => { const next = !isSelfTransfer; setIsSelfTransfer(next); setFormTransactionType(next ? 'transfer' : (formAccount === 'savings' ? 'income' : 'expense')); setFormCategoryError(''); setTransactionSaveError(null); setTransactionUpdateError(null); }} className={`py-1.5 px-1 rounded-lg text-[11px] sm:text-xs font-bold transition-all cursor-pointer ${isSelfTransfer ? 'bg-amber-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'}`}>
+                    ↔ Transfer
+                  </button>
                 </div>
+                {isSelfTransfer && (
+                  <div className="mt-2">
+                    <label className="mb-1 block text-xs font-semibold text-slate-800 dark:text-slate-200">To Account</label>
+                    <select value={transferToAccount} onChange={event => setTransferToAccount(event.target.value as 'expense' | 'savings' | 'cash')} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-900 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100">
+                      {(['expense', 'cash', 'savings'] as const).filter(account => account !== formAccount).map(account => <option key={account} value={account}>{account === 'expense' ? '💳 Expense' : account === 'cash' ? '💵 Cash' : '🏦 Savings'}</option>)}
+                    </select>
+                  </div>
+                )}
               </div>
 
               {/* 2. Transaction Type Switcher + Date Picker */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <div className={`${isSelfTransfer ? 'hidden ' : ''}grid grid-cols-1 sm:grid-cols-3 gap-2`}>
                 <div className="sm:col-span-2 grid grid-cols-2 gap-1.5 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
                   {formAccount === 'savings' ? (
                     <>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFormTransactionType('expense');
+                          setFormCategory('');
+                          setFormCategoryError('');
+                        }}
+                        className={`py-1.5 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                          formTransactionType === 'expense'
+                            ? 'bg-rose-600 text-white shadow-xs'
+                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                        }`}
+                      >
+                        Outflow
+                      </button>
                       <button
                         type="button"
                         onClick={() => {
@@ -1792,21 +1857,6 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                         }`}
                       >
                         Income Inflow
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setFormTransactionType('transfer');
-                          setFormCategory('Transfer to Expense Account');
-                          setFormCategoryError('');
-                        }}
-                        className={`py-1.5 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                          formTransactionType === 'transfer'
-                            ? 'bg-amber-600 text-white shadow-xs'
-                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-                        }`}
-                      >
-                        Transfer Cash
                       </button>
                     </>
                   ) : (
@@ -1963,7 +2013,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                 {formTransactionType === 'transfer' ? (
                   <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-900/60 text-xs font-semibold text-amber-900 dark:text-amber-200 flex items-center gap-2">
                     <span className="w-2.5 h-2.5 rounded-full bg-amber-500 shrink-0" />
-                    <span>Transfer to Expense Account</span>
+                    <span>Transfer to {isSelfTransfer ? transferToAccount === 'expense' ? 'Expense Account' : transferToAccount === 'cash' ? 'Cash' : 'Savings' : 'Expense Account'}</span>
                   </div>
                 ) : (
                   <div className="space-y-2">
