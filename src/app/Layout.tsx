@@ -57,7 +57,7 @@ export const Layout: React.FC<LayoutProps> = ({
             className="flex items-center gap-2 text-left group shrink-0"
           >
             <img
-              src="/daymark-logo.png"
+              src="/favicon.ico"
               alt="Daymark logo"
               className="w-8 h-8 rounded-xl object-cover shadow-xs"
             />
