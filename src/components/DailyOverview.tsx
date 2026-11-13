@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { Habit, DailyTask, DailyWellness, Expense, MoodType, BudgetConfig } from '../types';
 import { formatCurrency, formatDate, CATEGORIES } from '../utils/constants';
+import { WellnessNotes } from './WellnessNotes';
 
 interface DailyOverviewProps {
   selectedDate: string; // YYYY-MM-DD
@@ -121,7 +122,11 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
   const dayTasks = tasks.filter(t => t.date === selectedDate);
   const completedTasksCount = dayTasks.filter(t => t.completed).length;
 
-  const completedHabitsCount = habits.filter(h => h.completedDates.includes(selectedDate)).length;
+  const selectedWeekday = new Date(`${selectedDate}T00:00:00`).getDay();
+  const habitsForSelectedDay = habits.filter(habit =>
+    (habit.weekdays || [0, 1, 2, 3, 4, 5, 6]).includes(selectedWeekday)
+  );
+  const completedHabitsCount = habitsForSelectedDay.filter(habit => habit.completedDates.includes(selectedDate)).length;
 
   const dayWellness: DailyWellness = wellness[selectedDate] || {
     date: selectedDate,
@@ -227,7 +232,11 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
         {/* 7-Day Strip with multi-metric status dots */}
         <div className="grid grid-cols-7 gap-2 pt-4">
           {dateStrip.map(item => {
-            const habitsDoneForDay = habits.filter(h => h.completedDates.includes(item.iso)).length;
+            const itemWeekday = new Date(`${item.iso}T00:00:00`).getDay();
+            const habitsForDay = habits.filter(habit =>
+              (habit.weekdays || [0, 1, 2, 3, 4, 5, 6]).includes(itemWeekday)
+            );
+            const habitsDoneForDay = habitsForDay.filter(habit => habit.completedDates.includes(item.iso)).length;
             const tasksDoneForDay = tasks.filter(t => t.date === item.iso && t.completed).length;
             const spendForDay = expenses.filter(e => e.date === item.iso).reduce((sum, e) => sum + e.amount, 0);
 
@@ -330,22 +339,22 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
           <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 mb-1">
             <span className="font-medium">Habits Consistency</span>
             <span className="font-mono text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
-              {habits.length > 0 ? Math.round((completedHabitsCount / habits.length) * 100) : 0}%
+              {habitsForSelectedDay.length > 0 ? Math.round((completedHabitsCount / habitsForSelectedDay.length) * 100) : 0}%
             </span>
           </div>
           <div className="text-2xl font-bold font-mono tracking-tight text-slate-900 dark:text-slate-100 tabular-nums">
-            {completedHabitsCount} <span className="text-sm text-slate-400 font-normal">/ {habits.length}</span>
+            {completedHabitsCount} <span className="text-sm text-slate-400 font-normal">/ {habitsForSelectedDay.length}</span>
           </div>
           <div className="w-full h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 mt-3 overflow-hidden">
             <div
               className="h-full bg-emerald-500 rounded-full transition-all duration-300"
               style={{
-                width: `${habits.length > 0 ? (completedHabitsCount / habits.length) * 100 : 0}%`
+                width: `${habitsForSelectedDay.length > 0 ? (completedHabitsCount / habitsForSelectedDay.length) * 100 : 0}%`
               }}
             />
           </div>
           <div className="text-[11px] text-slate-400 mt-2 flex items-center justify-between">
-            <span>{habits.length - completedHabitsCount} remaining today</span>
+            <span>{habitsForSelectedDay.length - completedHabitsCount} remaining today</span>
             <span className="font-mono text-[10px]">14d window</span>
           </div>
         </div>
@@ -531,7 +540,7 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
       {/* Main Grid: Left Column (Habits & Tasks) + Right Column (Wellness Log) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Column (Habits & Priority Tasks) */}
-        <div className="lg:col-span-7 space-y-6">
+        <div className="lg:col-span-7 space-y-6 lg:flex lg:min-w-0 lg:flex-col lg:space-y-0 lg:gap-6">
           {/* Card: Daily Habits Checklist */}
           <div className="p-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs">
             <div className="flex items-center justify-between mb-4">
@@ -553,12 +562,14 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
             </div>
 
             <div className="space-y-2.5">
-              {habits.length === 0 ? (
+              {habitsForSelectedDay.length === 0 ? (
                 <div className="text-center py-8 text-xs text-slate-400">
-                  No habits added yet. Click &quot;Add Habit&quot; to establish your routine.
+                  {habits.length === 0
+                    ? 'No habits added yet. Click "Add Habit" to establish your routine.'
+                    : 'No habits are scheduled for this day.'}
                 </div>
               ) : (
-                habits.map(habit => {
+                habitsForSelectedDay.map(habit => {
                   const isChecked = habit.completedDates.includes(selectedDate);
                   return (
                     <div
@@ -610,7 +621,7 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
           </div>
 
           {/* Card: Daily Tasks & Priorities */}
-          <div className="p-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs">
+          <div className="p-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs lg:flex lg:min-w-0 lg:flex-1 lg:flex-col">
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
@@ -623,15 +634,15 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
             </div>
 
             {/* Quick add task input */}
-            <form onSubmit={handleCreateTask} className="flex flex-col sm:flex-row gap-2 mb-4">
+            <form onSubmit={handleCreateTask} className="flex flex-col sm:flex-row gap-2 mb-4 lg:grid lg:grid-cols-1 2xl:grid-cols-[minmax(0,1fr)_auto]">
               <input
                 type="text"
                 value={newTaskTitle}
                 onChange={e => setNewTaskTitle(e.target.value)}
                 placeholder="What needs to get done today?..."
-                className="flex-1 px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-slate-400 placeholder:text-slate-400"
+                className="flex-1 px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-slate-400 placeholder:text-slate-400 lg:min-w-0 lg:w-full lg:h-9"
               />
-              <div className="flex items-center gap-1.5 flex-wrap sm:flex-nowrap">
+              <div className="flex items-center gap-1.5 flex-wrap sm:flex-nowrap lg:flex-wrap lg:[&>select]:h-9 lg:[&>input]:h-9 lg:[&>button]:h-9 2xl:flex-nowrap">
                 <select
                   value={newTaskPriority}
                   onChange={e => setNewTaskPriority(e.target.value as any)}
@@ -692,9 +703,9 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
             </form>
 
             {/* Task list */}
-            <div className="space-y-2">
+            <div className="space-y-2 lg:flex lg:flex-1 lg:flex-col">
               {dayTasks.length === 0 ? (
-                <div className="text-center py-6 text-xs text-slate-400 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
+                <div className="text-center py-6 text-xs text-slate-400 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl lg:flex lg:min-h-28 lg:flex-1 lg:items-center lg:justify-center lg:px-4">
                   No priority tasks scheduled for this date.
                 </div>
               ) : (
@@ -774,9 +785,9 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
         </div>
 
         {/* Right Column (Wellness Log) */}
-        <div className="lg:col-span-5 space-y-6">
+        <div className="lg:col-span-5 space-y-6 lg:min-w-0">
           {/* Card: Daily Wellness & Mood */}
-          <div className="p-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs">
+          <div className="p-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs lg:h-full">
             <div className="mb-4">
               <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
                 Daily Wellness Log
@@ -795,7 +806,9 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
                 {MOODS.map(m => (
                   <button
                     key={m.type}
-                    onClick={() => onUpdateWellness(selectedDate, { mood: m.type })}
+                    onClick={() => onUpdateWellness(selectedDate, { mood: dayWellness.mood === m.type ? undefined : m.type })}
+                    aria-pressed={dayWellness.mood === m.type}
+                    aria-label={m.label}
                     className={`py-2 px-1 rounded-xl border flex flex-col items-center justify-center transition-all cursor-pointer ${
                       dayWellness.mood === m.type
                         ? 'border-blue-500 bg-blue-50/70 dark:bg-blue-950/50 ring-1 ring-blue-500'
@@ -854,14 +867,16 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
                     <span>Energy</span>
                   </span>
                   <span className="font-mono text-slate-900 dark:text-slate-100 font-bold tabular-nums">
-                    {dayWellness.energyScore || 3} / 5
+                    {dayWellness.energyScore || '—'} / 5
                   </span>
                 </div>
                 <div className="flex items-center gap-1 mt-2">
                   {[1, 2, 3, 4, 5].map(score => (
                     <button
                       key={score}
-                      onClick={() => onUpdateWellness(selectedDate, { energyScore: score })}
+                      onClick={() => onUpdateWellness(selectedDate, { energyScore: dayWellness.energyScore === score ? 0 : score })}
+                      aria-label={`Energy level ${score}`}
+                      aria-pressed={dayWellness.energyScore === score}
                       className={`flex-1 py-1 rounded text-xs font-mono transition-colors cursor-pointer ${
                         dayWellness.energyScore === score
                           ? 'bg-amber-500 text-white font-bold'
@@ -876,33 +891,13 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
             </div>
 
             {/* Gratitude & Journal notes */}
-            <div className="space-y-3">
-              <div>
-                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                  Gratitude / Highlight
-                </label>
-                <input
-                  type="text"
-                  value={dayWellness.gratitude || ''}
-                  onChange={e => onUpdateWellness(selectedDate, { gratitude: e.target.value })}
-                  placeholder="One thing I'm grateful for today..."
-                  className="w-full px-3 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                  Daily Reflection / Journal
-                </label>
-                <textarea
-                  rows={3}
-                  value={dayWellness.journalNotes || ''}
-                  onChange={e => onUpdateWellness(selectedDate, { journalNotes: e.target.value })}
-                  placeholder="Key observations, accomplishments, thoughts..."
-                  className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none"
-                />
-              </div>
-            </div>
+            <WellnessNotes key={selectedDate}
+              accent="blue"
+              footerText="Take a moment for yourself."
+              gratitude={dayWellness.gratitude ?? ''}
+              journalNotes={dayWellness.journalNotes ?? ''}
+              onSave={notes => onUpdateWellness(selectedDate, notes)}
+            />
           </div>
         </div>
       </div>

@@ -42,6 +42,8 @@ import {
 } from 'lucide-react';
 import { Habit, HabitCategory, DailyWellness, MoodType } from '../types';
 import { formatDate } from '../utils/constants';
+import { SleepScene, getSleepSceneState } from './SleepScene';
+import { WellnessNotes } from './WellnessNotes';
 import {
   getPastNDays,
   getPastNWeeks,
@@ -183,6 +185,9 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
   };
   const [waterGlassesDraft, setWaterGlassesDraft] = useState<number | null>(null);
   const waterGlasses = waterGlassesDraft ?? dayWellness.waterGlasses ?? 0;
+  const waterTargetProgress = Math.min(100, (waterGlasses / 8) * 100);
+  const sleepHours = dayWellness.sleepHours ?? 7;
+  const sleepTargetProgress = Math.min(100, (sleepHours / 8) * 100);
 
   useEffect(() => {
     setWaterGlassesDraft(wellness?.[targetDate]?.waterGlasses ?? 0);
@@ -197,18 +202,18 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
 
   const handleAdjustSleep = (delta: number) => {
     if (!onUpdateWellness) return;
-    const next = Math.max(0, Math.min(16, Math.round(((dayWellness.sleepHours || 7) + delta) * 2) / 2));
+    const next = Math.max(0, Math.min(16, Math.round((sleepHours + delta) * 2) / 2));
     onUpdateWellness(targetDate, { sleepHours: next });
   };
 
   const handleSetMood = (mood: MoodType) => {
     if (!onUpdateWellness) return;
-    onUpdateWellness(targetDate, { mood });
+    onUpdateWellness(targetDate, { mood: dayWellness.mood === mood ? undefined : mood });
   };
 
   const handleSetEnergy = (energyScore: number) => {
     if (!onUpdateWellness) return;
-    onUpdateWellness(targetDate, { energyScore });
+    onUpdateWellness(targetDate, { energyScore: dayWellness.energyScore === energyScore ? 0 : energyScore });
   };
 
   // Generate 14-day date column headers for matrix
@@ -459,7 +464,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
         label: interval.label,
         Water: average(periodRecords.map(record => record.waterGlasses * 250)),
         Sleep: average(periodRecords.map(record => record.sleepHours)),
-        Energy: average(periodRecords.map(record => record.energyScore)),
+        Energy: average(periodRecords.map(record => record.energyScore).filter(score => score > 0)),
         LoggedDays: periodRecords.length
       };
     });
@@ -476,7 +481,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
     const mostCommonMood = [...moodCounts].sort((a, b) => b.count - a.count)[0];
     const avgWater = average(records.map(record => record.waterGlasses * 250));
     const avgSleep = average(records.map(record => record.sleepHours));
-    const avgEnergy = average(records.map(record => record.energyScore));
+    const avgEnergy = average(records.map(record => record.energyScore).filter(score => score > 0));
 
     return {
       chartPoints,
@@ -764,7 +769,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
           </span>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 items-stretch gap-4 md:grid-cols-3">
           {/* 💧 Water Intake Tracker */}
           <div className="p-3 rounded-xl border border-blue-100 dark:border-blue-950/60 bg-blue-50/40 dark:bg-blue-950/20 flex flex-col justify-between space-y-2">
             <div className="flex items-center justify-between">
@@ -772,7 +777,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
                 <Droplet className="w-4 h-4 text-blue-500 fill-blue-500" />
                 <span>Water Intake</span>
               </div>
-              <span className="text-xs font-mono font-bold text-blue-700 dark:text-blue-300 tabular-nums">
+              <span key={waterGlasses} className="wellness-counter-pop text-xs font-mono font-bold text-blue-700 dark:text-blue-300 tabular-nums">
                 {(waterGlasses * 250).toLocaleString()} / 2,000 ml
               </span>
             </div>
@@ -785,6 +790,20 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
               />
             </div>
 
+            <div className="flex flex-1 flex-col items-center justify-center gap-3 py-6 text-center">
+              <div role="img" aria-label={`Water glass ${Math.round(waterTargetProgress)} percent full`} className="wellness-water-glass relative h-[82px] w-[62px] overflow-hidden rounded-b-[15px] rounded-t-[5px] border-[3px] border-blue-500/70 bg-blue-50/70 shadow-[0_8px_18px_-12px_rgba(37,99,235,0.8)] dark:border-blue-400/70 dark:bg-slate-950/50">
+                <div className="wellness-water-fill absolute inset-x-0 bottom-0 bg-gradient-to-t from-blue-600 via-blue-500 to-cyan-400/90 dark:from-blue-700 dark:via-blue-500 dark:to-cyan-400" style={{ height: `${waterTargetProgress}%` }} />
+                <div className="wellness-water-shine pointer-events-none absolute inset-y-2 left-2 w-1 rounded-full bg-white/70 dark:bg-white/40" />
+                <span key={waterGlasses} className="wellness-water-bubble absolute bottom-4 left-4 h-1.5 w-1.5 rounded-full bg-cyan-100/90" />
+                <span key={`second-${waterGlasses}`} className="wellness-water-bubble wellness-water-bubble-late absolute bottom-2 right-3 h-1 w-1 rounded-full bg-white/80" />
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm font-semibold text-blue-800 dark:text-blue-200">{waterTargetProgress >= 100 ? 'Hydration goal reached!' : 'Keep your day flowing'}</p>
+                <p className="text-xs italic leading-relaxed text-blue-700/80 dark:text-blue-300/80">Your glass is {Math.round(waterTargetProgress)}% full. Keep sipping.</p>
+              </div>
+            </div>
+            <div className="mt-auto space-y-2">
+            <p className="text-[10px] leading-relaxed text-slate-500 dark:text-slate-400">Daily target: 2,000 ml</p>
             <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-2 pt-1">
               <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
                 {waterGlasses}/8 glasses to target
@@ -794,7 +813,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
                   type="button"
                   onClick={() => handleAdjustWater(-1)}
                   disabled={waterGlasses <= 0}
-                  className="h-10 w-10 shrink-0 whitespace-nowrap rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm font-mono font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer flex items-center justify-center disabled:cursor-not-allowed disabled:opacity-40"
+                  className="h-8 w-8 shrink-0 whitespace-nowrap rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm font-mono font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-95 transition-all cursor-pointer flex items-center justify-center disabled:cursor-not-allowed disabled:opacity-40"
                   title="Remove 1 glass (−250 ml)"
                   aria-label="Remove one glass of water"
                 >
@@ -804,7 +823,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
                   type="button"
                   onClick={() => handleAdjustWater(1)}
                   disabled={waterGlasses >= 20}
-                  className="h-10 w-10 shrink-0 whitespace-nowrap rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm font-mono font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer flex items-center justify-center disabled:cursor-not-allowed disabled:opacity-40"
+                  className="h-8 w-8 shrink-0 whitespace-nowrap rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm font-mono font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-95 transition-all cursor-pointer flex items-center justify-center disabled:cursor-not-allowed disabled:opacity-40"
                   title="Add 1 glass (+250ml)"
                 >
                   +
@@ -813,14 +832,14 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
                   type="button"
                   onClick={() => handleAdjustWater(2)}
                   disabled={waterGlasses >= 20}
-                  className="h-10 min-w-[70px] shrink-0 whitespace-nowrap rounded-lg border border-slate-300 dark:border-slate-700 bg-white px-2 dark:bg-slate-900 text-xs font-mono font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer flex items-center justify-center disabled:cursor-not-allowed disabled:opacity-40"
+                  className="h-8 min-w-[70px] shrink-0 whitespace-nowrap rounded-lg border border-slate-300 dark:border-slate-700 bg-white px-2 dark:bg-slate-900 text-xs font-mono font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-95 transition-all cursor-pointer flex items-center justify-center disabled:cursor-not-allowed disabled:opacity-40"
                   title="Add 2 glasses (+500ml)"
                 >
                   +500
                 </button>
               </div>
             </div>
-            <p className="text-[10px] leading-relaxed text-slate-500 dark:text-slate-400">Daily target: 2,000 ml</p>
+            </div>
           </div>
 
           {/* 😴 Sleep Hours Tracker */}
@@ -830,20 +849,22 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
                 <Moon className="w-4 h-4 text-indigo-500 fill-indigo-500" />
                 <span>Sleep Duration</span>
               </div>
-              <span className="text-xs font-mono font-bold text-indigo-700 dark:text-indigo-300 tabular-nums">
-                {dayWellness.sleepHours || 7} hrs
+              <span key={sleepHours} className="wellness-counter-pop text-xs font-mono font-bold text-indigo-700 dark:text-indigo-300 tabular-nums">
+                {sleepHours} hrs
               </span>
             </div>
 
-            {/* Visual sleep meter */}
-            <div className="w-full h-2 rounded-full bg-indigo-200 dark:bg-indigo-900/50 overflow-hidden">
-              <div
-                className="h-full bg-indigo-500 rounded-full transition-all duration-300"
-                style={{ width: `${Math.min(100, ((dayWellness.sleepHours || 7) / 10) * 100)}%` }}
-              />
+            <div role="progressbar" aria-label="Sleep toward an 8 hour goal" aria-valuemin={0} aria-valuemax={8} aria-valuenow={Math.min(8, sleepHours)} aria-valuetext={`${sleepHours} hours of sleep`} className="h-2 w-full overflow-hidden rounded-full bg-indigo-200 dark:bg-indigo-900/50">
+              <div className="sleep-duration-progress h-full rounded-full bg-indigo-500" style={{ width: `${sleepTargetProgress}%` }} />
             </div>
-
-            <div className="flex items-center justify-between gap-1 pt-1">
+            <div className="flex flex-1 flex-col items-center justify-center gap-3 py-4 text-center">
+              <SleepScene hours={sleepHours} />
+              <div className="space-y-1" aria-live="polite" aria-atomic="true">
+                <p className="text-sm font-semibold text-indigo-800 dark:text-indigo-200">{getSleepSceneState(sleepHours).message}</p>
+                <p className="text-xs italic leading-relaxed text-indigo-700/80 dark:text-indigo-300/80">{Math.round(sleepTargetProgress)}% toward 8 hours. Rest well; tomorrow is a fresh start.</p>
+              </div>
+            </div>
+            <div className="mt-auto flex items-center justify-between gap-1 pt-1">
               <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
                 Target: 7-9 hrs
               </span>
@@ -851,7 +872,9 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
                 <button
                   type="button"
                   onClick={() => handleAdjustSleep(-0.5)}
-                  className="px-2 h-7 rounded-md border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 text-xs font-mono font-bold text-slate-700 dark:text-slate-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors cursor-pointer"
+                  disabled={!onUpdateWellness || sleepHours <= 0}
+                  aria-label="Decrease sleep by 30 minutes"
+                  className="px-2 h-8 rounded-lg border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 text-xs font-mono font-bold text-slate-700 dark:text-slate-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 active:scale-95 transition-all cursor-pointer"
                   title="Subtract 0.5 hours"
                 >
                   -0.5h
@@ -859,7 +882,9 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
                 <button
                   type="button"
                   onClick={() => handleAdjustSleep(0.5)}
-                  className="px-2.5 h-7 rounded-md bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700 transition-colors cursor-pointer flex items-center gap-1 shadow-xs"
+                  disabled={!onUpdateWellness || sleepHours >= 16}
+                  aria-label="Increase sleep by 30 minutes"
+                  className="px-2.5 h-8 rounded-lg bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700 active:scale-95 transition-all cursor-pointer flex items-center gap-1 shadow-xs"
                   title="Add 0.5 hours"
                 >
                   <Plus className="w-3 h-3" />
@@ -878,7 +903,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
               </div>
               <div className="flex items-center gap-1 text-xs font-mono text-amber-700 dark:text-amber-300">
                 <Zap className="w-3 h-3 text-amber-500 fill-amber-500" />
-                <span>{dayWellness.energyScore || 3}/5</span>
+                <span>{dayWellness.energyScore || '—'}/5</span>
               </div>
             </div>
 
@@ -889,6 +914,8 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
                   key={m.type}
                   type="button"
                   onClick={() => handleSetMood(m.type)}
+                  aria-label={m.label}
+                  aria-pressed={dayWellness.mood === m.type}
                   className={`py-1 rounded-lg border text-center transition-all cursor-pointer ${
                     dayWellness.mood === m.type
                       ? 'border-amber-500 bg-amber-500 text-white shadow-xs font-bold'
@@ -912,6 +939,8 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
                     key={score}
                     type="button"
                     onClick={() => handleSetEnergy(score)}
+                    aria-label={`Energy level ${score}`}
+                    aria-pressed={dayWellness.energyScore === score}
                     className={`w-6 h-6 rounded-md text-[11px] font-mono font-bold transition-all cursor-pointer ${
                       dayWellness.energyScore === score
                         ? 'bg-amber-500 text-white'
@@ -923,8 +952,17 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
                 ))}
               </div>
             </div>
+          <div className="mt-4">
+            <WellnessNotes key={targetDate}
+              footerText="Take a moment for yourself."
+              gratitude={dayWellness.gratitude ?? ''}
+              journalNotes={dayWellness.journalNotes ?? ''}
+              onSave={onUpdateWellness ? notes => onUpdateWellness(targetDate, notes) : undefined}
+            />
+          </div>
           </div>
         </div>
+
       </div>
 
       {/* Category Filter Toolbar with custom categories */}

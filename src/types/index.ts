@@ -91,7 +91,7 @@ export interface DailyWellness {
   mood?: MoodType;
   waterGlasses: number; // Goal: 8
   sleepHours: number;
-  energyScore: number; // 1 to 5
+  energyScore: number; // 1 to 5; 0 means unselected (stored as null)
   journalNotes: string;
   gratitude: string;
 }

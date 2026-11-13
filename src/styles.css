@@ -1,6 +1,163 @@
 @import "tailwindcss";
 @custom-variant dark (&:where(.dark, .dark *));
 
+@keyframes wellness-counter-pop {
+  0% { transform: scale(0.88); opacity: 0.65; }
+  65% { transform: scale(1.12); opacity: 1; }
+  100% { transform: scale(1); }
+}
+
+@keyframes wellness-water-bounce {
+  0% { transform: translateY(5px) scale(0.94); }
+  42% { transform: translateY(-5px) scale(1.04); }
+  72% { transform: translateY(1px) scale(0.99); }
+  100% { transform: translateY(0) scale(1); }
+}
+
+@keyframes wellness-water-ripple {
+  0% { transform: scale(0.72); opacity: 0.7; }
+  100% { transform: scale(1.35); opacity: 0; }
+}
+
+@keyframes wellness-water-drop {
+  0% { transform: translateY(5px) scale(0.86); filter: drop-shadow(0 0 0 rgba(59, 130, 246, 0)); }
+  55% { transform: translateY(-3px) scale(1.12); filter: drop-shadow(0 0 8px rgba(59, 130, 246, 0.42)); }
+  100% { transform: translateY(0) scale(1); filter: drop-shadow(0 0 2px rgba(59, 130, 246, 0.18)); }
+}
+
+@keyframes wellness-sleep-sway {
+  0% { transform: rotate(-12deg) scale(0.9); }
+  45% { transform: rotate(7deg) scale(1.08); }
+  75% { transform: rotate(-3deg) scale(0.98); }
+  100% { transform: rotate(0) scale(1); }
+}
+
+@keyframes wellness-star-twinkle {
+  0% { opacity: 0.35; transform: scale(0.5) rotate(-25deg); }
+  55% { opacity: 1; transform: scale(1.35) rotate(20deg); }
+  100% { opacity: 0.85; transform: scale(1) rotate(0); }
+}
+
+@keyframes wellness-water-bubble-rise {
+  0% { opacity: 0; transform: translateY(5px) scale(0.7); }
+  25% { opacity: 0.85; }
+  100% { opacity: 0; transform: translateY(-42px) scale(1.15); }
+}
+
+@keyframes wellness-water-surface {
+  0%, 100% { transform: translateX(-5%) rotate(-2deg); }
+  50% { transform: translateX(5%) rotate(2deg); }
+}
+
+@keyframes wellness-sleep-drift {
+  0%, 100% { transform: translateX(0); }
+  50% { transform: translateX(5px); }
+}
+
+.wellness-counter-pop { animation: wellness-counter-pop 260ms ease-out; }
+.wellness-water-bounce { animation: wellness-water-bounce 520ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+.wellness-water-bounce::after {
+  position: absolute;
+  inset: -5px;
+  border: 1px solid rgba(59, 130, 246, 0.42);
+  border-radius: inherit;
+  content: "";
+  animation: wellness-water-ripple 620ms ease-out;
+  pointer-events: none;
+}
+.wellness-water-icon { animation: wellness-water-drop 520ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+.wellness-sleep-sway { animation: wellness-sleep-sway 560ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+.wellness-water-fill { transition: height 650ms cubic-bezier(0.22, 1, 0.36, 1); }
+.wellness-water-fill::before {
+  position: absolute;
+  top: -4px;
+  left: -10%;
+  width: 120%;
+  height: 9px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.28);
+  content: "";
+  animation: wellness-water-surface 2.4s ease-in-out infinite;
+}
+.wellness-water-bubble { animation: wellness-water-bubble-rise 1.8s ease-in infinite; }
+.wellness-water-bubble-late { animation-delay: 900ms; }
+.wellness-sleep-scene { isolation: isolate; }
+.wellness-sleep-sky { transition: height 700ms cubic-bezier(0.22, 1, 0.36, 1); }
+.wellness-sleep-hill { animation: wellness-sleep-drift 7s ease-in-out infinite; }
+.wellness-sleep-hill-back { animation-delay: -3.5s; }
+.wellness-moon-icon { transform-origin: center; animation: wellness-sleep-sway 560ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+.wellness-star { animation: wellness-star-twinkle 520ms ease-out both; }
+.wellness-star-two { animation-delay: 90ms; }
+
+@keyframes wellness-sleeper-breathe {
+  0%, 100% { transform: translateY(0) scaleY(1); }
+  50% { transform: translateY(-1px) scaleY(1.035); }
+}
+
+@keyframes wellness-sleep-z-float {
+  0%, 100% { opacity: 0; transform: translateY(3px); }
+  30% { opacity: 0.85; }
+  75% { opacity: 0; transform: translateY(-9px); }
+}
+
+.wellness-sleeper-breathe {
+  transform-box: fill-box;
+  transform-origin: center bottom;
+  animation: wellness-sleeper-breathe 4s ease-in-out infinite;
+}
+.wellness-sleep-z { animation: wellness-sleep-z-float 3.6s ease-in-out infinite; }
+.wellness-sleep-z-late { animation-delay: 1.2s; }
+.wellness-sleep-z-last { animation-delay: 2.4s; }
+
+/* Sleep duration scene: all stage changes follow saved hours, without timers. */
+.sleep-scene-transition {
+  transition: transform 700ms ease-in-out, opacity 900ms ease-in-out, fill 900ms ease-in-out;
+}
+.sleep-scene-blanket {
+  /* No animation or animated ancestor: its position is identical after 3.5h. */
+  transition: transform 700ms ease-in-out;
+}
+.sleep-duration-progress { transition: width 500ms ease-in-out; }
+.sleep-scene-head.is-breathing { animation: sleep-scene-breathe 4.5s ease-in-out infinite; }
+.sleep-scene-zzz.is-floating { animation: sleep-scene-dream 3.6s ease-in-out infinite both; }
+.sleep-scene-stars.is-twinkling { animation: sleep-scene-twinkle 4s ease-in-out infinite; }
+
+@keyframes sleep-scene-breathe {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-0.7px); }
+}
+@keyframes sleep-scene-dream {
+  0% { opacity: 0; transform: translateY(3px); }
+  25%, 55% { opacity: 0.85; }
+  100% { opacity: 0; transform: translateY(-9px); }
+}
+@keyframes sleep-scene-twinkle {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sleep-scene *, .sleep-duration-progress {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wellness-counter-pop,
+  .wellness-water-bounce,
+  .wellness-water-icon,
+  .wellness-water-fill::before,
+  .wellness-water-bubble,
+  .wellness-sleep-sway,
+  .wellness-moon-icon,
+  .wellness-star,
+  .wellness-sleep-hill,
+  .wellness-sleeper-breathe,
+  .wellness-sleep-z,
+  .wellness-water-bounce::after { animation: none; }
+}
+
 @layer base {
   :root {
     --font-display: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;

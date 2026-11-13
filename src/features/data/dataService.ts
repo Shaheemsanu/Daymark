@@ -159,7 +159,7 @@ function wellnessRow(userId: string, item: DailyWellness) {
     gratitude: item.gratitude || '',
     sleep_hours: item.sleepHours,
     water_ml: Math.round((item.waterGlasses || 0) * 250),
-    energy_score: item.energyScore
+    energy_score: item.energyScore || null
   };
 }
 
@@ -216,7 +216,7 @@ export const dataService = {
         mood: row.mood || undefined,
         waterGlasses: Number(row.water_ml || 0) / 250,
         sleepHours: Number(row.sleep_hours ?? 7.5),
-        energyScore: Number(row.energy_score ?? 3),
+        energyScore: Number(row.energy_score ?? 0),
         journalNotes: row.content || '',
         gratitude: row.gratitude || ''
       } as DailyWellness]));
