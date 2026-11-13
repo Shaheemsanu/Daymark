@@ -1051,15 +1051,9 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
         {/* Header Strip */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200/60 dark:border-slate-800/80 pb-5">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-emerald-600 text-white flex items-center justify-center font-bold text-lg shadow-md shadow-emerald-600/20">
-              ₹
-            </div>
             <div>
               <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100 flex items-center gap-2">
                 <span>Dual Account Workspace</span>
-                <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950/70 dark:text-emerald-300 font-medium">
-                  INR ({currencySymbol})
-                </span>
               </h1>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                 Savings Reserve &amp; Expense Spending Account Architecture

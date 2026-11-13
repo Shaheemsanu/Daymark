@@ -56,9 +56,11 @@ export const Layout: React.FC<LayoutProps> = ({
             onClick={() => onSelectView('expenses')}
             className="flex items-center gap-2 text-left group shrink-0"
           >
-            <div className="w-8 h-8 rounded-xl bg-emerald-600 text-white dark:bg-emerald-500 dark:text-slate-950 flex items-center justify-center font-bold text-sm shadow-xs">
-              ₹
-            </div>
+            <img
+              src="/daymark-logo.png"
+              alt="Daymark logo"
+              className="w-8 h-8 rounded-xl object-cover shadow-xs"
+            />
             <div className="flex flex-col">
               <span className="text-base font-bold tracking-tight text-slate-900 dark:text-slate-100 whitespace-nowrap leading-none">
                 Daymark
