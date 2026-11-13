@@ -346,14 +346,12 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
   }, [expenseAccTransactions, currentYear, currentMonth]);
 
   const weeklyDailyOverTargetTotal = useMemo(() => {
-    const weekStart = new Date(`${todayIso}T00:00:00`);
-    const daysSinceMonday = (weekStart.getDay() + 6) % 7;
-    weekStart.setDate(weekStart.getDate() - daysSinceMonday);
+    const today = new Date(`${todayIso}T00:00:00`);
     const dailyTarget = budget.dailyBudget || 1000;
     let total = 0;
-    for (let offset = 0; offset < 7; offset += 1) {
-      const day = new Date(weekStart);
-      day.setDate(weekStart.getDate() + offset);
+    for (let daysAgo = 0; daysAgo < 7; daysAgo += 1) {
+      const day = new Date(today);
+      day.setDate(today.getDate() - daysAgo);
       const dayIso = formatDate(day);
       const spend = expenseAccTransactions
         .filter(e => e.date === dayIso && e.type !== 'income' && !e.isTransfer)
@@ -1147,7 +1145,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                   <span className="text-[10px] text-slate-400 block mt-0.5">Today</span>
                   {renderPreviousTargetSummary('Previous day', budget.dailyBudget || 1000, previousDayExpenseSpend)}
                   {renderTargetSummary(budget.dailyBudget || 1000, dailyExpenseSpend, 'rose')}
-                  {renderCumulativeOverTarget('Week total over target (daily)', weeklyDailyOverTargetTotal)}
+                  {renderCumulativeOverTarget('7-day total over daily target', weeklyDailyOverTargetTotal)}
                 </div>
 
                 <div 
@@ -1164,7 +1162,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                   <span className="text-[10px] text-slate-400 block mt-0.5">Last 7 Days</span>
                   {renderPreviousTargetSummary('Previous 7 days', budget.weeklyBudget || 7000, previousWeekExpenseSpend)}
                   {renderTargetSummary(budget.weeklyBudget || 7000, weeklyExpenseSpend, 'amber')}
-                  {renderCumulativeOverTarget('4-week total over target', fourWeekOverTargetTotal)}
+                  {renderCumulativeOverTarget('4-week total over weekly target', fourWeekOverTargetTotal)}
                 </div>
 
                 <div 
@@ -1181,7 +1179,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                   <span className="text-[10px] text-slate-400 block mt-0.5">This Month</span>
                   {renderPreviousTargetSummary('Previous month', monthlyBudget, previousMonthExpenseSpend)}
                   {renderTargetSummary(monthlyBudget, monthlyExpenseSpend, 'indigo')}
-                  {renderCumulativeOverTarget('12-month total over target', twelveMonthOverTargetTotal)}
+                  {renderCumulativeOverTarget('12-month total over monthly target', twelveMonthOverTargetTotal)}
                 </div>
               </div>
             </div>

@@ -468,14 +468,14 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
 
       <div className="flex flex-col-reverse gap-8">
       {/* Module Selector Filter Ribbon (EXPENSE TOP / FIRST) */}
-      <div aria-label="Analytics modules" className="report-module-tabs grid w-full min-w-0 grid-cols-4 items-center gap-1 rounded-xl border border-slate-700/70 bg-slate-800 p-1.5 text-[10px] font-medium shadow-inner sm:flex sm:flex-nowrap sm:overflow-x-auto sm:text-xs">
+      <div aria-label="Analytics modules" className="report-module-tabs grid w-full min-w-0 grid-cols-4 items-center gap-1 rounded-xl border border-slate-200 bg-slate-100 p-1.5 text-[10px] font-medium shadow-inner dark:border-slate-700/70 dark:bg-slate-800 sm:flex sm:flex-nowrap sm:overflow-x-auto sm:text-xs">
         <button
           aria-label="All Modules Combined"
           onClick={() => setSelectedModule('all')}
-          className={`col-span-full flex min-w-0 flex-col items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-slate-700/80 px-1 py-2 transition-all duration-150 cursor-pointer active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-800 sm:col-span-auto sm:flex-row sm:shrink-0 sm:snap-start sm:gap-1.5 sm:border-0 sm:px-3.5 ${
+          className={`col-span-full flex min-w-0 flex-col items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-slate-200 px-1 py-2 transition-all duration-150 cursor-pointer active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-100 dark:border-slate-700/80 dark:focus-visible:ring-offset-slate-800 sm:col-span-auto sm:flex-row sm:shrink-0 sm:snap-start sm:gap-1.5 sm:border-0 sm:px-3.5 ${
             selectedModule === 'all'
-              ? 'border-slate-500 bg-slate-900 text-slate-100 shadow-sm ring-1 ring-white/10 font-semibold'
-              : 'text-slate-400 hover:bg-slate-700/80 hover:text-slate-100'
+              ? 'border-slate-300 bg-white text-slate-900 shadow-sm ring-1 ring-slate-900/5 font-semibold dark:border-slate-500 dark:bg-slate-900 dark:text-slate-100 dark:ring-white/10'
+              : 'text-slate-600 hover:bg-white hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-700/80 dark:hover:text-slate-100'
           }`}
         >
           <Activity className="w-3.5 h-3.5" />
@@ -486,10 +486,10 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
         <button
           aria-label="Expense Analytics & Accounts"
           onClick={() => setSelectedModule('expenses')}
-          className={`col-span-1 flex min-w-0 flex-col items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-slate-700/80 px-1 py-2 transition-all duration-150 cursor-pointer active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-800 sm:col-span-auto sm:flex-row sm:shrink-0 sm:snap-start sm:gap-1.5 sm:border-0 sm:px-3.5 ${
+          className={`col-span-1 flex min-w-0 flex-col items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-slate-200 px-1 py-2 transition-all duration-150 cursor-pointer active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-100 dark:border-slate-700/80 dark:focus-visible:ring-offset-slate-800 sm:col-span-auto sm:flex-row sm:shrink-0 sm:snap-start sm:gap-1.5 sm:border-0 sm:px-3.5 ${
             selectedModule === 'expenses'
-              ? 'border-purple-500/60 bg-slate-900 text-purple-300 shadow-sm ring-1 ring-purple-400/20 font-semibold'
-              : 'text-slate-400 hover:bg-slate-700/80 hover:text-slate-100'
+              ? 'border-purple-300 bg-white text-purple-700 shadow-sm ring-1 ring-purple-900/5 font-semibold dark:border-purple-500/60 dark:bg-slate-900 dark:text-purple-300 dark:ring-purple-400/20'
+              : 'text-slate-600 hover:bg-white hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-700/80 dark:hover:text-slate-100'
           }`}
         >
           <DollarSign className="w-3.5 h-3.5 text-purple-500" />
@@ -500,10 +500,10 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
         <button
           aria-label="Habit Analytics"
           onClick={() => setSelectedModule('habits')}
-          className={`col-span-1 flex min-w-0 flex-col items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-slate-700/80 px-1 py-2 transition-all duration-150 cursor-pointer active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-800 sm:col-span-auto sm:flex-row sm:shrink-0 sm:snap-start sm:gap-1.5 sm:border-0 sm:px-3.5 ${
+          className={`col-span-1 flex min-w-0 flex-col items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-slate-200 px-1 py-2 transition-all duration-150 cursor-pointer active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-100 dark:border-slate-700/80 dark:focus-visible:ring-offset-slate-800 sm:col-span-auto sm:flex-row sm:shrink-0 sm:snap-start sm:gap-1.5 sm:border-0 sm:px-3.5 ${
             selectedModule === 'habits'
-              ? 'border-emerald-500/60 bg-slate-900 text-emerald-300 shadow-sm ring-1 ring-emerald-400/20 font-semibold'
-              : 'text-slate-400 hover:bg-slate-700/80 hover:text-slate-100'
+              ? 'border-emerald-300 bg-white text-emerald-700 shadow-sm ring-1 ring-emerald-900/5 font-semibold dark:border-emerald-500/60 dark:bg-slate-900 dark:text-emerald-300 dark:ring-emerald-400/20'
+              : 'text-slate-600 hover:bg-white hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-700/80 dark:hover:text-slate-100'
           }`}
         >
           <Flame className="w-3.5 h-3.5 text-amber-500" />
@@ -514,10 +514,10 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
         <button
           aria-label="Daily Tasks Analytics"
           onClick={() => setSelectedModule('tasks')}
-          className={`col-span-1 flex min-w-0 flex-col items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-slate-700/80 px-1 py-2 transition-all duration-150 cursor-pointer active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-800 sm:col-span-auto sm:flex-row sm:shrink-0 sm:snap-start sm:gap-1.5 sm:border-0 sm:px-3.5 ${
+          className={`col-span-1 flex min-w-0 flex-col items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-slate-200 px-1 py-2 transition-all duration-150 cursor-pointer active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-100 dark:border-slate-700/80 dark:focus-visible:ring-offset-slate-800 sm:col-span-auto sm:flex-row sm:shrink-0 sm:snap-start sm:gap-1.5 sm:border-0 sm:px-3.5 ${
             selectedModule === 'tasks'
-              ? 'border-blue-500/60 bg-slate-900 text-blue-300 shadow-sm ring-1 ring-blue-400/20 font-semibold'
-              : 'text-slate-400 hover:bg-slate-700/80 hover:text-slate-100'
+              ? 'border-blue-300 bg-white text-blue-700 shadow-sm ring-1 ring-blue-900/5 font-semibold dark:border-blue-500/60 dark:bg-slate-900 dark:text-blue-300 dark:ring-blue-400/20'
+              : 'text-slate-600 hover:bg-white hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-700/80 dark:hover:text-slate-100'
           }`}
         >
           <ListTodo className="w-3.5 h-3.5 text-blue-500" />
@@ -528,10 +528,10 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
         <button
           aria-label="Sleep & Hydration Curves"
           onClick={() => setSelectedModule('wellness')}
-          className={`col-span-1 flex min-w-0 flex-col items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-slate-700/80 px-1 py-2 transition-all duration-150 cursor-pointer active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-800 sm:col-span-auto sm:flex-row sm:shrink-0 sm:snap-start sm:gap-1.5 sm:border-0 sm:px-3.5 ${
+          className={`col-span-1 flex min-w-0 flex-col items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-slate-200 px-1 py-2 transition-all duration-150 cursor-pointer active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-100 dark:border-slate-700/80 dark:focus-visible:ring-offset-slate-800 sm:col-span-auto sm:flex-row sm:shrink-0 sm:snap-start sm:gap-1.5 sm:border-0 sm:px-3.5 ${
             selectedModule === 'wellness'
-              ? 'border-cyan-500/60 bg-slate-900 text-cyan-300 shadow-sm ring-1 ring-cyan-400/20 font-semibold'
-              : 'text-slate-400 hover:bg-slate-700/80 hover:text-slate-100'
+              ? 'border-cyan-300 bg-white text-cyan-700 shadow-sm ring-1 ring-cyan-900/5 font-semibold dark:border-cyan-500/60 dark:bg-slate-900 dark:text-cyan-300 dark:ring-cyan-400/20'
+              : 'text-slate-600 hover:bg-white hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-700/80 dark:hover:text-slate-100'
           }`}
         >
           <Moon className="w-3.5 h-3.5 text-indigo-500" />
