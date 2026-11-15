@@ -215,7 +215,7 @@ export const dataService = {
         date: row.entry_date,
         mood: row.mood || undefined,
         waterGlasses: Number(row.water_ml || 0) / 250,
-        sleepHours: Number(row.sleep_hours ?? 7.5),
+        sleepHours: Number(row.sleep_hours ?? 3),
         energyScore: Number(row.energy_score ?? 0),
         journalNotes: row.content || '',
         gratitude: row.gratitude || ''

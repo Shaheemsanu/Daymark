@@ -28,6 +28,7 @@ import { NotesView } from '../components/NotesView';
 import { CategorySettings, WorkspaceData, dataService } from '../features/data/dataService';
 import { notesService } from '../features/notes/notesService';
 import { createUuid } from '../utils/uuid';
+import { Account, hasAccountTransactions } from '../utils/accounts';
 
 export default function App() {
   const [user, setUser] = useState<AppProfile | null>(null);
@@ -423,6 +424,29 @@ export default function App() {
     }
   };
 
+  const openingBalancePending = useRef(false);
+  const handleSaveOpeningBalance = async (account: Account, amount: number): Promise<boolean | string> => {
+    if (openingBalancePending.current) return 'An opening balance is already being saved.';
+    if (hasAccountTransactions(expenses, account)) return 'This account already has transactions.';
+    if (!Number.isFinite(amount) || amount <= 0) return 'Enter an amount greater than zero.';
+    openingBalancePending.current = true;
+    try {
+      return await handleAddExpense({
+        title: 'Opening balance',
+        amount: Math.round(amount * 100) / 100,
+        category: 'Opening Balance',
+        date: formatDate(new Date()),
+        paymentMethod: account === 'cash' ? 'Cash' : 'Bank Transfer',
+        type: 'income',
+        account,
+        isTransfer: false,
+        notes: 'Starting balance added in Settings.',
+      });
+    } finally {
+      openingBalancePending.current = false;
+    }
+  };
+
   const handleUpdateExpense = async (id: string, partial: Partial<Expense>): Promise<boolean | string> => {
     const existing = expenses.find(expense => expense.id === id);
     if (!existing) return 'Transaction could not be found.';
@@ -470,8 +494,8 @@ export default function App() {
     const existing = wellnessRef.current[date] || {
       date,
       waterGlasses: 0,
-      sleepHours: 7.5,
-      energyScore: 3,
+      sleepHours: 3,
+      energyScore: 0,
       journalNotes: '',
       gratitude: ''
     };
@@ -692,6 +716,7 @@ export default function App() {
           onExportJSON={handleExportJSON}
           onImportJSON={handleImportJSON}
           onResetData={handleResetData}
+          onSaveOpeningBalance={handleSaveOpeningBalance}
           isCloudSyncing={cloudPendingCount > 0}
         />
       )}

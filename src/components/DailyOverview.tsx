@@ -64,7 +64,7 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
   onOpenAddHabit
 }) => {
   const [newTaskTitle, setNewTaskTitle] = useState('');
-  const [newTaskPriority, setNewTaskPriority] = useState<'high' | 'medium' | 'low'>('medium');
+  const [newTaskPriority, setNewTaskPriority] = useState<'high' | 'medium' | 'low'>('high');
   const [newTaskTime, setNewTaskTime] = useState<string>('30');
   const [newTaskCategory, setNewTaskCategory] = useState<string>('General');
   const [isCustomCategory, setIsCustomCategory] = useState(false);
@@ -132,8 +132,8 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
     date: selectedDate,
     mood: undefined,
     waterGlasses: 0,
-    sleepHours: 7,
-    energyScore: 3,
+    sleepHours: 3,
+    energyScore: 0,
     journalNotes: '',
     gratitude: ''
   };
@@ -833,14 +833,14 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
                     <span>Sleep</span>
                   </span>
                   <span className="font-mono text-slate-900 dark:text-slate-100 font-bold tabular-nums">
-                    {dayWellness.sleepHours || 7}h
+                    {dayWellness.sleepHours ?? 3}h
                   </span>
                 </div>
                 <div className="flex items-center gap-1 mt-2">
                   <button
                     onClick={() =>
                       onUpdateWellness(selectedDate, {
-                        sleepHours: Math.max(0, (dayWellness.sleepHours || 7) - 0.5)
+                        sleepHours: Math.max(0, (dayWellness.sleepHours ?? 3) - 0.5)
                       })
                     }
                     className="flex-1 py-1 rounded bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-mono text-slate-700 dark:text-slate-300 cursor-pointer"
@@ -850,7 +850,7 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
                   <button
                     onClick={() =>
                       onUpdateWellness(selectedDate, {
-                        sleepHours: Math.min(14, (dayWellness.sleepHours || 7) + 0.5)
+                        sleepHours: Math.min(14, (dayWellness.sleepHours ?? 3) + 0.5)
                       })
                     }
                     className="flex-1 py-1 rounded bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-mono text-slate-700 dark:text-slate-300 cursor-pointer"

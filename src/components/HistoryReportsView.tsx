@@ -2,6 +2,8 @@ import React, { useRef, useState } from 'react';
 import { Download, Upload, RotateCcw, LoaderCircle } from 'lucide-react';
 import { Expense, Habit, DailyTask, DailyWellness, BudgetConfig } from '../types';
 import { formatCurrency } from '../utils/constants';
+import { OpeningBalances } from './OpeningBalances';
+import { Account } from '../utils/accounts';
 
 interface HistoryReportsViewProps {
   expenses: Expense[];
@@ -13,6 +15,7 @@ interface HistoryReportsViewProps {
   onImportJSON: (importedData: any) => void;
   onResetData: () => void;
   isCloudSyncing: boolean;
+  onSaveOpeningBalance: (account: Account, amount: number) => Promise<boolean | string>;
 }
 
 export const HistoryReportsView: React.FC<HistoryReportsViewProps> = ({
@@ -24,7 +27,8 @@ export const HistoryReportsView: React.FC<HistoryReportsViewProps> = ({
   onExportJSON,
   onImportJSON,
   onResetData,
-  isCloudSyncing
+  isCloudSyncing,
+  onSaveOpeningBalance
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
@@ -73,6 +77,8 @@ export const HistoryReportsView: React.FC<HistoryReportsViewProps> = ({
           <span>Portable JSON data export</span>
         </div>
       </div>
+
+      <OpeningBalances expenses={expenses} currency={budget.currency} disabled={isCloudSyncing} onSave={onSaveOpeningBalance} />
 
       {/* Aggregate Stats Strip */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

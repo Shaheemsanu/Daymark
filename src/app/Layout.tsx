@@ -6,12 +6,12 @@ import {
   ListTodo,
   IndianRupee,
   BarChart3,
-  Archive,
   RefreshCw,
   Sun,
   Moon,
   LogOut,
   FileText,
+  Settings,
   LoaderCircle
 } from 'lucide-react';
 
@@ -147,8 +147,8 @@ export const Layout: React.FC<LayoutProps> = ({
                   : 'hover:text-slate-900 dark:hover:text-slate-200'
               }`}
             >
-              <Archive className="w-3.5 h-3.5" />
-              <span>Data &amp; Backup</span>
+              <Settings className="w-3.5 h-3.5" />
+              <span>Settings</span>
             </button>
           </nav>
 
@@ -176,18 +176,20 @@ export const Layout: React.FC<LayoutProps> = ({
               {isDarkMode ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4" />}
             </button>
 
-            {/* Sign Out with Confirmation Modal trigger */}
-            {user && (
-              <div className="flex items-center pl-1 sm:pl-2 border-l border-slate-200 dark:border-slate-800 shrink-0">
-                <button
-                  onClick={() => setIsSignOutConfirmOpen(true)}
-                  className="p-1.5 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 transition-colors rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/30 shrink-0"
-                  title="Sign out"
-                >
-                  <LogOut className="w-4 h-4" />
-                </button>
-              </div>
-            )}
+            {/* Mobile settings shortcut */}
+            <button
+              type="button"
+              onClick={() => onSelectView('history')}
+              aria-label="Settings"
+              aria-current={currentView === 'history' ? 'page' : undefined}
+              title="Settings"
+              className={`md:hidden p-1.5 rounded-lg transition-colors shrink-0 ${currentView === 'history'
+                ? 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30'
+                : 'text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+            >
+              <Settings className="w-4 h-4" />
+            </button>
+
           </div>
         </div>
 
@@ -195,7 +197,27 @@ export const Layout: React.FC<LayoutProps> = ({
 
       {/* Main Viewport */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 pb-24 md:pb-8">
+        {currentView === 'history' && (
+          <section aria-labelledby="settings-heading" className="mb-6">
+            <h1 id="settings-heading" className="text-2xl font-bold tracking-tight">Settings</h1>
+          </section>
+        )}
         {children}
+        {currentView === 'history' && user && (
+          <section aria-label="Account" className="mt-8">
+              <div className="flex items-center justify-between gap-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-4 py-1">
+                <span className="text-sm font-semibold">Account</span>
+                <button
+                  type="button"
+                  onClick={() => setIsSignOutConfirmOpen(true)}
+                  className="inline-flex h-8 items-center gap-2 rounded-lg px-2 text-sm font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors"
+                >
+                  <LogOut className="w-4 h-4" />
+                  Sign out
+                </button>
+              </div>
+          </section>
+        )}
       </main>
 
       {/* Mobile Fixed Bottom Navigation Bar (Thumb-friendly touch targets) */}

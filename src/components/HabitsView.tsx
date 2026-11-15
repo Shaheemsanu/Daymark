@@ -178,15 +178,15 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
   const dayWellness: DailyWellness = wellness?.[targetDate] || {
     date: targetDate,
     waterGlasses: 0,
-    sleepHours: 7,
-    energyScore: 3,
+    sleepHours: 3,
+    energyScore: 0,
     journalNotes: '',
     gratitude: ''
   };
   const [waterGlassesDraft, setWaterGlassesDraft] = useState<number | null>(null);
   const waterGlasses = waterGlassesDraft ?? dayWellness.waterGlasses ?? 0;
   const waterTargetProgress = Math.min(100, (waterGlasses / 8) * 100);
-  const sleepHours = dayWellness.sleepHours ?? 7;
+  const sleepHours = dayWellness.sleepHours ?? 3;
   const sleepTargetProgress = Math.min(100, (sleepHours / 8) * 100);
 
   useEffect(() => {

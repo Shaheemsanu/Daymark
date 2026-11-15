@@ -40,7 +40,7 @@ export const WellnessNotes: React.FC<WellnessNotesProps> = ({ gratitude, journal
   const fieldClass = `mt-1.5 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs font-normal text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 ${colors.focus} read-only:cursor-default read-only:caret-transparent read-only:focus:ring-0 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100`;
 
   return (
-    <form className="space-y-3" onSubmit={event => {
+    <form aria-label="Personal notes" className="space-y-2.5 rounded-xl border border-slate-200 bg-slate-50/60 p-3 dark:border-slate-700 dark:bg-slate-950/25" onSubmit={event => {
       event.preventDefault();
       saveNotes();
     }}>
@@ -63,7 +63,7 @@ export const WellnessNotes: React.FC<WellnessNotesProps> = ({ gratitude, journal
           placeholder="Key observations, accomplishments, thoughts..."
           className={`${fieldClass} resize-y`} />
       </label>
-      <div className="flex items-center justify-end gap-3">
+      <div className="flex items-center justify-end gap-3 border-t border-slate-200 pt-2 dark:border-slate-700">
         {footerText && <p className={`mr-auto text-[11px] leading-relaxed ${colors.note}`}>{footerText}</p>}
         <button type="button" disabled={!onSave} onClick={event => {
           // Keep the native action stable as Edit changes to Save. A submit

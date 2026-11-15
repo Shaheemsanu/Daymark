@@ -809,7 +809,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
   // Quick Amount preset handler
   const handleSelectPresetAmount = (amt: number) => {
     const current = parseFloat(formAmount) || 0;
-    setFormAmount((current + amt).toString());
+    setFormAmount((current + amt).toFixed(2));
   };
 
   // Submit Add Expense
@@ -2103,12 +2103,24 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                   </span>
                   <input
                     type="number"
-                    step="0.01"
-                    min="0.01"
+                    inputMode="decimal"
+                    step="1"
+                    min={Number.isFinite(Number(formAmount)) && Number(formAmount) > 0
+                      ? ((Math.round(Number(formAmount) * 100) % 100) / 100).toFixed(2)
+                      : '0'}
                     required
                     autoFocus
                     value={formAmount}
-                    onChange={e => setFormAmount(e.target.value)}
+                    onChange={event => {
+                      const input = event.target;
+                      const nativeEvent = event.nativeEvent as InputEvent;
+                      setFormAmount(!nativeEvent.inputType && input.value !== '' && Number.isFinite(input.valueAsNumber)
+                        ? input.valueAsNumber.toFixed(2)
+                        : input.value);
+                    }}
+                    onBlur={event => {
+                      if (Number.isFinite(event.target.valueAsNumber)) setFormAmount(event.target.valueAsNumber.toFixed(2));
+                    }}
                     placeholder="0.00"
                     className="w-full pl-8 pr-3 py-1.5 text-xl font-mono font-bold bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-emerald-500"
                   />
