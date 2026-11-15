@@ -16,7 +16,9 @@ import {
   Trash2,
   LoaderCircle
 } from 'lucide-react';
-import { Habit, DailyTask, DailyWellness, Expense, MoodType, BudgetConfig } from '../types';
+import { Habit, DailyTask, DailyWellness, Expense, MoodType, BudgetConfig, WellnessGoals } from '../types';
+import { normalizeWellnessGoals } from '../utils/wellnessGoals';
+import { orderTasks } from '../utils/taskOrder';
 import { formatCurrency, formatDate, CATEGORIES } from '../utils/constants';
 import { WellnessNotes } from './WellnessNotes';
 
@@ -36,6 +38,8 @@ interface DailyOverviewProps {
   onUpdateWellness: (date: string, data: Partial<DailyWellness>) => void;
   onQuickLogExpense: () => void;
   onOpenAddHabit: () => void;
+  wellnessGoals?: WellnessGoals;
+  taskOrder?: string[];
 }
 
 const MOODS: { type: MoodType; label: string; icon: string; color: string }[] = [
@@ -61,7 +65,9 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
   onDeleteTask,
   onUpdateWellness,
   onQuickLogExpense,
-  onOpenAddHabit
+  onOpenAddHabit,
+  wellnessGoals,
+  taskOrder
 }) => {
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [newTaskPriority, setNewTaskPriority] = useState<'high' | 'medium' | 'low'>('high');
@@ -119,7 +125,7 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
   const dayTransfers = dayExpenses.filter(isTransferEntry).reduce((sum, e) => sum + e.amount, 0);
   const dayTotalSpent = dayOutflow; // for backwards compatibility calculations
 
-  const dayTasks = tasks.filter(t => t.date === selectedDate);
+  const dayTasks = (taskOrder?.length ? orderTasks(tasks, taskOrder) : tasks).filter(t => t.date === selectedDate);
   const completedTasksCount = dayTasks.filter(t => t.completed).length;
 
   const selectedWeekday = new Date(`${selectedDate}T00:00:00`).getDay();
@@ -139,6 +145,7 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
   };
   const [waterGlassesDraft, setWaterGlassesDraft] = useState<number | null>(null);
   const waterGlasses = waterGlassesDraft ?? dayWellness.waterGlasses ?? 0;
+  const goals = normalizeWellnessGoals(wellnessGoals);
 
   useEffect(() => {
     setWaterGlassesDraft(wellness[selectedDate]?.waterGlasses ?? 0);
@@ -389,17 +396,17 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
           <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 mb-1">
             <span className="font-medium">Hydration (250ml)</span>
             <span className="font-mono text-[11px] font-semibold text-blue-500">
-              {Math.min(100, Math.round((waterGlasses / 8) * 100))}%
+              {Math.min(100, Math.round((waterGlasses * 250 / goals.waterMl) * 100))}%
             </span>
           </div>
           <div className="text-2xl font-bold font-mono tracking-tight text-slate-900 dark:text-slate-100 tabular-nums">
-            {(waterGlasses * 250).toLocaleString()} <span className="text-sm text-slate-400 font-normal">/ 2,000 ml target</span>
+            {(waterGlasses * 250).toLocaleString()} <span className="text-sm text-slate-400 font-normal">/ {goals.waterMl.toLocaleString()} ml target</span>
           </div>
           <div className="relative w-full h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 mt-3 overflow-hidden">
             <div
               className="h-full bg-blue-500 rounded-full transition-all duration-300"
               style={{
-                width: `${Math.min(100, (waterGlasses / 8) * 100)}%`
+                width: `${Math.min(100, (waterGlasses * 250 / goals.waterMl) * 100)}%`
               }}
             />
           </div>
@@ -434,10 +441,10 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
               </button>
             </div>
             <span className="ml-auto whitespace-nowrap text-[10px] text-slate-400 font-mono">
-              {waterGlasses}/8 glasses to target
+              {waterGlasses}/{goals.waterMl / 250} glasses to target
             </span>
           </div>
-          <p className="mt-1 text-[10px] leading-relaxed text-slate-500 dark:text-slate-400">Daily target: 2,000 ml</p>
+          <p className="mt-1 text-[10px] leading-relaxed text-slate-500 dark:text-slate-400">Daily target: {goals.waterMl.toLocaleString()} ml</p>
         </div>
       </div>
 
@@ -836,6 +843,7 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
                     {dayWellness.sleepHours ?? 3}h
                   </span>
                 </div>
+                <p className="text-[10px] text-slate-500 dark:text-slate-400">Target: {goals.sleepHours} hrs</p>
                 <div className="flex items-center gap-1 mt-2">
                   <button
                     onClick={() =>
@@ -850,7 +858,7 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
                   <button
                     onClick={() =>
                       onUpdateWellness(selectedDate, {
-                        sleepHours: Math.min(14, (dayWellness.sleepHours ?? 3) + 0.5)
+                        sleepHours: Math.min(16, (dayWellness.sleepHours ?? 3) + 0.5)
                       })
                     }
                     className="flex-1 py-1 rounded bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-mono text-slate-700 dark:text-slate-300 cursor-pointer"

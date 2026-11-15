@@ -40,7 +40,9 @@ import {
   ListOrdered,
   ChevronDown
 } from 'lucide-react';
-import { Habit, HabitCategory, DailyWellness, MoodType } from '../types';
+import { Habit, HabitCategory, DailyWellness, MoodType, WellnessGoals } from '../types';
+import { WellnessGoalSettings } from './WellnessGoalSettings';
+import { normalizeWellnessGoals } from '../utils/wellnessGoals';
 import { formatDate } from '../utils/constants';
 import { SleepScene, getSleepSceneState } from './SleepScene';
 import { WellnessNotes } from './WellnessNotes';
@@ -67,6 +69,8 @@ interface HabitsViewProps {
   habitOrder?: string[];
   onSaveCustomCategories: (categories: string[]) => void | Promise<boolean>;
   onSaveHabitOrder: (habitOrder: string[]) => void | Promise<boolean>;
+  wellnessGoals?: WellnessGoals;
+  onSaveWellnessGoals?: (goals: WellnessGoals) => Promise<boolean>;
 }
 
 export type AnalyticsTimeGrain = 'day' | 'week' | 'month' | 'year' | 'custom';
@@ -127,7 +131,9 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
   savingKeys,
   habitOrder,
   onSaveCustomCategories,
-  onSaveHabitOrder
+  onSaveHabitOrder,
+  wellnessGoals,
+  onSaveWellnessGoals
 }) => {
   const [viewMode, setViewMode] = useState<HabitsViewMode>('matrix');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -185,9 +191,10 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
   };
   const [waterGlassesDraft, setWaterGlassesDraft] = useState<number | null>(null);
   const waterGlasses = waterGlassesDraft ?? dayWellness.waterGlasses ?? 0;
-  const waterTargetProgress = Math.min(100, (waterGlasses / 8) * 100);
+  const goals = normalizeWellnessGoals(wellnessGoals);
+  const waterTargetProgress = Math.min(100, (waterGlasses * 250 / goals.waterMl) * 100);
   const sleepHours = dayWellness.sleepHours ?? 3;
-  const sleepTargetProgress = Math.min(100, (sleepHours / 8) * 100);
+  const sleepTargetProgress = Math.min(100, (sleepHours / goals.sleepHours) * 100);
 
   useEffect(() => {
     setWaterGlassesDraft(wellness?.[targetDate]?.waterGlasses ?? 0);
@@ -490,12 +497,12 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
       avgWater,
       avgSleep,
       avgEnergy,
-      waterGoalDays: records.filter(record => record.waterGlasses * 250 >= 2000).length,
-      sleepGoalDays: records.filter(record => record.sleepHours >= 7 && record.sleepHours <= 9).length,
+      waterGoalDays: records.filter(record => record.waterGlasses * 250 >= goals.waterMl).length,
+      sleepGoalDays: records.filter(record => record.sleepHours >= goals.sleepHours).length,
       moodDistribution,
       mostCommonMood: mostCommonMood?.count ? mostCommonMood.label : '—'
     };
-  }, [timeGrain, past14Days, customStartDate, customEndDate, wellness, grainAnalyticsData.periodName]);
+  }, [timeGrain, past14Days, customStartDate, customEndDate, wellness, grainAnalyticsData.periodName, goals.waterMl, goals.sleepHours]);
 
   // Dynamic category completion share within selected grain
   const habitCategoryChartData = useMemo(() => {
@@ -748,8 +755,9 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
       {viewMode === 'matrix' && <>
       {/* Quick Daily Wellness Tracker Bar (Water, Sleep, Mood & Energy) */}
       <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3 pb-3 border-b border-slate-100 dark:border-slate-800/80">
-          <div className="flex items-center gap-2">
+        <div className="grid grid-cols-1 items-center gap-3 sm:grid-cols-[minmax(0,1fr)_auto] mb-3 pb-3 border-b border-slate-100 dark:border-slate-800/80">
+          <div>
+          <div className="flex flex-wrap items-center gap-2">
             <Sparkles className="w-4 h-4 text-amber-500" />
             <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
               Daily Wellness Quick Log
@@ -759,9 +767,11 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
             </span>
             {savingKeys?.has(`wellness:${targetDate}`) && <span role="status" className="hidden items-center gap-1 text-[11px] font-medium text-sky-600 dark:text-sky-400 sm:inline-flex"><LoaderCircle className="h-3.5 w-3.5 animate-spin" /> Saving</span>}
           </div>
-          <div className="text-xs text-slate-500 dark:text-slate-400">
+          <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
             Quickly track water, sleep &amp; mood alongside your habits
           </div>
+          </div>
+          {onSaveWellnessGoals && <WellnessGoalSettings goals={goals} onSave={onSaveWellnessGoals} />}
         </div>
         <div className="-mt-1 mb-2 flex h-4 items-center justify-end sm:hidden">
           <span role="status" aria-hidden={!savingKeys?.has(`wellness:${targetDate}`)} className={`flex items-center gap-1 text-right text-[11px] font-medium text-sky-600 transition-opacity dark:text-sky-400 ${savingKeys?.has(`wellness:${targetDate}`) ? 'visible opacity-100' : 'invisible opacity-0'}`}>
@@ -778,7 +788,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
                 <span>Water Intake</span>
               </div>
               <span key={waterGlasses} className="wellness-counter-pop text-xs font-mono font-bold text-blue-700 dark:text-blue-300 tabular-nums">
-                {(waterGlasses * 250).toLocaleString()} / 2,000 ml
+                {(waterGlasses * 250).toLocaleString()} / {goals.waterMl.toLocaleString()} ml
               </span>
             </div>
 
@@ -786,7 +796,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
             <div className="relative w-full h-2 rounded-full bg-blue-200 dark:bg-blue-900/50 overflow-hidden">
               <div
                 className="h-full bg-blue-500 rounded-full transition-all duration-300"
-                style={{ width: `${Math.min(100, (waterGlasses / 8) * 100)}%` }}
+                style={{ width: `${waterTargetProgress}%` }}
               />
             </div>
 
@@ -803,10 +813,10 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
               </div>
             </div>
             <div className="mt-auto space-y-2">
-            <p className="text-[10px] leading-relaxed text-slate-500 dark:text-slate-400">Daily target: 2,000 ml</p>
+            <p className="text-[10px] leading-relaxed text-slate-500 dark:text-slate-400">Daily target: {goals.waterMl.toLocaleString()} ml</p>
             <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-2 pt-1">
               <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
-                {waterGlasses}/8 glasses to target
+                {waterGlasses}/{goals.waterMl / 250} glasses to target
               </span>
               <div className="ml-auto flex shrink-0 items-center gap-1.5">
                 <button
@@ -854,19 +864,19 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
               </span>
             </div>
 
-            <div role="progressbar" aria-label="Sleep toward an 8 hour goal" aria-valuemin={0} aria-valuemax={8} aria-valuenow={Math.min(8, sleepHours)} aria-valuetext={`${sleepHours} hours of sleep`} className="h-2 w-full overflow-hidden rounded-full bg-indigo-200 dark:bg-indigo-900/50">
+            <div role="progressbar" aria-label={`Sleep toward a ${goals.sleepHours} hour goal`} aria-valuemin={0} aria-valuemax={goals.sleepHours} aria-valuenow={Math.min(goals.sleepHours, sleepHours)} aria-valuetext={`${sleepHours} hours of sleep`} className="h-2 w-full overflow-hidden rounded-full bg-indigo-200 dark:bg-indigo-900/50">
               <div className="sleep-duration-progress h-full rounded-full bg-indigo-500" style={{ width: `${sleepTargetProgress}%` }} />
             </div>
             <div className="flex flex-1 flex-col items-center justify-center gap-3 py-4 text-center">
               <SleepScene hours={sleepHours} />
               <div className="space-y-1" aria-live="polite" aria-atomic="true">
                 <p className="text-sm font-semibold text-indigo-800 dark:text-indigo-200">{getSleepSceneState(sleepHours).message}</p>
-                <p className="text-xs italic leading-relaxed text-indigo-700/80 dark:text-indigo-300/80">{Math.round(sleepTargetProgress)}% toward 8 hours. Rest well; tomorrow is a fresh start.</p>
+                <p className="text-xs italic leading-relaxed text-indigo-700/80 dark:text-indigo-300/80">{Math.round(sleepTargetProgress)}% toward {goals.sleepHours} hours. Rest well; tomorrow is a fresh start.</p>
               </div>
             </div>
             <div className="mt-auto flex items-center justify-between gap-1 pt-1">
               <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
-                Target: 7-9 hrs
+                Target: {goals.sleepHours} hrs
               </span>
               <div className="flex items-center gap-1">
                 <button
@@ -1540,12 +1550,12 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
             <div className="rounded-xl border border-blue-200 bg-blue-50/60 p-4 dark:border-blue-950 dark:bg-blue-950/30">
               <p className="text-xs font-medium text-blue-700 dark:text-blue-300">Average Water</p>
               <p className="mt-1 text-xl font-bold tabular-nums text-blue-700 dark:text-blue-200">{wellnessAnalyticsData.avgWater === null ? '—' : `${Math.round(wellnessAnalyticsData.avgWater).toLocaleString()} ml`}</p>
-              <p className="mt-1 text-[11px] text-slate-500">{wellnessAnalyticsData.loggedDays ? `${wellnessAnalyticsData.waterGoalDays} of ${wellnessAnalyticsData.loggedDays} logged days met 2,000 ml` : 'No saved entries in this range'}</p>
+              <p className="mt-1 text-[11px] text-slate-500">{wellnessAnalyticsData.loggedDays ? `${wellnessAnalyticsData.waterGoalDays} of ${wellnessAnalyticsData.loggedDays} logged days met ${goals.waterMl.toLocaleString()} ml` : 'No saved entries in this range'}</p>
             </div>
             <div className="rounded-xl border border-indigo-200 bg-indigo-50/60 p-4 dark:border-indigo-950 dark:bg-indigo-950/30">
               <p className="text-xs font-medium text-indigo-700 dark:text-indigo-300">Average Sleep</p>
               <p className="mt-1 text-xl font-bold tabular-nums text-indigo-700 dark:text-indigo-200">{wellnessAnalyticsData.avgSleep === null ? '—' : `${wellnessAnalyticsData.avgSleep.toFixed(1)} hrs`}</p>
-              <p className="mt-1 text-[11px] text-slate-500">{wellnessAnalyticsData.sleepGoalDays} logged {wellnessAnalyticsData.sleepGoalDays === 1 ? 'night' : 'nights'} within 7–9 hrs</p>
+              <p className="mt-1 text-[11px] text-slate-500">{wellnessAnalyticsData.sleepGoalDays} logged {wellnessAnalyticsData.sleepGoalDays === 1 ? 'night' : 'nights'} met {goals.sleepHours} hrs</p>
             </div>
             <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 dark:border-amber-950 dark:bg-amber-950/30">
               <p className="text-xs font-medium text-amber-700 dark:text-amber-300">Average Energy</p>
@@ -1569,7 +1579,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
             <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
               <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900">
                 <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Hydration Trend</h4>
-                <p className="text-xs text-slate-500">Average daily intake · target 2,000 ml</p>
+                <p className="text-xs text-slate-500">Average daily intake · target {goals.waterMl.toLocaleString()} ml</p>
                 <div className="mt-3 h-56 w-full">
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={wellnessAnalyticsData.chartPoints} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
@@ -1578,7 +1588,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
                       <XAxis dataKey="label" tick={{ fontSize: 10 }} />
                       <YAxis tick={{ fontSize: 10 }} />
                       <Tooltip formatter={(value: unknown) => [typeof value !== 'number' ? 'No entry' : `${Math.round(value).toLocaleString()} ml`, 'Average water']} />
-                      <ReferenceLine y={2000} stroke="#10B981" strokeDasharray="4 4" />
+                      <ReferenceLine y={goals.waterMl} ifOverflow="extendDomain" stroke="#10B981" strokeDasharray="4 4" />
                       <Area type="monotone" dataKey="Water" connectNulls={false} stroke="#3B82F6" fill="url(#wellnessWaterGradient)" strokeWidth={2} />
                     </AreaChart>
                   </ResponsiveContainer>
@@ -1587,16 +1597,15 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
 
               <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900">
                 <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Sleep Trend</h4>
-                <p className="text-xs text-slate-500">Average hours per logged day · target range 7–9 hrs</p>
+                <p className="text-xs text-slate-500">Average hours per logged day · target {goals.sleepHours} hrs</p>
                 <div className="mt-3 h-56 w-full">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={wellnessAnalyticsData.chartPoints} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" opacity={0.12} />
                       <XAxis dataKey="label" tick={{ fontSize: 10 }} />
-                      <YAxis domain={[0, 12]} tick={{ fontSize: 10 }} />
+                      <YAxis domain={[0, Math.max(12, goals.sleepHours)]} tick={{ fontSize: 10 }} />
                       <Tooltip formatter={(value: unknown) => [typeof value !== 'number' ? 'No entry' : `${value.toFixed(1)} hrs`, 'Average sleep']} />
-                      <ReferenceLine y={7} stroke="#6366F1" strokeDasharray="4 4" />
-                      <ReferenceLine y={9} stroke="#6366F1" strokeDasharray="4 4" />
+                      <ReferenceLine y={goals.sleepHours} stroke="#6366F1" strokeDasharray="4 4" />
                       <Bar dataKey="Sleep" fill="#6366F1" radius={[4, 4, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>

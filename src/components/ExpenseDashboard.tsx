@@ -206,6 +206,13 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
   const [mobileHistoryPage, setMobileHistoryPage] = useState(1);
   const [desktopHistoryPage, setDesktopHistoryPage] = useState(1);
 
+  useEffect(() => {
+    if (!initialDate) return;
+    setHistoryTimeframe('custom');
+    setHistoryStartDate(initialDate);
+    setHistoryEndDate(initialDate);
+  }, [initialDate]);
+
   const resetHistoryFilters = () => {
     setHistorySearch('');
     setHistoryAccountFilter('all');

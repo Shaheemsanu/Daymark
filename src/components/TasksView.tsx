@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   ResponsiveContainer,
   BarChart,
@@ -31,11 +31,15 @@ import {
   Check,
   TrendingUp,
   Flame,
-  Layers
+  Layers,
+  ListOrdered,
+  ArrowUp,
+  ArrowDown
 } from 'lucide-react';
 import { DailyTask, TaskPriority } from '../types';
 import { formatDate } from '../utils/constants';
 import { formatDisplayDate } from '../utils/dateFormatting';
+import { orderTasks, moveTaskInOrder } from '../utils/taskOrder';
 import {
   getPastNDays,
   getPastNWeeks,
@@ -54,6 +58,9 @@ interface TasksViewProps {
   savingKeys?: Set<string>;
   customCategories: string[];
   onSaveCustomCategories: (categories: string[]) => void | Promise<boolean>;
+  taskOrder?: string[];
+  onSaveTaskOrder?: (taskOrder: string[]) => void | Promise<boolean>;
+  selectedDate?: string;
 }
 
 export type TaskTimeGrain = 'day' | 'week' | 'month' | 'year' | 'custom';
@@ -99,9 +106,17 @@ export const TasksView: React.FC<TasksViewProps> = ({
   onUpdateTask,
   savingKeys,
   customCategories,
-  onSaveCustomCategories
+  onSaveCustomCategories,
+  taskOrder,
+  onSaveTaskOrder,
+  selectedDate
 }) => {
   const [viewMode, setViewMode] = useState<'list' | 'analytics'>('list');
+  const [isEditingOrder, setIsEditingOrder] = useState(false);
+  const [isSavingOrder, setIsSavingOrder] = useState(false);
+  const [orderError, setOrderError] = useState('');
+  const [showAllDates, setShowAllDates] = useState(false);
+  useEffect(() => { setShowAllDates(false); }, [selectedDate]);
   const [filterPriority, setFilterPriority] = useState<TaskPriority | 'all'>('all');
   const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'completed'>('active');
   const [filterCategory, setFilterCategory] = useState<string>('all');
@@ -136,14 +151,15 @@ export const TasksView: React.FC<TasksViewProps> = ({
 
   // Form states
   const [title, setTitle] = useState('');
-  const [date, setDate] = useState(formatDate(new Date()));
+  const [date, setDate] = useState(selectedDate || formatDate(new Date()));
   const [priority, setPriority] = useState<TaskPriority>('medium');
   const [timeEstimate, setTimeEstimate] = useState('30');
   const [category, setCategory] = useState('General');
   const [isCreatingNewCat, setIsCreatingNewCat] = useState(false);
   const [newCatInput, setNewCatInput] = useState('');
 
-  const filteredTasks = tasks.filter(t => {
+  const orderedTasks = useMemo(() => orderTasks(tasks, taskOrder), [tasks, taskOrder]);
+  const filteredTasks = orderedTasks.filter(t => {
     const matchesPriority = filterPriority === 'all' || t.priority === filterPriority;
     const matchesStatus =
       filterStatus === 'all' ||
@@ -151,12 +167,20 @@ export const TasksView: React.FC<TasksViewProps> = ({
       (filterStatus === 'completed' && t.completed);
     const matchesCategory =
       filterCategory === 'all' || (t.category || 'General') === filterCategory;
-    return matchesPriority && matchesStatus && matchesCategory;
-  }).sort((a, b) => {
-    // Sort active first, then by date descending
-    if (a.completed !== b.completed) return a.completed ? 1 : -1;
-    return new Date(b.date).getTime() - new Date(a.date).getTime();
+    const matchesDate = !selectedDate || showAllDates || t.date === selectedDate;
+    return matchesPriority && matchesStatus && matchesCategory && matchesDate;
   });
+
+  const moveTask = async (id: string, direction: -1 | 1) => {
+    if (!onSaveTaskOrder || isSavingOrder) return;
+    setIsSavingOrder(true);
+    setOrderError('');
+    try {
+      const saved = await onSaveTaskOrder(moveTaskInOrder(orderedTasks, filteredTasks, id, direction));
+      if (saved === false) setOrderError('Could not save the task order. Please try again.');
+    } catch { setOrderError('Could not save the task order. Please try again.'); }
+    finally { setIsSavingOrder(false); }
+  };
 
   const activeCount = tasks.filter(t => !t.completed).length;
   const completedCount = tasks.filter(t => t.completed).length;
@@ -594,7 +618,7 @@ interface TaskChartPoint {
           </button>
 
           <button
-            onClick={() => { setEditingTask(null); setIsAddOpen(true); }}
+            onClick={() => { setEditingTask(null); setDate(selectedDate || todayIso); setIsAddOpen(true); }}
             className="flex min-h-11 flex-1 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-slate-900 px-3 py-2 text-xs font-medium text-white shadow-xs transition-colors hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-white sm:h-9 sm:min-h-9 sm:flex-none sm:px-4"
           >
             <Plus className="w-4 h-4" />
@@ -609,6 +633,12 @@ interface TaskChartPoint {
           {/* Filter Bar with Category Support */}
           <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 text-xs shadow-xs">
             {/* Status filters */}
+            {selectedDate && <div role="group" aria-label="Task dates" className="inline-flex items-center gap-1 rounded-lg bg-slate-100 p-1 dark:bg-slate-800">
+              <button type="button" aria-pressed={!showAllDates} onClick={() => setShowAllDates(false)} className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${!showAllDates ? 'bg-white text-slate-900 shadow-xs dark:bg-slate-900 dark:text-slate-100' : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'}`}>
+                {formatDisplayDate(selectedDate)}
+              </button>
+              <button type="button" aria-pressed={showAllDates} onClick={() => setShowAllDates(true)} className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${showAllDates ? 'bg-white text-slate-900 shadow-xs dark:bg-slate-900 dark:text-slate-100' : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'}`}>All dates</button>
+            </div>}
             <div className="flex items-center gap-1">
               <span className="text-slate-400 mr-1 text-[11px] uppercase tracking-wider font-semibold">
                 Status:
@@ -670,12 +700,20 @@ interface TaskChartPoint {
 
           {/* Tasks List Container */}
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs divide-y divide-slate-100 dark:divide-slate-800 overflow-hidden">
+            {onSaveTaskOrder && <div className="flex flex-wrap items-center justify-between gap-3 p-4">
+              <div><h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Tasks</h3><p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{isEditingOrder ? 'Use the arrows to reorder the visible tasks.' : `Showing ${filteredTasks.length} of ${tasks.length} tasks`}</p></div>
+              <div className="flex items-center gap-2">
+                {(isSavingOrder || savingKeys?.has('task:order')) && <span role="status" className="inline-flex items-center gap-1 text-[11px] font-medium text-sky-500"><LoaderCircle className="h-3.5 w-3.5 animate-spin" />Saving order</span>}
+                <button type="button" aria-pressed={isEditingOrder} onClick={() => setIsEditingOrder(value => !value)} className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${isEditingOrder ? 'border-blue-500 bg-blue-600 text-white' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'}`}><ListOrdered className="h-3.5 w-3.5" />{isEditingOrder ? 'Done' : 'Edit Order'}</button>
+              </div>
+            </div>}
+            {orderError && <p role="alert" className="px-4 py-2 text-xs text-rose-500">{orderError}</p>}
             {filteredTasks.length === 0 ? (
               <div className="p-12 text-center text-slate-400 text-xs">
                 No tasks match your selected criteria. Create one using the &quot;New Task&quot; button above.
               </div>
             ) : (
-              filteredTasks.map(task => {
+              filteredTasks.map((task, taskIndex) => {
                 const isHigh = task.priority === 'high';
                 const isLow = task.priority === 'low';
                 const taskCat = task.category || 'General';
@@ -756,6 +794,10 @@ interface TaskChartPoint {
                     </div>
 
                     <div className="flex items-center gap-2 shrink-0">
+                      {isEditingOrder ? <>
+                        <button type="button" onClick={() => { void moveTask(task.id, -1); }} disabled={taskIndex === 0 || isSavingOrder || savingKeys?.has('task:order')} aria-label={`Move ${task.title} up`} title="Move up" className="rounded-lg border border-slate-200 p-2 text-slate-500 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-30 dark:border-slate-700 dark:hover:bg-slate-800"><ArrowUp className="h-4 w-4" /></button>
+                        <button type="button" onClick={() => { void moveTask(task.id, 1); }} disabled={taskIndex === filteredTasks.length - 1 || isSavingOrder || savingKeys?.has('task:order')} aria-label={`Move ${task.title} down`} title="Move down" className="rounded-lg border border-slate-200 p-2 text-slate-500 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-30 dark:border-slate-700 dark:hover:bg-slate-800"><ArrowDown className="h-4 w-4" /></button>
+                      </> : <>
                       <button
                         type="button"
                         onClick={() => openEditTask(task)}
@@ -774,6 +816,7 @@ interface TaskChartPoint {
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
+                      </>}
                     </div>
                   </div>
                 );
@@ -1060,10 +1103,11 @@ interface TaskChartPoint {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  <label htmlFor="task-scheduled-date" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
                     Scheduled Date
                   </label>
                   <input
+                    id="task-scheduled-date"
                     type="date"
                     required
                     value={date}

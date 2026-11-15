@@ -28,6 +28,8 @@ import { NotesView } from '../components/NotesView';
 import { CategorySettings, WorkspaceData, dataService } from '../features/data/dataService';
 import { notesService } from '../features/notes/notesService';
 import { createUuid } from '../utils/uuid';
+import { WellnessGoals } from '../types';
+import { CompactDateNavigator } from '../components/CompactDateNavigator';
 import { Account, hasAccountTransactions } from '../utils/accounts';
 
 export default function App() {
@@ -275,11 +277,27 @@ export default function App() {
     return trackKeyedCloudRequest('expense:categories', dataService.saveCategories(user.id, next));
   };
 
+  const saveWellnessGoals = async (goals: WellnessGoals): Promise<boolean> => {
+    if (!user) return false;
+    const next = { ...categories, wellnessGoals: goals };
+    const saved = await trackKeyedCloudRequest('wellness:goals', dataService.saveCategories(user.id, next));
+    if (saved) setCategories(current => ({ ...current, wellnessGoals: goals }));
+    return saved;
+  };
+
   const saveHabitOrder = async (habitOrder: string[]): Promise<boolean> => {
     const next = { ...categories, habitOrder };
     setCategories(next);
     if (!user) return false;
     return trackKeyedCloudRequest('habit:order', dataService.saveCategories(user.id, next));
+  };
+
+  const saveTaskOrder = async (taskOrder: string[]): Promise<boolean> => {
+    if (!user) return false;
+    const next = { ...categories, taskOrder };
+    const saved = await trackKeyedCloudRequest('task:order', dataService.saveCategories(user.id, next));
+    if (saved) setCategories(current => ({ ...current, taskOrder }));
+    return saved;
   };
 
   // Habit Handlers (Module 1 - same as previous first code)
@@ -615,6 +633,9 @@ export default function App() {
       {dataLoading && <div role="status" aria-live="polite" className="mx-4 mt-3 flex items-center gap-2 rounded-lg bg-slate-100 px-4 py-2 text-sm text-slate-700 dark:bg-slate-800 dark:text-slate-200"><LoaderCircle className="h-4 w-4 animate-spin" /> Loading your Supabase workspace…</div>}
       {dataError && <div role="alert" className="mx-4 mt-3 rounded-lg bg-rose-50 px-4 py-2 text-sm text-rose-700">{dataError}</div>}
       {/* 1. Daily Overview Dashboard */}
+      {(['habits', 'tasks', 'expenses'] as NavView[]).includes(currentView) && (
+        <CompactDateNavigator date={selectedDate} onChange={setSelectedDate} />
+      )}
       {currentView === 'daily' && (
         <DailyOverview
           selectedDate={selectedDate}
@@ -632,6 +653,8 @@ export default function App() {
           onUpdateWellness={handleUpdateWellness}
           onQuickLogExpense={openExpenseAddFromOverview}
           onOpenAddHabit={() => setCurrentView('habits')}
+          taskOrder={categories.taskOrder}
+          wellnessGoals={categories.wellnessGoals}
         />
       )}
 
@@ -651,6 +674,8 @@ export default function App() {
           habitOrder={categories.habitOrder}
           onSaveCustomCategories={saveHabitCategories}
           onSaveHabitOrder={saveHabitOrder}
+          wellnessGoals={categories.wellnessGoals}
+          onSaveWellnessGoals={saveWellnessGoals}
         />
       )}
 
@@ -665,6 +690,9 @@ export default function App() {
           savingKeys={savingKeys}
           customCategories={categories.tasks}
           onSaveCustomCategories={saveTaskCategories}
+          taskOrder={categories.taskOrder}
+          onSaveTaskOrder={saveTaskOrder}
+          selectedDate={selectedDate}
         />
       )}
 

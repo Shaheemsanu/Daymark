@@ -86,6 +86,11 @@ export interface DailyTask {
 
 export type MoodType = 'great' | 'good' | 'neutral' | 'low' | 'stressed';
 
+export interface WellnessGoals {
+  waterMl: number;
+  sleepHours: number;
+}
+
 export interface DailyWellness {
   date: string; // YYYY-MM-DD
   mood?: MoodType;

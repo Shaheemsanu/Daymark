@@ -1,13 +1,17 @@
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import { BudgetConfig, DailyTask, DailyWellness, Expense, Habit, NoteItem, CategoryInfo } from '../../types';
 import { createUuid } from '../../utils/uuid';
+import { WellnessGoals } from '../../types';
+import { normalizeWellnessGoals } from '../../utils/wellnessGoals';
 
 export type CategorySettings = {
   expenses: Record<string, CategoryInfo>;
   habits: string[];
   tasks: string[];
   habitOrder?: string[];
+  taskOrder?: string[];
   notes: string[];
+  wellnessGoals?: WellnessGoals;
 };
 
 export type WorkspaceData = {
@@ -31,7 +35,9 @@ function normalizeCategories(value: unknown): CategorySettings {
     habits: Array.isArray(categories.habits) ? categories.habits.filter((item): item is string => typeof item === 'string') : [],
     tasks: Array.isArray(categories.tasks) ? categories.tasks.filter((item): item is string => typeof item === 'string') : [],
     habitOrder: Array.isArray(categories.habitOrder) ? categories.habitOrder.filter((item): item is string => typeof item === 'string') : [],
-    notes: Array.isArray(categories.notes) ? categories.notes.filter((item): item is string => typeof item === 'string') : []
+    taskOrder: Array.isArray(categories.taskOrder) ? categories.taskOrder.filter((item): item is string => typeof item === 'string') : [],
+    notes: Array.isArray(categories.notes) ? categories.notes.filter((item): item is string => typeof item === 'string') : [],
+    wellnessGoals: normalizeWellnessGoals(categories.wellnessGoals),
   };
 }
 
