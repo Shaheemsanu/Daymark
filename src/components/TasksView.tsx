@@ -705,6 +705,15 @@ interface TaskChartPoint {
               <div className="flex items-center gap-2">
                 {(isSavingOrder || savingKeys?.has('task:order')) && <span role="status" className="inline-flex items-center gap-1 text-[11px] font-medium text-sky-500"><LoaderCircle className="h-3.5 w-3.5 animate-spin" />Saving order</span>}
                 <button type="button" aria-pressed={isEditingOrder} onClick={() => setIsEditingOrder(value => !value)} className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${isEditingOrder ? 'border-blue-500 bg-blue-600 text-white' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'}`}><ListOrdered className="h-3.5 w-3.5" />{isEditingOrder ? 'Done' : 'Edit Order'}</button>
+                <button
+                  type="button"
+                  onClick={() => { setEditingTask(null); setDate(selectedDate || todayIso); setIsAddOpen(true); }}
+                  aria-label="Add task"
+                  title="Add task"
+                  className="inline-flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-slate-900 text-white shadow-xs transition-colors hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-white"
+                >
+                  <Plus className="h-4 w-4" aria-hidden="true" />
+                </button>
               </div>
             </div>}
             {orderError && <p role="alert" className="px-4 py-2 text-xs text-rose-500">{orderError}</p>}

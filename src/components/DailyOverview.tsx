@@ -20,6 +20,7 @@ import {
 import { Habit, DailyTask, DailyWellness, Expense, MoodType, BudgetConfig, WellnessGoals } from '../types';
 import { normalizeWellnessGoals } from '../utils/wellnessGoals';
 import { orderTasks } from '../utils/taskOrder';
+import { orderHabits } from '../utils/habitOrder';
 import { formatCurrency, formatDate, CATEGORIES } from '../utils/constants';
 import { WellnessNotes } from './WellnessNotes';
 
@@ -41,6 +42,7 @@ interface DailyOverviewProps {
   onOpenAddHabit: () => void;
   wellnessGoals?: WellnessGoals;
   taskOrder?: string[];
+  habitOrder?: string[];
 }
 
 const MOODS: { type: MoodType; label: string; icon: string; color: string }[] = [
@@ -68,7 +70,8 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
   onQuickLogExpense,
   onOpenAddHabit,
   wellnessGoals,
-  taskOrder
+  taskOrder,
+  habitOrder
 }) => {
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [newTaskPriority, setNewTaskPriority] = useState<'high' | 'medium' | 'low'>('high');
@@ -131,8 +134,10 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
   const completedTasksCount = dayTasks.filter(t => t.completed).length;
 
   const selectedWeekday = new Date(`${selectedDate}T00:00:00`).getDay();
-  const habitsForSelectedDay = habits.filter(habit =>
+  const habitsForSelectedDay = orderHabits(habits, habitOrder).filter(habit =>
     (habit.weekdays || [0, 1, 2, 3, 4, 5, 6]).includes(selectedWeekday)
+  ).sort((a, b) =>
+    Number(a.completedDates.includes(selectedDate)) - Number(b.completedDates.includes(selectedDate))
   );
   const completedHabitsCount = habitsForSelectedDay.filter(habit => habit.completedDates.includes(selectedDate)).length;
   const nextHabit = habitsForSelectedDay.find(habit => !habit.completedDates.includes(selectedDate));

@@ -645,6 +645,7 @@ export default function App() {
           onQuickLogExpense={openExpenseAddFromOverview}
           onOpenAddHabit={() => setCurrentView('habits')}
           taskOrder={categories.taskOrder}
+          habitOrder={categories.habitOrder}
           wellnessGoals={categories.wellnessGoals}
         />
       )}
