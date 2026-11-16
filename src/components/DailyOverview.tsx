@@ -379,7 +379,7 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
           <div className="grid min-w-0 row-span-3 grid-rows-subgrid gap-y-1">
             <div className="min-w-0">
               <p className="text-[9px] font-semibold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">{nextHabit ? 'Next habit' : habitsForSelectedDay.length ? 'All done' : 'No habits scheduled'}</p>
-              {nextHabit && <p className="mt-0.5 min-w-0 line-clamp-2 break-words text-sm font-semibold leading-snug text-slate-800 dark:text-slate-100">{nextHabit.title}</p>}
+              {nextHabit && <div className="mt-0.5 flex min-w-0 items-start gap-2"><span aria-hidden="true" className="mt-1.5 h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: nextHabit.color }} /><p className="min-w-0 line-clamp-2 break-words text-sm font-semibold leading-snug text-slate-800 dark:text-slate-100">{nextHabit.title}</p></div>}
             </div>
             <div className="min-w-0">{nextHabit?.category && <dl className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 text-[10px]"><dt className="text-slate-400 dark:text-slate-500">Category</dt><dd className="break-words font-medium text-slate-600 dark:text-slate-300">{nextHabit.category}</dd></dl>}</div>
             <div className="flex min-h-8 flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-2 dark:border-slate-800/80 text-[10px] text-slate-500 dark:text-slate-400">
@@ -413,10 +413,10 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
           <div className="grid min-w-0 row-span-3 grid-rows-subgrid gap-y-1">
             <div className="min-w-0">
               <p className="text-[9px] font-semibold uppercase tracking-wider text-sky-600 dark:text-sky-400">{nextTask ? 'Next task' : dayTasks.length ? 'All done' : 'No tasks scheduled'}</p>
-              {nextTask && <p className="mt-0.5 min-w-0 line-clamp-2 break-words text-sm font-semibold leading-snug text-slate-800 dark:text-slate-100">{nextTask.title}</p>}
+              {nextTask && <div className="mt-0.5 flex min-w-0 items-start gap-2"><span aria-hidden="true" className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${nextTask.priority === 'high' ? 'bg-rose-500' : nextTask.priority === 'medium' ? 'bg-amber-500' : 'bg-slate-400'}`} /><p className="min-w-0 line-clamp-2 break-words text-sm font-semibold leading-snug text-slate-800 dark:text-slate-100">{nextTask.title}</p></div>}
             </div>
             <div className="min-w-0">{nextTask && <dl className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-[10px]">
-              <div className="flex items-baseline gap-1.5"><dt className="text-slate-400 dark:text-slate-500">Priority</dt><dd className={`font-medium capitalize ${nextTask.priority === 'high' ? 'text-amber-600 dark:text-amber-400' : 'text-slate-600 dark:text-slate-300'}`}>{nextTask.priority}</dd></div>
+              <div className="flex items-baseline gap-1.5"><dt className="text-slate-400 dark:text-slate-500">Priority</dt><dd className={`font-semibold capitalize ${nextTask.priority === 'high' ? 'text-rose-500' : nextTask.priority === 'medium' ? 'text-amber-500' : 'text-slate-400'}`}>{nextTask.priority}</dd></div>
               {nextTask.timeEstimateMin != null && nextTask.timeEstimateMin > 0 && <div className="flex items-baseline gap-1.5"><dt className="text-slate-400 dark:text-slate-500">Time</dt><dd className="font-medium tabular-nums text-slate-600 dark:text-slate-300">{nextTask.timeEstimateMin} min</dd></div>}
             </dl>}</div>
             <div className="flex min-h-8 flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-2 dark:border-slate-800/80 text-[10px] text-slate-500 dark:text-slate-400">
