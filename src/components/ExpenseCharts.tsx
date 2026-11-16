@@ -506,24 +506,26 @@ export const AccountIntelligenceReport: React.FC<{
   savingsCurrentBalance: number;
   expenseAccCurrentBalance: number;
   cashCurrentBalance: number;
-}> = ({ expenses, currencySymbol, savingsCurrentBalance, expenseAccCurrentBalance, cashCurrentBalance }) => {
+  referenceDate?: string;
+}> = ({ expenses, currencySymbol, savingsCurrentBalance, expenseAccCurrentBalance, cashCurrentBalance, referenceDate }) => {
   const [reportTimeframe, setReportTimeframe] = useState<'this_month' | 'last_30_days' | 'all' | 'custom'>('this_month');
   const [reportStartDate, setReportStartDate] = useState('');
   const [reportEndDate, setReportEndDate] = useState('');
   const [reportAccountFilter, setReportAccountFilter] = useState<'all' | 'expense' | 'savings' | 'cash'>('all');
 
-  const now = new Date();
+  const now = referenceDate ? new Date(`${referenceDate}T00:00:00`) : new Date();
   const currentYear = now.getFullYear();
   const currentMonth = now.getMonth();
 
   const filteredExpenses = expenses.filter(e => {
     const eDate = new Date(e.date + 'T00:00:00');
     if (reportAccountFilter !== 'all' && (e.account || 'expense') !== reportAccountFilter) return false;
+    if ((reportTimeframe === 'this_month' || reportTimeframe === 'last_30_days') && eDate > now) return false;
     if (reportTimeframe === 'custom' && ((reportStartDate && e.date < reportStartDate) || (reportEndDate && e.date > reportEndDate))) return false;
     if (reportTimeframe === 'this_month') {
       if (eDate.getFullYear() !== currentYear || eDate.getMonth() !== currentMonth) return false;
     } else if (reportTimeframe === 'last_30_days') {
-      const thirtyDaysAgo = new Date();
+      const thirtyDaysAgo = new Date(now);
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
       if (eDate < thirtyDaysAgo) return false;
     }

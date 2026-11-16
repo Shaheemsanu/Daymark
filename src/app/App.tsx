@@ -30,7 +30,7 @@ import { notesService } from '../features/notes/notesService';
 import { createUuid } from '../utils/uuid';
 import { WellnessGoals } from '../types';
 import { CompactDateNavigator } from '../components/CompactDateNavigator';
-import { Account, hasAccountTransactions } from '../utils/accounts';
+import { Account, createBalanceEntry } from '../utils/accounts';
 
 export default function App() {
   const [user, setUser] = useState<AppProfile | null>(null);
@@ -445,21 +445,12 @@ export default function App() {
   const openingBalancePending = useRef(false);
   const handleSaveOpeningBalance = async (account: Account, amount: number): Promise<boolean | string> => {
     if (openingBalancePending.current) return 'An opening balance is already being saved.';
-    if (hasAccountTransactions(expenses, account)) return 'This account already has transactions.';
-    if (!Number.isFinite(amount) || amount <= 0) return 'Enter an amount greater than zero.';
     openingBalancePending.current = true;
     try {
-      return await handleAddExpense({
-        title: 'Opening balance',
-        amount: Math.round(amount * 100) / 100,
-        category: 'Opening Balance',
-        date: formatDate(new Date()),
-        paymentMethod: account === 'cash' ? 'Cash' : 'Bank Transfer',
-        type: 'income',
-        account,
-        isTransfer: false,
-        notes: 'Starting balance added in Settings.',
-      });
+      const entry = createBalanceEntry(expenses, account, amount, formatDate(new Date()));
+      return entry ? await handleAddExpense(entry) : true;
+    } catch (error) {
+      return error instanceof Error ? error.message : 'Unable to save balance.';
     } finally {
       openingBalancePending.current = false;
     }

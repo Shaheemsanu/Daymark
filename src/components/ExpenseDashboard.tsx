@@ -7,6 +7,9 @@ import {
   SlidersHorizontal,
   Trash2,
   Edit2,
+  Eye,
+  Copy,
+  Info,
   ChevronDown,
   ChevronUp,
   Tag,
@@ -25,6 +28,8 @@ import {
 } from 'lucide-react';
 import { Expense, ExpenseCategory, BudgetConfig, PaymentMethod, SpendType, CategoryInfo } from '../types';
 import { formatDisplayDate } from '../utils/dateFormatting';
+import { getAccountBalance, getBalanceAdjustmentNote } from '../utils/accounts';
+import { copyText } from '../utils/clipboard';
 import {
   CATEGORIES,
   PAYMENT_METHODS,
@@ -49,7 +54,7 @@ interface ExpenseDashboardProps {
   onQuickAddDismiss?: () => void;
 }
 
-const PRESET_AMOUNTS = [50, 100, 200, 500, 1000, 2000];
+const PRESET_AMOUNTS = [10, 20, 50, 100, 200, 500, 1000, 2000];
 const QUICK_TITLES = [
   'Chai & Snacks',
   'Auto / Cab Ride',
@@ -108,7 +113,8 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
 }) => {
   const currencySymbol = budget.currency || '₹';
   const monthlyBudget = Math.max(budget.monthlyBudget || 30000, 1);
-  const todayIso = formatDate(new Date());
+  const referenceDateIso = initialDate || formatDate(new Date());
+  const snapshotExpenses = useMemo(() => expenses.filter(expense => expense.date <= referenceDateIso), [expenses, referenceDateIso]);
 
   // Category State (includes default + custom categories)
   const [categoriesMap, setCategoriesMap] = useState<Record<string, CategoryInfo>>({ ...CATEGORIES, ...customCategories });
@@ -124,6 +130,20 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
   const [isUpdatingTransaction, setIsUpdatingTransaction] = useState(false);
   const [transactionUpdateError, setTransactionUpdateError] = useState<string | null>(null);
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
+  const [viewingExpense, setViewingExpense] = useState<LedgerExpense | null>(null);
+  const viewingInflow = viewingExpense?.transferDirection === 'received' || (!viewingExpense?.isTransfer && viewingExpense?.type === 'income');
+  const viewingNote = viewingExpense ? getBalanceAdjustmentNote(viewingExpense) : undefined;
+  const viewingCopyText = viewingExpense ? [
+    viewingExpense.title,
+    `${viewingInflow ? '+' : '-'}${formatCurrency(viewingExpense.amount, currencySymbol)}`,
+    `Date: ${formatDisplayDate(viewingExpense.date)}`,
+    `Account: ${accountDisplayName(viewingExpense.account || 'expense')}`,
+    `Category: ${viewingExpense.category}`,
+    `Payment: ${viewingExpense.paymentMethod}`,
+    viewingNote,
+  ].filter(Boolean).join('\n') : '';
+  const [detailCopyStatus, setDetailCopyStatus] = useState<'idle' | 'copying' | 'copied' | 'error'>('idle');
+  useEffect(() => { setDetailCopyStatus('idle'); }, [viewingExpense]);
   const [isBudgetModalOpen, setIsBudgetModalOpen] = useState(false);
   const [monthlyBudgetDraft, setMonthlyBudgetDraft] = useState('30000');
   const [dailyBudgetDraft, setDailyBudgetDraft] = useState('');
@@ -178,7 +198,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
   const [formTitle, setFormTitle] = useState('');
   const [formAmount, setFormAmount] = useState('');
   const [formCategory, setFormCategory] = useState<string>('Food & Dining');
-  const [formDate, setFormDate] = useState(todayIso);
+  const [formDate, setFormDate] = useState(referenceDateIso);
   const [formPaymentMethod, setFormPaymentMethod] = useState<PaymentMethod>('UPI / QR');
   const availablePaymentMethods: readonly PaymentMethod[] = formAccount === 'cash' && formTransactionType === 'expense'
     ? ['Cash']
@@ -234,16 +254,16 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
 
   // Account specific transactions
   const savingsTransactions = useMemo(() => {
-    return expenses.filter(e => e.account === 'savings');
-  }, [expenses]);
+    return snapshotExpenses.filter(e => e.account === 'savings');
+  }, [snapshotExpenses]);
 
   const expenseAccTransactions = useMemo(() => {
-    return expenses.filter(e => (e.account || 'expense') === 'expense');
-  }, [expenses]);
+    return snapshotExpenses.filter(e => (e.account || 'expense') === 'expense');
+  }, [snapshotExpenses]);
 
   const cashTransactions = useMemo(() => {
-    return expenses.filter(e => e.account === 'cash');
-  }, [expenses]);
+    return snapshotExpenses.filter(e => e.account === 'cash');
+  }, [snapshotExpenses]);
 
   // Savings Account Stats
   const savingsIncomeTotal = useMemo(() => {
@@ -251,16 +271,13 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
   }, [savingsTransactions]);
 
   const savingsTransferredOutTotal = useMemo(() => {
-    return expenses.filter(e => e.isTransfer
+    return snapshotExpenses.filter(e => e.isTransfer
       ? (e.account || 'savings') === 'savings' && getTransferTarget(e) === 'expense'
       : e.category.includes('Transfer'))
       .reduce((sum, e) => sum + e.amount, 0);
-  }, [expenses]);
+  }, [snapshotExpenses]);
 
-  const savingsCurrentBalance = savingsTransactions.filter(e => e.type === 'income' && !e.isTransfer).reduce((sum, e) => sum + e.amount, 0)
-    - savingsTransactions.filter(e => e.type !== 'income' && !e.isTransfer).reduce((sum, e) => sum + e.amount, 0)
-    - expenses.filter(e => e.isTransfer && (e.account || 'savings') === 'savings').reduce((sum, e) => sum + e.amount, 0)
-    + expenses.filter(e => e.isTransfer && getTransferTarget(e) === 'savings').reduce((sum, e) => sum + e.amount, 0);
+  const savingsCurrentBalance = getAccountBalance(snapshotExpenses, 'savings', referenceDateIso);
 
   // Cash in Hand Stats
   const cashIncomeTotal = useMemo(() => {
@@ -271,9 +288,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
     return cashTransactions.filter(e => e.type !== 'income' && !e.isTransfer).reduce((sum, e) => sum + e.amount, 0);
   }, [cashTransactions]);
 
-  const cashCurrentBalance = cashIncomeTotal - cashOutflowTotal
-    - expenses.filter(e => e.isTransfer && e.account === 'cash').reduce((sum, e) => sum + e.amount, 0)
-    + expenses.filter(e => e.isTransfer && getTransferTarget(e) === 'cash').reduce((sum, e) => sum + e.amount, 0);
+  const cashCurrentBalance = getAccountBalance(snapshotExpenses, 'cash', referenceDateIso);
 
   // Expense Account Stats
   const expenseDirectInflows = useMemo(() => {
@@ -284,61 +299,58 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
     return expenseAccTransactions.filter(e => e.type !== 'income' && !e.isTransfer).reduce((sum, e) => sum + e.amount, 0);
   }, [expenseAccTransactions]);
 
-  const expenseAccCurrentBalance = expenseDirectInflows - expenseOutflowsTotal
-    - expenses.filter(e => e.isTransfer && e.account === 'expense').reduce((sum, e) => sum + e.amount, 0)
-    + savingsTransferredOutTotal
-    + expenses.filter(e => e.isTransfer && getTransferTarget(e) === 'expense' && (e.account || 'savings') !== 'savings').reduce((sum, e) => sum + e.amount, 0);
+  const expenseAccCurrentBalance = getAccountBalance(snapshotExpenses, 'expense', referenceDateIso);
 
-  // Today's Date helpers
-  const now = new Date();
+  // Selected date helpers
+  const now = new Date(`${referenceDateIso}T00:00:00`);
   const currentYear = now.getFullYear();
   const currentMonth = now.getMonth();
 
   // Daily, Weekly, Monthly Spends specifically for Expense Account
   const dailyExpenseSpend = useMemo(() => {
     return expenseAccTransactions
-      .filter(e => e.date === todayIso && e.type !== 'income' && !e.isTransfer)
+      .filter(e => e.date === referenceDateIso && e.type !== 'income' && !e.isTransfer)
       .reduce((sum, e) => sum + e.amount, 0);
-  }, [expenseAccTransactions, todayIso]);
+  }, [expenseAccTransactions, referenceDateIso]);
 
   const weeklyExpenseSpend = useMemo(() => {
-    const d = new Date(`${todayIso}T00:00:00`);
+    const d = new Date(`${referenceDateIso}T00:00:00`);
     d.setDate(d.getDate() - 6);
     const sevenDaysAgoIso = formatDate(d);
     return expenseAccTransactions
-      .filter(e => e.date >= sevenDaysAgoIso && e.type !== 'income' && !e.isTransfer)
+      .filter(e => e.date >= sevenDaysAgoIso && e.date <= referenceDateIso && e.type !== 'income' && !e.isTransfer)
       .reduce((sum, e) => sum + e.amount, 0);
-  }, [expenseAccTransactions, todayIso]);
+  }, [expenseAccTransactions, referenceDateIso]);
 
   const previousDayExpenseSpend = useMemo(() => {
-    const previousDay = new Date(`${todayIso}T00:00:00`);
+    const previousDay = new Date(`${referenceDateIso}T00:00:00`);
     previousDay.setDate(previousDay.getDate() - 1);
     const previousDayIso = formatDate(previousDay);
     return expenseAccTransactions
       .filter(e => e.date === previousDayIso && e.type !== 'income' && !e.isTransfer)
       .reduce((sum, e) => sum + e.amount, 0);
-  }, [expenseAccTransactions, todayIso]);
+  }, [expenseAccTransactions, referenceDateIso]);
 
   const previousWeekExpenseSpend = useMemo(() => {
-    const end = new Date(`${todayIso}T00:00:00`);
+    const end = new Date(`${referenceDateIso}T00:00:00`);
     end.setDate(end.getDate() - 7);
     const start = new Date(end);
     start.setDate(start.getDate() - 6);
     const startIso = formatDate(start);
     const endIso = formatDate(end);
     return expenseAccTransactions
-      .filter(e => e.date >= startIso && e.date <= endIso && e.type !== 'income' && !e.isTransfer)
+      .filter(e => e.date >= startIso && e.date <= endIso && e.date <= referenceDateIso && e.type !== 'income' && !e.isTransfer)
       .reduce((sum, e) => sum + e.amount, 0);
-  }, [expenseAccTransactions, todayIso]);
+  }, [expenseAccTransactions, referenceDateIso]);
 
   const monthlyExpenseSpend = useMemo(() => {
     return expenseAccTransactions
       .filter(e => {
         const eDate = new Date(e.date + 'T00:00:00');
-        return eDate.getFullYear() === currentYear && eDate.getMonth() === currentMonth && e.type !== 'income' && !e.isTransfer;
+        return eDate.getFullYear() === currentYear && eDate.getMonth() === currentMonth && e.date <= referenceDateIso && e.type !== 'income' && !e.isTransfer;
       })
       .reduce((sum, e) => sum + e.amount, 0);
-  }, [expenseAccTransactions, currentYear, currentMonth]);
+  }, [expenseAccTransactions, currentYear, currentMonth, referenceDateIso]);
 
   const previousMonthExpenseSpend = useMemo(() => {
     const previousMonthDate = new Date(currentYear, currentMonth - 1, 1);
@@ -352,24 +364,25 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
       .reduce((sum, e) => sum + e.amount, 0);
   }, [expenseAccTransactions, currentYear, currentMonth]);
 
-  const weeklyDailyOverTargetTotal = useMemo(() => {
-    const today = new Date(`${todayIso}T00:00:00`);
+  const weeklyDailyTargetBalance = useMemo(() => {
+    const today = new Date(`${referenceDateIso}T00:00:00`);
     const dailyTarget = budget.dailyBudget || 1000;
     let total = 0;
     for (let daysAgo = 0; daysAgo < 7; daysAgo += 1) {
       const day = new Date(today);
       day.setDate(today.getDate() - daysAgo);
       const dayIso = formatDate(day);
-      const spend = expenseAccTransactions
-        .filter(e => e.date === dayIso && e.type !== 'income' && !e.isTransfer)
-        .reduce((sum, e) => sum + e.amount, 0);
-      total += Math.max(0, spend - dailyTarget);
+      const transactions = expenseAccTransactions
+        .filter(e => e.date === dayIso && e.type !== 'income' && !e.isTransfer);
+      if (transactions.length === 0) continue;
+      const spend = transactions.reduce((sum, e) => sum + e.amount, 0);
+      total += spend - dailyTarget;
     }
     return total;
-  }, [expenseAccTransactions, todayIso, budget.dailyBudget]);
+  }, [expenseAccTransactions, referenceDateIso, budget.dailyBudget]);
 
-  const fourWeekOverTargetTotal = useMemo(() => {
-    const currentWeekStart = new Date(`${todayIso}T00:00:00`);
+  const fourWeekTargetBalance = useMemo(() => {
+    const currentWeekStart = new Date(`${referenceDateIso}T00:00:00`);
     currentWeekStart.setDate(currentWeekStart.getDate() - ((currentWeekStart.getDay() + 6) % 7));
     const weeklyTarget = budget.weeklyBudget || 7000;
     let total = 0;
@@ -380,28 +393,30 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
       end.setDate(end.getDate() + 6);
       const startIso = formatDate(start);
       const endIso = formatDate(end);
-      const spend = expenseAccTransactions
-        .filter(e => e.date >= startIso && e.date <= endIso && e.type !== 'income' && !e.isTransfer)
-        .reduce((sum, e) => sum + e.amount, 0);
-      total += Math.max(0, spend - weeklyTarget);
+      const transactions = expenseAccTransactions
+        .filter(e => e.date >= startIso && e.date <= endIso && e.date <= referenceDateIso && e.type !== 'income' && !e.isTransfer);
+      if (transactions.length === 0) continue;
+      const spend = transactions.reduce((sum, e) => sum + e.amount, 0);
+      total += spend - weeklyTarget;
     }
     return total;
-  }, [expenseAccTransactions, todayIso, budget.weeklyBudget]);
+  }, [expenseAccTransactions, referenceDateIso, budget.weeklyBudget]);
 
-  const twelveMonthOverTargetTotal = useMemo(() => {
+  const twelveMonthTargetBalance = useMemo(() => {
     let total = 0;
     for (let monthOffset = 0; monthOffset < 12; monthOffset += 1) {
       const month = new Date(currentYear, currentMonth - monthOffset, 1);
-      const spend = expenseAccTransactions
+      const transactions = expenseAccTransactions
         .filter(e => {
           const date = new Date(`${e.date}T00:00:00`);
-          return date.getFullYear() === month.getFullYear() && date.getMonth() === month.getMonth() && e.type !== 'income' && !e.isTransfer;
-        })
-        .reduce((sum, e) => sum + e.amount, 0);
-      total += Math.max(0, spend - monthlyBudget);
+          return date.getFullYear() === month.getFullYear() && date.getMonth() === month.getMonth() && e.date <= referenceDateIso && e.type !== 'income' && !e.isTransfer;
+        });
+      if (transactions.length === 0) continue;
+      const spend = transactions.reduce((sum, e) => sum + e.amount, 0);
+      total += spend - monthlyBudget;
     }
     return total;
-  }, [expenseAccTransactions, currentYear, currentMonth, monthlyBudget]);
+  }, [expenseAccTransactions, currentYear, currentMonth, monthlyBudget, referenceDateIso]);
 
   const renderTargetSummary = (target: number, spend: number, tone: 'rose' | 'amber' | 'indigo') => {
     const remaining = target - spend;
@@ -438,19 +453,19 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
     );
   };
 
-  const renderCumulativeOverTarget = (label: string, total: number) => (
+  const renderCumulativeTargetBalance = (label: string, total: number) => (
     <div className={`mt-2 flex items-center justify-between gap-2 rounded-lg border px-2.5 py-1.5 text-[10px] leading-4 ${total > 0 ? 'border-rose-200/80 bg-rose-50/80 dark:border-rose-900/60 dark:bg-rose-950/25' : 'border-emerald-200/80 bg-emerald-50/80 dark:border-emerald-900/60 dark:bg-emerald-950/20'}`}>
       <span className="font-medium text-slate-600 dark:text-slate-300">{label}</span>
-      <strong className={`font-mono font-bold tabular-nums ${total > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-700 dark:text-emerald-400'}`}>{formatCurrency(total, currencySymbol)}</strong>
+      <strong className={`font-mono font-bold tabular-nums ${total > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-700 dark:text-emerald-400'}`}>{formatCurrency(Math.abs(total), currencySymbol)} {total > 0 ? 'Over target' : total < 0 ? 'Saved' : 'On target'}</strong>
     </div>
   );
 
   const thisMonthTransactions = useMemo(() => {
     return expenses.filter(e => {
       const eDate = new Date(e.date + 'T00:00:00');
-      return eDate.getFullYear() === currentYear && eDate.getMonth() === currentMonth;
+      return eDate.getFullYear() === currentYear && eDate.getMonth() === currentMonth && e.date <= referenceDateIso;
     });
-  }, [expenses, currentYear, currentMonth]);
+  }, [expenses, currentYear, currentMonth, referenceDateIso]);
 
   const thisMonthSpendTotal = useMemo(() => {
     return thisMonthTransactions
@@ -508,21 +523,22 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
 
       // Timeframe & Custom Date Range
       if (historyTimeframe === 'today') {
-        if (e.date !== todayIso) return false;
+        if (e.date !== referenceDateIso) return false;
       } else if (historyTimeframe === 'yesterday') {
-        const yesterday = new Date(`${todayIso}T00:00:00`);
+        const yesterday = new Date(`${referenceDateIso}T00:00:00`);
         yesterday.setDate(yesterday.getDate() - 1);
         if (e.date !== formatDate(yesterday)) return false;
       } else if (historyTimeframe === 'last_7_days') {
-        const start = new Date(`${todayIso}T00:00:00`);
+        const start = new Date(`${referenceDateIso}T00:00:00`);
         start.setDate(start.getDate() - 6);
-        if (e.date < formatDate(start) || e.date > todayIso) return false;
+        if (e.date < formatDate(start) || e.date > referenceDateIso) return false;
       } else if (historyTimeframe === 'this_month') {
+        if (e.date > referenceDateIso) return false;
         if (eDate.getFullYear() !== currentYear || eDate.getMonth() !== currentMonth) return false;
       } else if (historyTimeframe === 'last_30_days') {
-        const thirtyDaysAgo = new Date();
+        const thirtyDaysAgo = new Date(`${referenceDateIso}T00:00:00`);
         thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-        if (eDate < thirtyDaysAgo) return false;
+        if (eDate < thirtyDaysAgo || e.date > referenceDateIso) return false;
       } else if (historyTimeframe === 'custom') {
         if (historyStartDate && e.date < historyStartDate) return false;
         if (historyEndDate && e.date > historyEndDate) return false;
@@ -572,7 +588,8 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
     historySearch,
     historySort,
     currentYear,
-    currentMonth
+    currentMonth,
+    referenceDateIso
   ]);
 
   const MOBILE_HISTORY_PAGE_SIZE = 15;
@@ -607,32 +624,34 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
   const classificationAnalyticsExpenses = useMemo(() => expenses.filter(expense => {
     const date = new Date(`${expense.date}T00:00:00`);
     if (analyticsAccount !== 'all' && (expense.account || 'expense') !== analyticsAccount) return false;
+    if (classificationPeriod !== 'custom' && expense.date > referenceDateIso) return false;
     if (classificationPeriod === 'this_month' && (date.getFullYear() !== currentYear || date.getMonth() !== currentMonth)) return false;
     if (classificationPeriod === 'last_30_days') {
-      const cutoff = new Date();
+      const cutoff = new Date(`${referenceDateIso}T00:00:00`);
       cutoff.setDate(cutoff.getDate() - 30);
       if (date < cutoff) return false;
     }
     if (classificationPeriod === 'custom' && ((analyticsStartDate && expense.date < analyticsStartDate) || (analyticsEndDate && expense.date > analyticsEndDate))) return false;
     return true;
-  }), [expenses, analyticsAccount, classificationPeriod, analyticsStartDate, analyticsEndDate, currentYear, currentMonth]);
+  }), [expenses, analyticsAccount, classificationPeriod, analyticsStartDate, analyticsEndDate, currentYear, currentMonth, referenceDateIso]);
 
   const categoryAnalyticsExpenses = useMemo(() => expenses.filter(expense => {
     const date = new Date(`${expense.date}T00:00:00`);
     if (analyticsAccount !== 'all' && (expense.account || 'expense') !== analyticsAccount) return false;
+    if (categoryPeriod !== 'custom' && categoryPeriod !== 'all' && expense.date > referenceDateIso) return false;
     if (categoryPeriod === 'this_month' && (date.getFullYear() !== currentYear || date.getMonth() !== currentMonth)) return false;
     if (categoryPeriod === 'last_30_days') {
-      const cutoff = new Date();
+      const cutoff = new Date(`${referenceDateIso}T00:00:00`);
       cutoff.setDate(cutoff.getDate() - 30);
       if (date < cutoff) return false;
     }
     if (categoryPeriod === 'custom' && ((analyticsStartDate && expense.date < analyticsStartDate) || (analyticsEndDate && expense.date > analyticsEndDate))) return false;
     return expense.type !== 'income' && !expense.isTransfer &&
       (analyticsPayment === 'all' || expense.paymentMethod === analyticsPayment);
-  }), [expenses, analyticsAccount, categoryPeriod, analyticsStartDate, analyticsEndDate, analyticsPayment, currentYear, currentMonth]);
+  }), [expenses, analyticsAccount, categoryPeriod, analyticsStartDate, analyticsEndDate, analyticsPayment, currentYear, currentMonth, referenceDateIso]);
 
-  const velocityStartIso = velocityDays === 'custom' && analyticsStartDate ? analyticsStartDate : formatDate(new Date(Date.now() - ((velocityDays === 'custom' ? 30 : velocityDays) - 1) * 86400000));
-  const velocityEndIso = velocityDays === 'custom' && analyticsEndDate ? analyticsEndDate : todayIso;
+  const velocityStartIso = velocityDays === 'custom' && analyticsStartDate ? analyticsStartDate : formatDate(new Date(new Date(`${referenceDateIso}T00:00:00`).getTime() - ((velocityDays === 'custom' ? 30 : velocityDays) - 1) * 86400000));
+  const velocityEndIso = velocityDays === 'custom' && analyticsEndDate ? analyticsEndDate : referenceDateIso;
   const velocityChartDaysCount = velocityDays === 'custom'
     ? analyticsStartDate && analyticsEndDate
       ? Math.max(1, Math.floor((new Date(`${analyticsEndDate}T00:00:00`).getTime() - new Date(`${analyticsStartDate}T00:00:00`).getTime()) / 86400000) + 1)
@@ -709,8 +728,8 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
   const setHistoryToAllDates = () => {
     const sortedDates = expenses.map(expense => expense.date).sort();
     setHistoryTimeframe('custom');
-    setHistoryStartDate(sortedDates[0] || todayIso);
-    setHistoryEndDate(sortedDates[sortedDates.length - 1] || todayIso);
+    setHistoryStartDate(sortedDates[0] || referenceDateIso);
+    setHistoryEndDate(sortedDates[sortedDates.length - 1] || referenceDateIso);
   };
 
   const handleFilterExpenseAccount = () => {
@@ -727,8 +746,8 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
     setHistoryAccountFilter('expense');
     setHistoryTypeFilter('outflow');
     setHistoryTimeframe('custom');
-    setHistoryStartDate(todayIso);
-    setHistoryEndDate(todayIso);
+    setHistoryStartDate(referenceDateIso);
+    setHistoryEndDate(referenceDateIso);
     setHistoryCategory('all');
     setHistoryPayment('all');
     setHistorySearch('');
@@ -736,14 +755,14 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
   };
 
   const handleFilterWeeklySpend = () => {
-    const d = new Date(`${todayIso}T00:00:00`);
+    const d = new Date(`${referenceDateIso}T00:00:00`);
     d.setDate(d.getDate() - 6);
     const sevenDaysAgo = formatDate(d);
     setHistoryAccountFilter('expense');
     setHistoryTypeFilter('outflow');
     setHistoryTimeframe('custom');
     setHistoryStartDate(sevenDaysAgo);
-    setHistoryEndDate(todayIso);
+    setHistoryEndDate(referenceDateIso);
     setHistoryCategory('all');
     setHistoryPayment('all');
     setHistorySearch('');
@@ -755,7 +774,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
     setHistoryTypeFilter('outflow');
     setHistoryTimeframe('custom');
     setHistoryStartDate(formatDate(new Date(currentYear, currentMonth, 1)));
-    setHistoryEndDate(todayIso);
+    setHistoryEndDate(referenceDateIso);
     setHistoryCategory('all');
     setHistoryPayment('all');
     setHistorySearch('');
@@ -792,7 +811,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
     setFormAmount('');
     setFormCategory('');
     setFormCategoryError('');
-    setFormDate(initialDate || todayIso);
+    setFormDate(initialDate || referenceDateIso);
     setFormPaymentMethod('UPI / QR');
     setFormNotes('');
     setFormIsRecurring(false);
@@ -856,7 +875,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
       account: formAccount,
       isTransfer: isTransfer,
       transferToAccount: isTransfer ? (isSelfTransfer ? transferToAccount : 'expense') : undefined,
-      date: formDate || todayIso,
+      date: formDate || referenceDateIso,
       paymentMethod: formPaymentMethod || 'UPI / QR',
       notes: formNotes.trim() || undefined,
       isRecurring: formIsRecurring
@@ -929,7 +948,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
         account: formAccount,
         isTransfer,
         transferToAccount: isTransfer ? (isSelfTransfer ? transferToAccount : 'expense') : undefined,
-        date: formDate || todayIso,
+        date: formDate || referenceDateIso,
         paymentMethod: formPaymentMethod || 'UPI / QR',
         notes: formNotes.trim() || undefined,
         isRecurring: formIsRecurring
@@ -1135,7 +1154,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                 <div 
                   onClick={(e) => { e.stopPropagation(); handleFilterDailySpend(); }}
                   className="rounded-2xl border border-slate-200/80 bg-gradient-to-b from-white to-rose-50/40 p-4 shadow-xs transition-all hover:-translate-y-0.5 hover:border-rose-300 hover:shadow-sm dark:border-slate-800 dark:from-slate-800/80 dark:to-rose-950/10 dark:hover:border-rose-800 cursor-pointer"
-                  title="Click to view today's spend transactions"
+                  title="Click to view selected date spend transactions"
                 >
                   <span className="text-xs font-semibold tracking-wide text-slate-600 dark:text-slate-300 block mb-1.5">
                     Daily Spend
@@ -1143,10 +1162,10 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                   <span className="text-xl sm:text-2xl font-extrabold font-mono text-rose-600 dark:text-rose-400 tabular-nums tracking-tight">
                     {formatCurrency(dailyExpenseSpend, currencySymbol)}
                   </span>
-                  <span className="text-[10px] text-slate-400 block mt-0.5">Today</span>
+                  <span className="text-[10px] text-slate-400 block mt-0.5">{referenceDateIso === formatDate(new Date()) ? 'Today' : formatDisplayDate(referenceDateIso)}</span>
                   {renderPreviousTargetSummary('Previous day', budget.dailyBudget || 1000, previousDayExpenseSpend)}
                   {renderTargetSummary(budget.dailyBudget || 1000, dailyExpenseSpend, 'rose')}
-                  {renderCumulativeOverTarget('7-day total over daily target', weeklyDailyOverTargetTotal)}
+                  {renderCumulativeTargetBalance('7-day balance', weeklyDailyTargetBalance)}
                 </div>
 
                 <div 
@@ -1163,7 +1182,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                   <span className="text-[10px] text-slate-400 block mt-0.5">Last 7 Days</span>
                   {renderPreviousTargetSummary('Previous 7 days', budget.weeklyBudget || 7000, previousWeekExpenseSpend)}
                   {renderTargetSummary(budget.weeklyBudget || 7000, weeklyExpenseSpend, 'amber')}
-                  {renderCumulativeOverTarget('4-week total over weekly target', fourWeekOverTargetTotal)}
+                  {renderCumulativeTargetBalance('4-week balance', fourWeekTargetBalance)}
                 </div>
 
                 <div 
@@ -1177,10 +1196,10 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                   <span className="text-xl sm:text-2xl font-extrabold font-mono text-indigo-600 dark:text-indigo-400 tabular-nums tracking-tight">
                     {formatCurrency(monthlyExpenseSpend, currencySymbol)}
                   </span>
-                  <span className="text-[10px] text-slate-400 block mt-0.5">This Month</span>
+                  <span className="text-[10px] text-slate-400 block mt-0.5">{new Date(`${referenceDateIso}T00:00:00`).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</span>
                   {renderPreviousTargetSummary('Previous month', monthlyBudget, previousMonthExpenseSpend)}
                   {renderTargetSummary(monthlyBudget, monthlyExpenseSpend, 'indigo')}
-                  {renderCumulativeOverTarget('12-month total over monthly target', twelveMonthOverTargetTotal)}
+                  {renderCumulativeTargetBalance('12-month balance', twelveMonthTargetBalance)}
                 </div>
               </div>
             </div>
@@ -1404,8 +1423,8 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                 <select aria-label="Velocity range" value={velocityDays} onChange={e => {
                   const value = e.target.value;
                   if (value === 'custom') {
-                    if (!analyticsStartDate) setAnalyticsStartDate(formatDate(new Date(Date.now() - 29 * 86400000)));
-                    if (!analyticsEndDate) setAnalyticsEndDate(todayIso);
+                    if (!analyticsStartDate) setAnalyticsStartDate(formatDate(new Date(new Date(`${referenceDateIso}T00:00:00`).getTime() - 29 * 86400000)));
+                    if (!analyticsEndDate) setAnalyticsEndDate(referenceDateIso);
                     setVelocityDays('custom');
                   } else {
                     setVelocityDays(Number(value) as 7 | 30 | 90);
@@ -1521,8 +1540,8 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
             <DailySpendingTrendChart
               expenses={velocityAnalyticsExpenses}
               daysCount={velocityChartDaysCount}
-              rangeStartDate={velocityDays === 'custom' ? velocityStartIso : undefined}
-              rangeEndDate={velocityDays === 'custom' ? velocityEndIso : undefined}
+              rangeStartDate={velocityStartIso}
+              rangeEndDate={velocityEndIso}
               currencySymbol={currencySymbol}
             />
           </div>
@@ -1547,6 +1566,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
 
             <AccountIntelligenceReport
               expenses={expenses}
+              referenceDate={referenceDateIso}
               currencySymbol={currencySymbol}
               savingsCurrentBalance={savingsCurrentBalance}
               expenseAccCurrentBalance={expenseAccCurrentBalance}
@@ -1704,8 +1724,11 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                 return (
                   <article key={item.ledgerKey || item.id} className={`mx-3 my-1.5 grid gap-y-2 overflow-hidden rounded-xl border border-slate-200 bg-white p-3 shadow-sm transition-all duration-200 hover:shadow-md dark:border-slate-800 dark:bg-slate-950/60 dark:hover:border-slate-700 ${isTransfer ? item.transferDirection === 'received' ? 'border-l-2 border-l-cyan-500' : 'border-l-2 border-l-amber-500' : isIncome ? 'border-l-2 border-l-emerald-500' : 'border-l-2 border-l-rose-500'}`}>
                     <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2.5 gap-y-1.5">
-                      <h4 className="min-w-0 break-words text-sm font-bold leading-snug tracking-tight text-slate-900 dark:text-slate-100">{item.title}</h4>
+                      <h4 className="line-clamp-2 min-w-0 break-words text-sm font-bold leading-snug tracking-tight text-slate-900 dark:text-slate-100">{item.title}</h4>
                       <div className="flex shrink-0 items-center gap-1.5">
+                        <button type="button" onClick={() => setViewingExpense(item)} className="inline-flex h-8 items-center justify-center gap-1 rounded-lg border border-slate-200 bg-slate-50 px-2 text-xs text-slate-600 hover:text-blue-600 dark:border-slate-700 dark:bg-slate-800/70 dark:text-slate-300" aria-label={`View ${item.title}`} title="View details">
+                          <Eye className="h-3.5 w-3.5" />
+                        </button>
                         <button type="button" onClick={() => handleOpenEdit(originalItem)} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-600 transition-all duration-150 hover:-translate-y-0.5 hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 active:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:border-slate-700 dark:bg-slate-800/70 dark:text-slate-300 dark:hover:border-indigo-500/50 dark:hover:bg-indigo-500/10 dark:hover:text-indigo-300" aria-label={`Edit ${item.title}`} title="Edit">
                           <Edit2 className="h-3.5 w-3.5" />
                         </button>
@@ -1734,7 +1757,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                         {item.transferDirection === 'received' ? '+' : item.transferDirection === 'sent' ? '-' : isIncome ? '+' : '-'}{formatCurrency(item.amount, currencySymbol)}
                       </strong>
                     </div>
-                    {item.notes && <p className="break-words text-xs text-slate-500 dark:text-slate-400">{item.notes}</p>}
+                    {item.notes && <p className="line-clamp-2 break-words text-xs text-slate-500 dark:text-slate-400">{getBalanceAdjustmentNote(item)}</p>}
                   </article>
                 );
               })}
@@ -1805,11 +1828,11 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                           </td>
                           <td className="py-3 px-4">
                             <div className="font-medium text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
-                              <span>{item.title}</span>
+                              <span className="line-clamp-2 max-w-sm break-words">{item.title}</span>
                             </div>
                             {item.notes && (
-                              <div className="text-[11px] text-slate-400 truncate max-w-xs mt-0.5">
-                                {item.notes}
+                              <div className="line-clamp-2 break-words text-[11px] text-slate-400 max-w-sm mt-0.5">
+                                {getBalanceAdjustmentNote(item)}
                               </div>
                             )}
                           </td>
@@ -1845,6 +1868,9 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                           </td>
                           <td className="py-3 px-4 text-right whitespace-nowrap">
                             <div className="flex items-center justify-end gap-1.5">
+                              <button type="button" onClick={() => setViewingExpense(item)} aria-label={`View ${item.title}`} title="View details" className="inline-flex items-center gap-1 p-1 text-xs text-slate-400 hover:text-blue-600 dark:hover:text-blue-400">
+                                <Eye className="w-3.5 h-3.5" />
+                              </button>
                               <button
                                 onClick={() => handleOpenEdit(originalItem)}
                                 className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
@@ -1897,6 +1923,78 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
       </button>
 
       {/* 4. MODAL: Scrollable Add/Edit Transaction Modal */}
+      {viewingExpense && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-3 backdrop-blur-sm sm:p-5" onClick={() => setViewingExpense(null)} onKeyDown={event => {
+          if (event.key === 'Escape') setViewingExpense(null);
+          if (event.key === 'Tab') {
+            const buttons = event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), textarea');
+            const first = buttons[0];
+            const last = buttons[buttons.length - 1];
+            if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+            else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+          }
+        }}>
+          <div role="dialog" aria-modal="true" aria-labelledby="transaction-details-title" onClick={event => event.stopPropagation()} className="relative flex max-h-[calc(100dvh-2rem)] w-full min-w-0 max-w-md flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl ring-1 ring-black/5 dark:border-slate-700/70 dark:bg-slate-900 dark:ring-white/5 sm:max-h-[90dvh] sm:rounded-3xl">
+            <div className={`h-1 w-full shrink-0 ${viewingInflow ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+            <div className="flex shrink-0 items-center justify-between gap-3 px-4 pb-1 pt-2 sm:px-5">
+              <div className="flex items-center gap-2.5">
+                <h3 id="transaction-details-title" className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">Transaction details</h3>
+              </div>
+              <button type="button" autoFocus onClick={() => setViewingExpense(null)} aria-label="Close transaction details" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:hover:bg-slate-800 dark:hover:text-slate-200"><X className="h-4 w-4" /></button>
+            </div>
+            <div className="min-h-0 min-w-0 overflow-x-hidden overflow-y-auto overscroll-contain px-4 pb-3 [overflow-wrap:anywhere] sm:px-5">
+              <div className={`mb-3 grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-1 rounded-xl border p-3 ${viewingInflow ? 'border-emerald-100 bg-linear-to-b from-emerald-50/80 to-white dark:border-emerald-500/10 dark:from-emerald-500/10 dark:to-slate-900' : 'border-rose-100 bg-linear-to-b from-rose-50/80 to-white dark:border-rose-500/10 dark:from-rose-500/10 dark:to-slate-900'}`}>
+                <div className={`row-span-2 flex h-10 w-10 items-center justify-center rounded-xl border shadow-sm ${viewingInflow ? 'border-emerald-200 bg-emerald-50 text-emerald-600 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-400' : 'border-rose-200 bg-rose-50 text-rose-600 dark:border-rose-500/20 dark:bg-rose-500/10 dark:text-rose-400'}`}>
+                  {viewingExpense.category === 'Balance Adjustment' ? <RotateCcw className="h-4 w-4" /> : viewingExpense.isTransfer ? <ArrowUpRight className="h-4 w-4" /> : <Wallet className="h-4 w-4" />}
+                </div>
+                <h4 className="min-w-0 break-words text-xs font-semibold tracking-tight text-slate-900 dark:text-slate-100 sm:text-sm">{viewingExpense.title}</h4>
+                <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                  <p className={`min-w-0 break-words text-[clamp(1.25rem,5vw,1.75rem)] font-bold leading-tight tracking-tight tabular-nums ${viewingInflow ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>{viewingInflow ? '+' : '-'}{formatCurrency(viewingExpense.amount, currencySymbol)}</p>
+                  <span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${viewingInflow ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400' : 'bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-400'}`}>
+                    {viewingInflow ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+                    {viewingExpense.isTransfer ? `Transfer ${viewingInflow ? 'in' : 'out'}` : viewingInflow ? 'Inflow' : 'Outflow'}
+                  </span>
+                </div>
+              </div>
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-3 px-1 pb-4 pt-1">
+                {([
+                  ['Date', formatDisplayDate(viewingExpense.date), Calendar],
+                  ['Account', `${accountDisplayName(viewingExpense.account || 'expense')} account`, Wallet],
+                  ['Category', viewingExpense.category, Tag],
+                  ['Payment', viewingExpense.paymentMethod, CreditCard],
+                ] as const).map(([label, value, Icon]) => <div key={label} className="min-w-0"><dt className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400"><Icon className="h-3.5 w-3.5 shrink-0 text-slate-400 dark:text-slate-500" />{label}</dt><dd className="mt-1 min-w-0 break-words text-xs font-semibold leading-snug text-slate-800 dark:text-slate-200">{value}</dd></div>)}
+              </dl>
+              <div className="rounded-xl border border-slate-200/80 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/40">
+                <h4 className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-600 dark:text-slate-300"><Info className="h-3.5 w-3.5 text-slate-400" />Description</h4>
+                <p className="mt-2 whitespace-pre-wrap break-words text-xs leading-relaxed text-slate-500 dark:text-slate-400">{viewingNote || 'No description added.'}</p>
+              </div>
+            </div>
+            <div className="shrink-0 border-t border-slate-100 bg-slate-50/60 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/20 sm:px-5">
+              <div className="grid grid-cols-3 gap-2">
+                <button type="button" disabled={detailCopyStatus === 'copying'} onClick={async () => {
+                  setDetailCopyStatus('copying');
+                  try {
+                    setDetailCopyStatus(await copyText(viewingCopyText) ? 'copied' : 'error');
+                  } catch { setDetailCopyStatus('error'); }
+                }} className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2 py-2.5 text-xs font-semibold text-slate-600 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300 dark:hover:border-blue-500/40 dark:hover:bg-blue-500/10 dark:hover:text-blue-300">
+                  {detailCopyStatus === 'copied' ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}{detailCopyStatus === 'copied' ? 'Copied' : detailCopyStatus === 'copying' ? 'Copying' : 'Copy'}
+                </button>
+                <button type="button" onClick={() => {
+                  const original = viewingExpense.originalId ? expenses.find(expense => expense.id === viewingExpense.originalId) : viewingExpense;
+                  if (original) { setViewingExpense(null); handleOpenEdit(original); }
+                }} className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2 py-2.5 text-xs font-semibold text-slate-600 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300 dark:hover:border-blue-500/40 dark:hover:bg-blue-500/10 dark:hover:text-blue-300"><Edit2 className="h-3.5 w-3.5" />Edit</button>
+                <button type="button" onClick={() => setViewingExpense(null)} className="min-h-11 rounded-xl bg-slate-900 px-2 py-2.5 text-xs font-semibold text-white transition-colors hover:bg-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-white">Done</button>
+              </div>
+              {detailCopyStatus === 'copied' && <p role="status" className="mt-2 text-center text-[11px] text-emerald-600 dark:text-emerald-400">Transaction details copied.</p>}
+              {detailCopyStatus === 'error' && <div className="mt-3">
+                <p role="alert" className="mb-2 text-xs text-slate-500 dark:text-slate-400">Automatic copy is blocked. Copy the selected text below.</p>
+                <textarea aria-label="Transaction details to copy" readOnly autoFocus onFocus={event => event.currentTarget.select()} value={viewingCopyText} rows={3} className="w-full resize-none rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300" />
+              </div>}
+            </div>
+          </div>
+        </div>
+      )}
+
       {(isAddModalOpen || editingExpense) && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs">
           <div className="w-full max-w-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
@@ -2134,8 +2232,8 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                 </div>
 
                 {/* Preset Fast Increments */}
-                <div className="grid grid-cols-6 gap-1 mt-1.5">
-                  {[100, 500, 1000, 2000, 5000, 10000].map(amt => (
+                <div className="grid grid-cols-4 sm:grid-cols-8 gap-1 mt-1.5">
+                  {PRESET_AMOUNTS.map(amt => (
                     <button
                       key={amt}
                       type="button"

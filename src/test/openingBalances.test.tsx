@@ -3,7 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
 import { afterEach } from 'vitest';
 import { OpeningBalances } from '../components/OpeningBalances';
-import { hasAccountTransactions } from '../utils/accounts';
+import { getOpeningBalance, hasAccountTransactions } from '../utils/accounts';
 import { Expense } from '../types';
 
 afterEach(cleanup);
@@ -13,6 +13,71 @@ const transaction = (changes: Partial<Expense> = {}): Expense => ({
 });
 
 describe('Opening balances', () => {
+  const openingBalance = transaction({ id: 'opening', title: 'Opening balance', category: 'Opening Balance', account: 'expense', type: 'income', amount: 500 });
+
+  it('recognizes an opening balance separately from ordinary transactions', () => {
+    expect(getOpeningBalance([openingBalance], 'expense')).toBe(openingBalance);
+    expect(getOpeningBalance([openingBalance], 'cash')).toBeUndefined();
+    expect(getOpeningBalance([transaction({ type: 'income' })], 'expense')).toBeUndefined();
+    expect(getOpeningBalance([{ ...openingBalance, isTransfer: true }], 'expense')).toBeUndefined();
+  });
+
+  it('requires OK on the warning before allowing an existing balance to be edited', async () => {
+    const onSave = vi.fn().mockResolvedValue(true);
+    const view = render(<OpeningBalances expenses={[openingBalance, transaction()]} currency="INR" disabled={false} onSave={onSave} />);
+    const input = screen.getByLabelText('Expense Account opening balance') as HTMLInputElement;
+    expect(input.disabled).toBe(true);
+    expect(input.valueAsNumber).toBe(400);
+    fireEvent.submit(input.closest('form')!);
+    expect(onSave).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit balance' }));
+    expect(screen.getByRole('alertdialog').textContent).toContain('Balance adjustment');
+    expect(input.disabled).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    expect(input.disabled).toBe(true);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit balance' }));
+    fireEvent.click(screen.getByRole('button', { name: 'OK' }));
+    expect(input.disabled).toBe(false);
+    expect(onSave).not.toHaveBeenCalled();
+    fireEvent.change(input, { target: { value: '750.50' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save balance' }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith('expense', 750.5));
+    await waitFor(() => expect(input.disabled).toBe(true));
+    view.rerender(<OpeningBalances expenses={[openingBalance, transaction(), transaction({ id: 'adjustment', title: 'Balance adjustment', category: 'Balance Adjustment', type: 'income', amount: 350.5 })]} currency="INR" disabled={false} onSave={onSave} />);
+    expect(input.valueAsNumber).toBe(750.5);
+    expect(screen.getByRole('button', { name: 'Edit balance' })).toBeTruthy();
+  });
+
+  it('cancels edits without saving and requires confirmation again', () => {
+    const onSave = vi.fn();
+    render(<OpeningBalances expenses={[openingBalance]} currency="INR" disabled={false} onSave={onSave} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Edit balance' }));
+    fireEvent.click(screen.getByRole('button', { name: 'OK' }));
+    const input = screen.getByLabelText('Expense Account opening balance') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '800' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(input.valueAsNumber).toBe(500);
+    expect(input.disabled).toBe(true);
+    expect(onSave).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit balance' }));
+    expect(screen.getByRole('alertdialog')).toBeTruthy();
+  });
+
+  it('keeps editing enabled with the entered amount when an update fails', async () => {
+    render(<OpeningBalances expenses={[openingBalance]} currency="INR" disabled={false} onSave={vi.fn().mockResolvedValue('Connection failed')} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Edit balance' }));
+    fireEvent.click(screen.getByRole('button', { name: 'OK' }));
+    const input = screen.getByLabelText('Expense Account opening balance') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '800' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save balance' }));
+    expect((await screen.findByRole('alert')).textContent).toBe('Connection failed');
+    expect(input.valueAsNumber).toBe(800);
+    expect(input.disabled).toBe(false);
+  });
+
   it('preserves cents when stepping up and down', () => {
     render(<OpeningBalances expenses={[]} currency="INR" disabled={false} onSave={vi.fn()} />);
     const input = screen.getByLabelText('Cash in Hand opening balance') as HTMLInputElement;
@@ -48,15 +113,32 @@ describe('Opening balances', () => {
     expect(hasAccountTransactions([transaction({ account: 'savings', category: 'Transfer to Expense' })], 'expense')).toBe(true);
   });
 
-  it('saves the selected account and amount and hides entry for populated accounts', async () => {
+  it('saves the selected account and amount and locks entry for populated accounts', async () => {
     const onSave = vi.fn().mockResolvedValue(true);
     render(<OpeningBalances expenses={[transaction({ account: 'savings' })]} currency="INR" disabled={false} onSave={onSave} />);
-    expect(screen.queryByLabelText('Savings Account opening balance')).toBeNull();
+    expect((screen.getByLabelText('Savings Account opening balance') as HTMLInputElement).disabled).toBe(true);
     const input = screen.getByLabelText('Cash in Hand opening balance');
     fireEvent.change(input, { target: { value: '250.50' } });
     fireEvent.submit(input.closest('form')!);
     await waitFor(() => expect(onSave).toHaveBeenCalledWith('cash', 250.5));
     expect((await screen.findByRole('status')).textContent).toBe('Opening balance saved.');
+  });
+
+  it.each(['expense', 'cash', 'savings'] as const)('allows correcting the starting balance for an active %s account after confirmation', async account => {
+    const onSave = vi.fn().mockResolvedValue(true);
+    render(<OpeningBalances expenses={[transaction({ account })]} currency="INR" disabled={false} onSave={onSave} />);
+    const input = screen.getAllByRole('spinbutton').find(element => (element as HTMLInputElement).disabled) as HTMLInputElement;
+    expect(input.valueAsNumber).toBe(-100);
+    fireEvent.submit(input.closest('form')!);
+    expect(onSave).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit balance' }));
+    expect(screen.getByRole('alertdialog').textContent).toContain('Balance adjustment');
+    expect(input.disabled).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'OK' }));
+    expect(input.disabled).toBe(false);
+    fireEvent.change(input, { target: { value: '250' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save balance' }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(account, 250));
   });
 
   it('retains the amount when saving fails so the user can retry', async () => {

@@ -10,11 +10,12 @@ import {
   Smile,
   Zap,
   BookOpen,
-  DollarSign,
   Calendar,
   Sparkles,
   Trash2,
-  LoaderCircle
+  LoaderCircle,
+  Wallet,
+  ListTodo
 } from 'lucide-react';
 import { Habit, DailyTask, DailyWellness, Expense, MoodType, BudgetConfig, WellnessGoals } from '../types';
 import { normalizeWellnessGoals } from '../utils/wellnessGoals';
@@ -124,6 +125,7 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
   const dayInflow = dayExpenses.filter(e => !isTransferEntry(e) && e.type === 'income').reduce((sum, e) => sum + e.amount, 0);
   const dayTransfers = dayExpenses.filter(isTransferEntry).reduce((sum, e) => sum + e.amount, 0);
   const dayTotalSpent = dayOutflow; // for backwards compatibility calculations
+  const dailyTargetBalance = Math.round(((budget.dailyBudget || budget.monthlyBudget / 30) - dayOutflow) * 100) / 100;
 
   const dayTasks = (taskOrder?.length ? orderTasks(tasks, taskOrder) : tasks).filter(t => t.date === selectedDate);
   const completedTasksCount = dayTasks.filter(t => t.completed).length;
@@ -133,6 +135,8 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
     (habit.weekdays || [0, 1, 2, 3, 4, 5, 6]).includes(selectedWeekday)
   );
   const completedHabitsCount = habitsForSelectedDay.filter(habit => habit.completedDates.includes(selectedDate)).length;
+  const nextHabit = habitsForSelectedDay.find(habit => !habit.completedDates.includes(selectedDate));
+  const nextTask = dayTasks.find(task => !task.completed);
 
   const dayWellness: DailyWellness = wellness[selectedDate] || {
     date: selectedDate,
@@ -297,30 +301,32 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
       </div>
 
       {/* Snapshot Cards - Expense First */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         {/* 1. Today's Finance & Accounts Snapshot (EXPENSE FIRST) */}
-        <div className="p-4 rounded-xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs hover:border-slate-300 dark:hover:border-slate-700 transition-colors">
-          <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 mb-1">
-            <span className="font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-1">
-              💳 Daily Finances
-            </span>
-            <span className="font-mono text-[11px] text-slate-400">{dayExpenses.length} txns</span>
+        <div className="grid min-w-0 row-span-5 grid-rows-subgrid gap-y-2 px-4 py-3 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs hover:border-slate-300 dark:hover:border-slate-700 transition-colors">
+          <div className="min-w-0">
+            <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 mb-1">
+              <span className="font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-2">
+                <Wallet className="h-3.5 w-3.5 text-emerald-500" />Daily Finances
+              </span>
+              <span className="font-mono text-[11px] text-slate-400">{dayExpenses.length} txns</span>
+            </div>
+            <div className="mt-2 grid grid-cols-3 divide-x divide-slate-200 rounded-lg border border-slate-200/80 bg-slate-50/80 py-1.5 dark:divide-slate-700 dark:border-slate-800 dark:bg-slate-800/50">
+              <div className="min-w-0 px-1.5 text-center">
+                <span className="block text-[9px] font-semibold uppercase tracking-wide text-rose-600 dark:text-rose-400">Outflow</span>
+                <span className="mt-0.5 block whitespace-nowrap text-[clamp(0.58rem,2.7vw,0.75rem)] font-bold font-mono tabular-nums text-rose-700 dark:text-rose-300">{formatCurrency(dayOutflow, budget.currency)}</span>
+              </div>
+              <div className="min-w-0 px-1.5 text-center">
+                <span className="block text-[9px] font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">Inflow</span>
+                <span className="mt-0.5 block whitespace-nowrap text-[clamp(0.58rem,2.7vw,0.75rem)] font-bold font-mono tabular-nums text-emerald-700 dark:text-emerald-300">{formatCurrency(dayInflow, budget.currency)}</span>
+              </div>
+              <div className="min-w-0 px-1.5 text-center">
+                <span className="block text-[9px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">Transfer</span>
+                <span className="mt-0.5 block whitespace-nowrap text-[clamp(0.58rem,2.7vw,0.75rem)] font-bold font-mono tabular-nums text-amber-700 dark:text-amber-300">{formatCurrency(dayTransfers, budget.currency)}</span>
+              </div>
+            </div>
           </div>
-          <div className="mt-2 grid grid-cols-3 divide-x divide-slate-200 rounded-lg border border-slate-200/80 bg-slate-50/80 py-1.5 dark:divide-slate-700 dark:border-slate-800 dark:bg-slate-800/50">
-            <div className="min-w-0 px-1.5 text-center">
-              <span className="block text-[9px] font-semibold uppercase tracking-wide text-rose-600 dark:text-rose-400">Outflow</span>
-              <span className="mt-0.5 block whitespace-nowrap text-[clamp(0.58rem,2.7vw,0.75rem)] font-bold font-mono tabular-nums text-rose-700 dark:text-rose-300">{formatCurrency(dayOutflow, budget.currency)}</span>
-            </div>
-            <div className="min-w-0 px-1.5 text-center">
-              <span className="block text-[9px] font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">Inflow</span>
-              <span className="mt-0.5 block whitespace-nowrap text-[clamp(0.58rem,2.7vw,0.75rem)] font-bold font-mono tabular-nums text-emerald-700 dark:text-emerald-300">{formatCurrency(dayInflow, budget.currency)}</span>
-            </div>
-            <div className="min-w-0 px-1.5 text-center">
-              <span className="block text-[9px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">Transfer</span>
-              <span className="mt-0.5 block whitespace-nowrap text-[clamp(0.58rem,2.7vw,0.75rem)] font-bold font-mono tabular-nums text-amber-700 dark:text-amber-300">{formatCurrency(dayTransfers, budget.currency)}</span>
-            </div>
-          </div>
-          <div className="w-full h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 mt-3 overflow-hidden">
+          <div className="w-full shrink-0 h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
             <div
               className={`h-full rounded-full transition-all duration-300 ${
                 dayOutflow > (budget.dailyBudget || budget.monthlyBudget / 30) ? 'bg-amber-500' : 'bg-emerald-500'
@@ -330,29 +336,39 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
               }}
             />
           </div>
-          <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
-            <span className="text-[11px]">Daily target: ~{formatCurrency(Math.round(budget.dailyBudget || budget.monthlyBudget / 30), budget.currency)}</span>
-            <button
-              onClick={onQuickLogExpense}
-              className="text-blue-600 dark:text-blue-400 font-semibold hover:underline text-[11px]"
-            >
-              + Log Finance
-            </button>
+          <div className="grid min-w-0 row-span-3 grid-rows-subgrid gap-y-1">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">{dailyTargetBalance < 0 ? 'Over target' : dailyTargetBalance > 0 ? 'Remaining balance' : 'On target'}</span>
+              <strong className={`break-words text-lg font-semibold tabular-nums ${dailyTargetBalance < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>{formatCurrency(Math.abs(dailyTargetBalance), budget.currency)}</strong>
+            </div>
+            <p className="text-[10px] text-slate-500 dark:text-slate-400">{Math.round(dayOutflow / Math.max(1, budget.dailyBudget || budget.monthlyBudget / 30) * 100)}% of daily target used</p>
+            <div className="flex min-h-8 flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-2 dark:border-slate-800/80 text-xs text-slate-500">
+              <span className="text-[10px]">Target {formatCurrency(budget.dailyBudget || budget.monthlyBudget / 30, budget.currency)}</span>
+              <button
+                onClick={onQuickLogExpense}
+                className="inline-flex min-h-8 items-center rounded-md text-[11px] font-semibold text-blue-600 transition-colors hover:text-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:text-blue-400 dark:hover:text-blue-300"
+              >
+                + Log Finance
+              </button>
+            </div>
           </div>
         </div>
 
         {/* 2. Habit Completion */}
-        <div className="p-4 rounded-xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs hover:border-slate-300 dark:hover:border-slate-700 transition-colors">
-          <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 mb-1">
-            <span className="font-medium">Habits Consistency</span>
-            <span className="font-mono text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
-              {habitsForSelectedDay.length > 0 ? Math.round((completedHabitsCount / habitsForSelectedDay.length) * 100) : 0}%
-            </span>
+        <div className="grid min-w-0 row-span-5 grid-rows-subgrid gap-y-2 px-4 py-3 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs hover:border-slate-300 dark:hover:border-slate-700 transition-colors">
+          <div className="min-w-0">
+            <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 mb-1">
+              <span className="flex items-center gap-2 font-semibold text-slate-700 dark:text-slate-200"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />Habits Consistency</span>
+              <span className="font-mono text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
+                {habitsForSelectedDay.length > 0 ? Math.round((completedHabitsCount / habitsForSelectedDay.length) * 100) : 0}%
+              </span>
+            </div>
+            <div className="mt-2 text-3xl font-semibold tracking-tight text-slate-900 dark:text-slate-100 tabular-nums">
+              {completedHabitsCount} <span className="text-sm text-slate-400 font-normal">/ {habitsForSelectedDay.length}</span>
+            </div>
+            <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">Habits completed</p>
           </div>
-          <div className="text-2xl font-bold font-mono tracking-tight text-slate-900 dark:text-slate-100 tabular-nums">
-            {completedHabitsCount} <span className="text-sm text-slate-400 font-normal">/ {habitsForSelectedDay.length}</span>
-          </div>
-          <div className="w-full h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 mt-3 overflow-hidden">
+          <div className="w-full shrink-0 h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
             <div
               className="h-full bg-emerald-500 rounded-full transition-all duration-300"
               style={{
@@ -360,24 +376,33 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
               }}
             />
           </div>
-          <div className="text-[11px] text-slate-400 mt-2 flex items-center justify-between">
-            <span>{habitsForSelectedDay.length - completedHabitsCount} remaining today</span>
-            <span className="font-mono text-[10px]">14d window</span>
+          <div className="grid min-w-0 row-span-3 grid-rows-subgrid gap-y-1">
+            <div className="min-w-0">
+              <p className="text-[9px] font-semibold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">{nextHabit ? 'Next habit' : habitsForSelectedDay.length ? 'All done' : 'No habits scheduled'}</p>
+              {nextHabit && <p className="mt-0.5 min-w-0 line-clamp-2 break-words text-sm font-semibold leading-snug text-slate-800 dark:text-slate-100">{nextHabit.title}</p>}
+            </div>
+            <div className="min-w-0">{nextHabit?.category && <dl className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 text-[10px]"><dt className="text-slate-400 dark:text-slate-500">Category</dt><dd className="break-words font-medium text-slate-600 dark:text-slate-300">{nextHabit.category}</dd></dl>}</div>
+            <div className="flex min-h-8 flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-2 dark:border-slate-800/80 text-[10px] text-slate-500 dark:text-slate-400">
+              <span>{habitsForSelectedDay.length - completedHabitsCount} remaining</span>
+            </div>
           </div>
         </div>
 
         {/* 3. Priority Tasks */}
-        <div className="p-4 rounded-xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs hover:border-slate-300 dark:hover:border-slate-700 transition-colors">
-          <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 mb-1">
-            <span className="font-medium">Tasks Throughput</span>
-            <span className="font-mono text-[11px] font-semibold text-sky-600 dark:text-sky-400">
-              {dayTasks.length > 0 ? Math.round((completedTasksCount / dayTasks.length) * 100) : 0}%
-            </span>
+        <div className="grid min-w-0 row-span-5 grid-rows-subgrid gap-y-2 px-4 py-3 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs hover:border-slate-300 dark:hover:border-slate-700 transition-colors">
+          <div className="min-w-0">
+            <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 mb-1">
+              <span className="flex items-center gap-2 font-semibold text-slate-700 dark:text-slate-200"><ListTodo className="h-3.5 w-3.5 text-sky-500" />Tasks Throughput</span>
+              <span className="font-mono text-[11px] font-semibold text-sky-600 dark:text-sky-400">
+                {dayTasks.length > 0 ? Math.round((completedTasksCount / dayTasks.length) * 100) : 0}%
+              </span>
+            </div>
+            <div className="mt-2 text-3xl font-semibold tracking-tight text-slate-900 dark:text-slate-100 tabular-nums">
+              {completedTasksCount} <span className="text-sm text-slate-400 font-normal">/ {dayTasks.length}</span>
+            </div>
+            <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">Tasks completed</p>
           </div>
-          <div className="text-2xl font-bold font-mono tracking-tight text-slate-900 dark:text-slate-100 tabular-nums">
-            {completedTasksCount} <span className="text-sm text-slate-400 font-normal">/ {dayTasks.length}</span>
-          </div>
-          <div className="w-full h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 mt-3 overflow-hidden">
+          <div className="w-full shrink-0 h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
             <div
               className="h-full bg-sky-500 rounded-full transition-all duration-300"
               style={{
@@ -385,24 +410,37 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
               }}
             />
           </div>
-          <div className="text-[11px] text-slate-400 mt-2 flex items-center justify-between">
-            <span>{dayTasks.length - completedTasksCount} pending outcomes</span>
-            <span className="font-mono text-[10px]">{dayTasks.filter(t => t.priority === 'high' && !t.completed).length} high priority</span>
+          <div className="grid min-w-0 row-span-3 grid-rows-subgrid gap-y-1">
+            <div className="min-w-0">
+              <p className="text-[9px] font-semibold uppercase tracking-wider text-sky-600 dark:text-sky-400">{nextTask ? 'Next task' : dayTasks.length ? 'All done' : 'No tasks scheduled'}</p>
+              {nextTask && <p className="mt-0.5 min-w-0 line-clamp-2 break-words text-sm font-semibold leading-snug text-slate-800 dark:text-slate-100">{nextTask.title}</p>}
+            </div>
+            <div className="min-w-0">{nextTask && <dl className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-[10px]">
+              <div className="flex items-baseline gap-1.5"><dt className="text-slate-400 dark:text-slate-500">Priority</dt><dd className={`font-medium capitalize ${nextTask.priority === 'high' ? 'text-amber-600 dark:text-amber-400' : 'text-slate-600 dark:text-slate-300'}`}>{nextTask.priority}</dd></div>
+              {nextTask.timeEstimateMin != null && nextTask.timeEstimateMin > 0 && <div className="flex items-baseline gap-1.5"><dt className="text-slate-400 dark:text-slate-500">Time</dt><dd className="font-medium tabular-nums text-slate-600 dark:text-slate-300">{nextTask.timeEstimateMin} min</dd></div>}
+            </dl>}</div>
+            <div className="flex min-h-8 flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-2 dark:border-slate-800/80 text-[10px] text-slate-500 dark:text-slate-400">
+              <span>{dayTasks.length - completedTasksCount} pending</span>
+              <span className="text-[10px] text-slate-400">{dayTasks.filter(t => t.priority === 'high' && !t.completed).length} high priority</span>
+            </div>
           </div>
         </div>
 
         {/* 4. Wellness & Water */}
-        <div className="p-4 rounded-xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs hover:border-slate-300 dark:hover:border-slate-700 transition-colors">
-          <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 mb-1">
-            <span className="font-medium">Hydration (250ml)</span>
-            <span className="font-mono text-[11px] font-semibold text-blue-500">
-              {Math.min(100, Math.round((waterGlasses * 250 / goals.waterMl) * 100))}%
-            </span>
+        <div className="grid min-w-0 row-span-5 grid-rows-subgrid gap-y-2 px-4 py-3 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs hover:border-slate-300 dark:hover:border-slate-700 transition-colors">
+          <div className="min-w-0">
+            <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 mb-1">
+              <span className="flex items-center gap-2 font-semibold text-slate-700 dark:text-slate-200"><Droplet className="h-3.5 w-3.5 text-blue-500" />Hydration</span>
+              <span className="font-mono text-[11px] font-semibold text-blue-500">
+                {Math.min(100, Math.round((waterGlasses * 250 / goals.waterMl) * 100))}%
+              </span>
+            </div>
+            <div className="mt-2 text-3xl font-semibold tracking-tight text-slate-900 dark:text-slate-100 tabular-nums">
+              {(waterGlasses * 250).toLocaleString()} <span className="text-sm text-slate-400 font-normal">/ {goals.waterMl.toLocaleString()} ml target</span>
+            </div>
+            <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">Water logged</p>
           </div>
-          <div className="text-2xl font-bold font-mono tracking-tight text-slate-900 dark:text-slate-100 tabular-nums">
-            {(waterGlasses * 250).toLocaleString()} <span className="text-sm text-slate-400 font-normal">/ {goals.waterMl.toLocaleString()} ml target</span>
-          </div>
-          <div className="relative w-full h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 mt-3 overflow-hidden">
+          <div className="relative w-full shrink-0 h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
             <div
               className="h-full bg-blue-500 rounded-full transition-all duration-300"
               style={{
@@ -410,41 +448,41 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
               }}
             />
           </div>
-          <div className="mt-2 flex flex-wrap items-center justify-between gap-x-2 gap-y-2">
-            <div className="flex shrink-0 items-center gap-1">
-              <button
-                onClick={() => adjustWater(-1)}
-                disabled={waterGlasses <= 0}
-                aria-label="Remove one glass of water"
-                className="h-8 w-8 shrink-0 whitespace-nowrap rounded-md border border-slate-200 dark:border-slate-700 text-sm font-mono font-bold hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
-                title="Subtract 250ml"
-              >
-                -
-              </button>
-              <button
-                onClick={() => adjustWater(1)}
-                disabled={waterGlasses >= 20}
-                aria-label="Add one glass of water"
-                className="h-8 w-8 shrink-0 whitespace-nowrap rounded-md border border-slate-200 dark:border-slate-700 text-sm font-mono font-bold hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
-                title="Add 250ml (1 glass)"
-              >
-                +
-              </button>
-              <button
-                onClick={() => adjustWater(2)}
-                disabled={waterGlasses >= 20}
-                aria-label="Add two glasses of water"
-                className="h-8 min-w-[56px] shrink-0 whitespace-nowrap rounded-md border border-slate-200 dark:border-slate-700 px-2 text-[11px] font-mono hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
-                title="Add 500ml (2 glasses)"
-              >
-                +500
-              </button>
+          <div className="grid min-w-0 row-span-3 grid-rows-subgrid gap-y-1">
+            <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-2">
+              <div className="grid grid-cols-[2.25rem_2.25rem_4rem] gap-1.5">
+                <button
+                  onClick={() => adjustWater(-1)}
+                  disabled={waterGlasses <= 0}
+                  aria-label="Remove one glass of water"
+                  className="flex h-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-300 dark:hover:bg-slate-800"
+                  title="Subtract 250ml"
+                >
+                  -
+                </button>
+                <button
+                  onClick={() => adjustWater(1)}
+                  disabled={waterGlasses >= 20}
+                  aria-label="Add one glass of water"
+                  className="flex h-9 items-center justify-center rounded-lg border border-blue-200 bg-blue-50 text-sm font-semibold text-blue-600 transition-colors hover:bg-blue-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-40 dark:border-blue-500/20 dark:bg-blue-500/10 dark:text-blue-400 dark:hover:bg-blue-500/20"
+                  title="Add 250ml (1 glass)"
+                >
+                  +
+                </button>
+                <button
+                  onClick={() => adjustWater(2)}
+                  disabled={waterGlasses >= 20}
+                  aria-label="Add two glasses of water"
+                  className="flex h-9 items-center justify-center rounded-lg border border-slate-200 px-2 text-[11px] font-semibold text-slate-600 transition-colors hover:border-blue-300 hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:text-slate-300 dark:hover:border-blue-500/40 dark:hover:bg-blue-500/10"
+                  title="Add 500ml (2 glasses)"
+                >
+                  +500
+                </button>
+              </div>
             </div>
-            <span className="ml-auto whitespace-nowrap text-[10px] text-slate-400 font-mono">
-              {waterGlasses}/{goals.waterMl / 250} glasses to target
-            </span>
+            <p className="text-[10px] text-slate-500 dark:text-slate-400">250 ml per glass</p>
+            <div className="flex min-h-8 flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-2 dark:border-slate-800/80 text-[10px] text-slate-500 dark:text-slate-400"><span>{waterGlasses} glasses logged</span><span className="text-[10px] font-medium text-blue-600 dark:text-blue-400">{waterGlasses * 250 >= goals.waterMl ? 'Target reached' : `${Math.max(0, goals.waterMl - waterGlasses * 250).toLocaleString()} ml to go`}</span></div>
           </div>
-          <p className="mt-1 text-[10px] leading-relaxed text-slate-500 dark:text-slate-400">Daily target: {goals.waterMl.toLocaleString()} ml</p>
         </div>
       </div>
 
