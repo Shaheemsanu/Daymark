@@ -126,7 +126,7 @@ export const Layout: React.FC<LayoutProps> = ({
               }`}
             >
               <FileText className="w-3.5 h-3.5" />
-              <span>Notes &amp; Journal</span>
+              <span>Todo Notes</span>
             </button>
             <button
               onClick={() => onSelectView('reports')}

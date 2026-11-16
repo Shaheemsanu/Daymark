@@ -246,6 +246,8 @@ export const dataService = {
           content: row.content,
           category: row.category || 'General',
           imageUrl: row.image_url || undefined,
+          completed: Boolean(row.completed),
+          priority: row.priority || undefined,
           createdAt: new Date(row.created_at).getTime(),
           updatedAt: row.updated_at ? new Date(row.updated_at).getTime() : undefined
         })),
@@ -357,6 +359,7 @@ export const dataService = {
     const { error } = await client().from('notes').upsert({
       id: uuid(note.id), user_id: userId, title: note.title, content: note.content,
       category: note.category || 'General', image_url: note.imageUrl || null,
+      completed: note.completed ?? false, priority: note.priority || null,
       updated_at: new Date().toISOString()
     }, { onConflict: 'id' });
     if (error) throw error;

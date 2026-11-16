@@ -16,7 +16,7 @@ import {
   ExternalLink
 } from 'lucide-react';
 import { LoaderCircle } from 'lucide-react';
-import { NoteItem } from '../types';
+import { NoteItem, TaskPriority } from '../types';
 import { notesService } from '../features/notes/notesService';
 import { formatDisplayDate } from '../utils/dateFormatting';
 
@@ -26,6 +26,7 @@ interface NotesViewProps {
 
 const CATEGORIES = ['All', 'General', 'Work', 'Personal', 'Ideas', 'Financial', 'Study'];
 type NotesDateFilter = 'all' | 'today' | 'week' | 'month' | 'year' | 'custom';
+type NotesSort = 'newest' | 'oldest' | 'title' | 'priority' | 'priorityAsc';
 
 const toLocalDateInput = (date: Date) => {
   const year = date.getFullYear();
@@ -39,12 +40,13 @@ export const NotesView: React.FC<NotesViewProps> = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [togglingIds, setTogglingIds] = useState<Set<string>>(new Set());
   const [notesError, setNotesError] = useState<string | null>(null);
 
   // Filters & Search
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
-  const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'title'>('newest');
+  const [sortBy, setSortBy] = useState<NotesSort>('newest');
   const [customCategories, setCustomCategories] = useState<string[]>([]);
   const [isCategoryManagerOpen, setIsCategoryManagerOpen] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
@@ -70,6 +72,7 @@ export const NotesView: React.FC<NotesViewProps> = () => {
   const [formTitle, setFormTitle] = useState('');
   const [formContent, setFormContent] = useState('');
   const [formCategory, setFormCategory] = useState('General');
+  const [formPriority, setFormPriority] = useState<TaskPriority | ''>('');
   const [formImageUrl, setFormImageUrl] = useState('');
   const [formError, setFormError] = useState('');
 
@@ -123,6 +126,7 @@ export const NotesView: React.FC<NotesViewProps> = () => {
     setFormTitle('');
     setFormContent('');
     setFormCategory('General');
+    setFormPriority('');
     setFormImageUrl('');
     setFormError('');
     setIsModalOpen(true);
@@ -133,6 +137,7 @@ export const NotesView: React.FC<NotesViewProps> = () => {
     setFormTitle(note.title);
     setFormContent(note.content);
     setFormCategory(note.category || 'General');
+    setFormPriority(note.priority || '');
     setFormImageUrl(note.imageUrl || '');
     setFormError('');
     setIsModalOpen(true);
@@ -164,10 +169,6 @@ export const NotesView: React.FC<NotesViewProps> = () => {
       setFormError('Note title is required.');
       return;
     }
-    if (!formContent.trim()) {
-      setFormError('Note content cannot be empty.');
-      return;
-    }
 
     setSaving(true);
     try {
@@ -176,6 +177,7 @@ export const NotesView: React.FC<NotesViewProps> = () => {
           title: formTitle.trim(),
           content: formContent.trim(),
           category: formCategory,
+          priority: formPriority || undefined,
           imageUrl: formImageUrl.trim() || undefined
         });
       } else {
@@ -183,6 +185,8 @@ export const NotesView: React.FC<NotesViewProps> = () => {
           title: formTitle.trim(),
           content: formContent.trim(),
           category: formCategory,
+          priority: formPriority || undefined,
+          completed: false,
           imageUrl: formImageUrl.trim() || undefined
         });
       }
@@ -195,6 +199,19 @@ export const NotesView: React.FC<NotesViewProps> = () => {
 
     setIsModalOpen(false);
     await loadNotesData();
+  };
+
+  const handleToggle = async (note: NoteItem) => {
+    setTogglingIds(current => new Set(current).add(note.id));
+    setNotesError(null);
+    try {
+      await notesService.updateNote(note.id, { completed: !note.completed });
+      setNotes(current => current.map(item => item.id === note.id ? { ...item, completed: !note.completed } : item));
+    } catch (error) {
+      setNotesError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setTogglingIds(current => { const next = new Set(current); next.delete(note.id); return next; });
+    }
   };
 
   const handleDelete = async (id: string) => {
@@ -317,6 +334,13 @@ export const NotesView: React.FC<NotesViewProps> = () => {
         return true;
       })
       .sort((a, b) => {
+        if (Boolean(a.completed) !== Boolean(b.completed)) return a.completed ? 1 : -1;
+        if (sortBy === 'priority' || sortBy === 'priorityAsc') {
+          const ranks = { high: 3, medium: 2, low: 1 };
+          if (Boolean(a.priority) !== Boolean(b.priority)) return a.priority ? -1 : 1;
+          const difference = (a.priority ? ranks[a.priority] : 0) - (b.priority ? ranks[b.priority] : 0);
+          return (sortBy === 'priorityAsc' ? difference : -difference) || b.createdAt - a.createdAt;
+        }
         if (sortBy === 'newest') return b.createdAt - a.createdAt;
         if (sortBy === 'oldest') return a.createdAt - b.createdAt;
         if (sortBy === 'title') return a.title.localeCompare(b.title);
@@ -334,10 +358,10 @@ export const NotesView: React.FC<NotesViewProps> = () => {
           </div>
           <div>
             <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
-              Notes &amp; Journal
+              Todo Notes
             </h1>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              Create, read, edit notes with image attachments and Supabase server sync
+              Keep track of your to-dos, add details, and set an optional priority
             </p>
           </div>
         </div>
@@ -356,7 +380,7 @@ export const NotesView: React.FC<NotesViewProps> = () => {
             className="flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all shadow-sm shadow-indigo-600/30 active:scale-95 cursor-pointer"
           >
             <Plus className="w-4 h-4" />
-            <span>New Note</span>
+            <span>New Todo Note</span>
           </button>
         </div>
       </div>
@@ -366,25 +390,25 @@ export const NotesView: React.FC<NotesViewProps> = () => {
 
       <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
         {/* Search */}
-        <div className="relative flex-1">
+        <div className="relative min-w-0 flex-1">
           <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
           <input
             type="text"
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             placeholder="Search notes by title, content, or tag..."
-            className="w-full pl-10 pr-4 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-slate-100 focus:outline-none focus:border-indigo-500"
+            className="h-10 w-full pl-10 pr-4 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-slate-100 focus:outline-none focus:border-indigo-500"
           />
         </div>
 
         <div className="grid grid-cols-2 items-center gap-2 md:flex md:flex-wrap">
           {/* Category Filter */}
-          <div className="col-span-2 flex w-full min-w-0 items-center gap-2 py-1 md:col-span-1 md:w-auto md:shrink-0">
+          <div className="col-span-2 flex w-full min-w-0 items-center gap-2 md:col-span-1 md:w-auto md:shrink-0">
             <button
               type="button"
               onClick={() => setSelectedCategory('All')}
               aria-pressed={selectedCategory === 'All'}
-              className={`h-9 min-w-0 flex-1 rounded-lg px-3 py-1.5 text-xs font-semibold whitespace-nowrap transition-all md:h-auto md:flex-none ${
+              className={`h-10 min-w-0 flex-1 rounded-xl px-3 text-xs font-semibold whitespace-nowrap transition-all md:flex-none ${
                 selectedCategory === 'All'
                   ? 'bg-indigo-600 text-white shadow-xs'
                   : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700'
@@ -396,7 +420,7 @@ export const NotesView: React.FC<NotesViewProps> = () => {
               aria-label="Filter notes by category"
               value={selectedCategory === 'All' ? '' : selectedCategory}
               onChange={event => setSelectedCategory(event.target.value || 'All')}
-              className={`h-9 min-w-0 max-w-none flex-1 rounded-lg border px-3 py-1.5 text-xs font-semibold focus:outline-none focus:border-indigo-500 md:h-auto md:max-w-40 md:flex-none ${
+              className={`h-10 min-w-0 max-w-none flex-1 rounded-xl border px-3 text-xs font-medium focus:outline-none focus:border-indigo-500 md:max-w-40 md:flex-none ${
                 selectedCategory !== 'All'
                   ? 'border-indigo-500 bg-indigo-600 text-white'
                   : 'border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200'
@@ -407,13 +431,13 @@ export const NotesView: React.FC<NotesViewProps> = () => {
             </select>
           </div>
 
-          <label className="col-span-1 flex min-w-0 items-center gap-2 text-xs font-medium text-slate-500 dark:text-slate-400">
-            <Calendar className="h-3.5 w-3.5 shrink-0" />
+          <label className="relative col-span-1 block min-w-0 text-xs font-medium text-slate-500 dark:text-slate-400">
+            <Calendar aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
             <select
               aria-label="Filter notes by date"
               value={dateFilter}
               onChange={e => setDateFilter(e.target.value as NotesDateFilter)}
-              className="h-10 min-w-0 w-full text-xs py-2 px-2.5 font-medium bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-800 dark:text-slate-200 focus:outline-none md:w-auto md:px-3"
+              className="h-10 min-w-0 w-full text-xs py-2 pl-9 pr-3 font-medium bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-800 dark:text-slate-200 focus:outline-none md:w-auto"
             >
               <option value="all">All Dates</option>
               <option value="today">Today</option>
@@ -439,13 +463,16 @@ export const NotesView: React.FC<NotesViewProps> = () => {
 
           {/* Sort By */}
           <select
+            aria-label="Sort notes"
             value={sortBy}
-            onChange={e => setSortBy(e.target.value as any)}
+            onChange={e => setSortBy(e.target.value as NotesSort)}
             className="h-10 min-w-0 w-full text-xs py-2 px-2.5 font-medium bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-800 dark:text-slate-200 focus:outline-none md:w-auto md:px-3"
           >
             <option value="newest">Newest First</option>
             <option value="oldest">Oldest First</option>
             <option value="title">Alphabetical</option>
+            <option value="priority">Priority: High to Low</option>
+            <option value="priorityAsc">Priority: Low to High</option>
           </select>
         </div>
       </div>
@@ -464,7 +491,7 @@ export const NotesView: React.FC<NotesViewProps> = () => {
           <p className="text-xs text-slate-400 mt-1 max-w-xs">
             {searchQuery || selectedCategory !== 'All' || dateFilter !== 'all'
               ? 'Try adjusting your filters or search query.'
-              : 'Create your first note or journal entry to get started.'}
+              : 'Create your first todo note to get started.'}
           </p>
           <button
             onClick={handleOpenAdd}
@@ -488,6 +515,7 @@ export const NotesView: React.FC<NotesViewProps> = () => {
                   <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
                     <button
                       onClick={() => handleOpenEdit(note)}
+                      disabled={togglingIds.has(note.id)}
                       className="p-1.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                       title="Edit note"
                     >
@@ -495,7 +523,7 @@ export const NotesView: React.FC<NotesViewProps> = () => {
                     </button>
                     <button
                       onClick={() => handleDelete(note.id)}
-                      disabled={deletingId === note.id}
+                      disabled={deletingId === note.id || togglingIds.has(note.id)}
                       className="p-1.5 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors cursor-pointer"
                       title="Delete note"
                     >
@@ -504,9 +532,20 @@ export const NotesView: React.FC<NotesViewProps> = () => {
                   </div>
                 </div>
 
-                <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 mb-1.5 line-clamp-1">
-                  {note.title}
-                </h3>
+                <div className="mb-2 flex items-start gap-2.5">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(note.completed)}
+                    disabled={togglingIds.has(note.id)}
+                    onChange={() => void handleToggle(note)}
+                    aria-label={`Mark ${note.title} ${note.completed ? 'incomplete' : 'complete'}`}
+                    className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-indigo-600 disabled:cursor-wait"
+                  />
+                  <h3 className={`text-sm font-bold line-clamp-1 ${note.completed ? 'text-slate-400 line-through' : 'text-slate-900 dark:text-slate-100'}`}>
+                    {note.title}
+                  </h3>
+                </div>
+                {note.priority && <span className={`mb-3 inline-flex rounded-md px-2 py-0.5 text-[10px] font-semibold capitalize ${note.priority === 'high' ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300' : note.priority === 'medium' ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300' : 'bg-sky-100 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300'}`}>{note.priority} priority</span>}
 
                 <p className="text-xs text-slate-600 dark:text-slate-300 whitespace-pre-line line-clamp-4 leading-relaxed mb-4">
                   {note.content}
@@ -623,7 +662,7 @@ export const NotesView: React.FC<NotesViewProps> = () => {
           <div className="w-full max-w-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
             <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
               <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
-                {editingNote ? 'Edit Note' : 'Create New Note'}
+                {editingNote ? 'Edit Todo Note' : 'Create Todo Note'}
               </h3>
               <button
                 onClick={() => setIsModalOpen(false)}
@@ -671,14 +710,24 @@ export const NotesView: React.FC<NotesViewProps> = () => {
               </div>
 
               <div>
+                <label htmlFor="todo-note-priority" className="mb-1 block text-xs font-semibold text-slate-700 dark:text-slate-300">Priority (optional)</label>
+                <select id="todo-note-priority" value={formPriority} onChange={event => setFormPriority(event.target.value as TaskPriority | '')} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs text-slate-900 outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100">
+                  <option value="">None</option>
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                </select>
+              </div>
+
+              <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Content *
+                  Details (optional)
                 </label>
                 <textarea
                   rows={5}
                   value={formContent}
                   onChange={e => setFormContent(e.target.value)}
-                  placeholder="Write your note, journal entry, or details here..."
+                  placeholder="Add details, reminders, or steps for this to-do..."
                   className="w-full px-3.5 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-slate-100 focus:outline-none focus:border-indigo-500 leading-relaxed"
                 />
               </div>

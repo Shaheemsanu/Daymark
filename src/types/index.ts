@@ -116,5 +116,7 @@ export interface NoteItem {
   imageUrl?: string;
   createdAt: number;
   updatedAt?: number;
+  completed?: boolean;
+  priority?: TaskPriority;
 }
 

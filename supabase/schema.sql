@@ -226,6 +226,8 @@ CREATE TABLE IF NOT EXISTS public.notes (
   content TEXT NOT NULL,
   category TEXT NOT NULL DEFAULT 'General',
   image_url TEXT,
+  completed BOOLEAN NOT NULL DEFAULT FALSE,
+  priority TEXT CHECK (priority IN ('low', 'medium', 'high')),
   created_at TIMESTAMPTZ DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
   updated_at TIMESTAMPTZ DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
 );

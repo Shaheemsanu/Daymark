@@ -6,6 +6,8 @@ This directory contains the database schema and initialization instructions for 
 
 ## 1. Quick Setup in Supabase Dashboard
 
+For Todo Notes on an existing database, run [`migrations/20261116000000_todo_notes.sql`](./migrations/20261116000000_todo_notes.sql) in the SQL Editor to add completion and optional priority fields.
+
 1. **Create a Supabase Project**:
    - Go to [database.new](https://database.new) or log in to [Supabase](https://supabase.com).
    - Create a new project named `daymark` (or your preferred name).
