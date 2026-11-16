@@ -537,7 +537,7 @@ export default function App() {
 
   const handleExportJSON = async () => {
     await trackCloudRequest((async () => {
-      const notes = await notesService.getNotes();
+      const notes = await notesService.getNotes({ includeImages: true });
       const jsonStr = exportAllDataAsJSON({ expenses, budget, habits, tasks, wellness, notes, categories });
       const blob = new Blob([jsonStr], { type: 'application/json' });
       const url = URL.createObjectURL(blob);

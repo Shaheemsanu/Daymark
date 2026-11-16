@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   FileText,
   Plus,
@@ -7,13 +7,15 @@ import {
   Image as ImageIcon,
   Trash2,
   Edit2,
+  Eye,
   AlertCircle,
   Calendar,
   X,
   Tag,
   Check,
-  Upload,
-  ExternalLink
+  CheckCircle2,
+  Circle,
+  Upload
 } from 'lucide-react';
 import { LoaderCircle } from 'lucide-react';
 import { NoteItem, TaskPriority } from '../types';
@@ -25,6 +27,12 @@ interface NotesViewProps {
 }
 
 const CATEGORIES = ['All', 'General', 'Work', 'Personal', 'Ideas', 'Financial', 'Study'];
+
+const PriorityBadge = ({ priority }: { priority?: TaskPriority }) => (
+  <span className={`inline-flex rounded-md px-2 py-0.5 text-[10px] font-semibold capitalize ${priority === 'high' ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300' : priority === 'medium' ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300' : priority === 'low' ? 'bg-sky-100 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'}`}>
+    {priority ? `${priority} priority` : 'No priority'}
+  </span>
+);
 type NotesDateFilter = 'all' | 'today' | 'week' | 'month' | 'year' | 'custom';
 type NotesSort = 'newest' | 'oldest' | 'title' | 'priority' | 'priorityAsc';
 
@@ -67,6 +75,31 @@ export const NotesView: React.FC<NotesViewProps> = () => {
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingNote, setEditingNote] = useState<NoteItem | null>(null);
+  const [viewingNote, setViewingNote] = useState<NoteItem | null>(null);
+  const [viewImage, setViewImage] = useState<string | undefined>();
+  const [imageLoading, setImageLoading] = useState(false);
+  const [imageError, setImageError] = useState('');
+  const viewDialogRef = useRef<HTMLDialogElement>(null);
+
+  useEffect(() => {
+    if (viewingNote) viewDialogRef.current?.showModal();
+  }, [viewingNote]);
+
+  useEffect(() => {
+    setViewImage(undefined);
+    setImageError('');
+    if (!viewingNote) return;
+    let cancelled = false;
+    setImageLoading(true);
+    notesService.getNoteImage(viewingNote.id).then(image => {
+      if (!cancelled) setViewImage(image);
+    }).catch(error => {
+      if (!cancelled) setImageError(error instanceof Error ? error.message : String(error));
+    }).finally(() => {
+      if (!cancelled) setImageLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [viewingNote?.id]);
 
   // Form State
   const [formTitle, setFormTitle] = useState('');
@@ -74,10 +107,27 @@ export const NotesView: React.FC<NotesViewProps> = () => {
   const [formCategory, setFormCategory] = useState('General');
   const [formPriority, setFormPriority] = useState<TaskPriority | ''>('');
   const [formImageUrl, setFormImageUrl] = useState('');
-  const [formError, setFormError] = useState('');
+  const [imageChanged, setImageChanged] = useState(false);
+  const [editImageLoading, setEditImageLoading] = useState(false);
+  const [editImageError, setEditImageError] = useState('');
+  const [editImageRetry, setEditImageRetry] = useState(0);
 
-  // Image Preview Modal State
-  const [previewImage, setPreviewImage] = useState<string | null>(null);
+  useEffect(() => {
+    setEditImageError('');
+    setEditImageLoading(false);
+    if (!isModalOpen || !editingNote || imageChanged || editingNote.imageUrl) return;
+    let cancelled = false;
+    setEditImageLoading(true);
+    notesService.getNoteImage(editingNote.id).then(image => {
+      if (!cancelled) setFormImageUrl(image || '');
+    }).catch(error => {
+      if (!cancelled) setEditImageError(error instanceof Error ? error.message : String(error));
+    }).finally(() => {
+      if (!cancelled) setEditImageLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [isModalOpen, editingNote?.id, imageChanged, editImageRetry]);
+  const [formError, setFormError] = useState('');
 
   useEffect(() => {
     loadNotesData();
@@ -128,6 +178,7 @@ export const NotesView: React.FC<NotesViewProps> = () => {
     setFormCategory('General');
     setFormPriority('');
     setFormImageUrl('');
+    setImageChanged(false);
     setFormError('');
     setIsModalOpen(true);
   };
@@ -139,6 +190,7 @@ export const NotesView: React.FC<NotesViewProps> = () => {
     setFormCategory(note.category || 'General');
     setFormPriority(note.priority || '');
     setFormImageUrl(note.imageUrl || '');
+    setImageChanged(false);
     setFormError('');
     setIsModalOpen(true);
   };
@@ -155,6 +207,7 @@ export const NotesView: React.FC<NotesViewProps> = () => {
     const reader = new FileReader();
     reader.onloadend = () => {
       setFormImageUrl(reader.result as string);
+      setImageChanged(true);
       setFormError('');
     };
     reader.onerror = () => {
@@ -165,6 +218,7 @@ export const NotesView: React.FC<NotesViewProps> = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (saving) return;
     if (!formTitle.trim()) {
       setFormError('Note title is required.');
       return;
@@ -172,23 +226,19 @@ export const NotesView: React.FC<NotesViewProps> = () => {
 
     setSaving(true);
     try {
+      const changes = {
+        title: formTitle.trim(),
+        content: formContent.trim(),
+        category: formCategory,
+        priority: formPriority || undefined,
+        ...(!editingNote || imageChanged ? { imageUrl: formImageUrl.trim() || undefined } : {}),
+      };
       if (editingNote) {
-        await notesService.updateNote(editingNote.id, {
-          title: formTitle.trim(),
-          content: formContent.trim(),
-          category: formCategory,
-          priority: formPriority || undefined,
-          imageUrl: formImageUrl.trim() || undefined
-        });
+        await notesService.updateNote(editingNote.id, changes);
+        setNotes(current => current.map(note => note.id === editingNote.id ? { ...note, ...changes, updatedAt: Date.now() } : note));
       } else {
-        await notesService.saveNote({
-          title: formTitle.trim(),
-          content: formContent.trim(),
-          category: formCategory,
-          priority: formPriority || undefined,
-          completed: false,
-          imageUrl: formImageUrl.trim() || undefined
-        });
+        const created = await notesService.saveNote({ ...changes, completed: false });
+        setNotes(current => [created, ...current]);
       }
     } catch (error) {
       setFormError(error instanceof Error ? error.message : String(error));
@@ -198,7 +248,6 @@ export const NotesView: React.FC<NotesViewProps> = () => {
     }
 
     setIsModalOpen(false);
-    await loadNotesData();
   };
 
   const handleToggle = async (note: NoteItem) => {
@@ -505,7 +554,11 @@ export const NotesView: React.FC<NotesViewProps> = () => {
           {filteredNotes.map(note => (
             <div
               key={note.id}
-              className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs flex flex-col justify-between hover:border-indigo-300 dark:hover:border-indigo-700 transition-all group"
+              onClick={event => {
+                if ((event.target as HTMLElement).closest('button, input, select, textarea, a')) return;
+                setViewingNote(note);
+              }}
+              className={`cursor-pointer border rounded-2xl p-5 shadow-xs flex flex-col justify-between transition-all group ${note.completed ? 'bg-emerald-50/70 border-emerald-200 hover:border-emerald-300 dark:bg-emerald-950/20 dark:border-emerald-900/60 dark:hover:border-emerald-800' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-indigo-300 dark:hover:border-indigo-700'}`}
             >
               <div>
                 <div className="flex items-start justify-between gap-2 mb-2">
@@ -513,6 +566,15 @@ export const NotesView: React.FC<NotesViewProps> = () => {
                     {note.category || 'General'}
                   </span>
                   <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
+                    <button
+                      type="button"
+                      onClick={() => setViewingNote(note)}
+                      aria-label={`View ${note.title}`}
+                      title="View note"
+                      className="p-1.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                    >
+                      <Eye className="h-3.5 w-3.5" aria-hidden="true" />
+                    </button>
                     <button
                       onClick={() => handleOpenEdit(note)}
                       disabled={togglingIds.has(note.id)}
@@ -533,40 +595,28 @@ export const NotesView: React.FC<NotesViewProps> = () => {
                 </div>
 
                 <div className="mb-2 flex items-start gap-2.5">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(note.completed)}
+                  <button
+                    type="button"
+                    role="checkbox"
+                    aria-checked={Boolean(note.completed)}
+                    aria-busy={togglingIds.has(note.id)}
                     disabled={togglingIds.has(note.id)}
-                    onChange={() => void handleToggle(note)}
+                    onClick={() => void handleToggle(note)}
                     aria-label={`Mark ${note.title} ${note.completed ? 'incomplete' : 'complete'}`}
-                    className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-indigo-600 disabled:cursor-wait"
-                  />
-                  <h3 className={`text-sm font-bold line-clamp-1 ${note.completed ? 'text-slate-400 line-through' : 'text-slate-900 dark:text-slate-100'}`}>
+                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg transition-all cursor-pointer disabled:cursor-wait"
+                  >
+                    {togglingIds.has(note.id) ? <LoaderCircle aria-hidden="true" className="h-5 w-5 animate-spin text-sky-500" /> : note.completed ? <CheckCircle2 aria-hidden="true" className="h-5 w-5 text-emerald-600 dark:text-emerald-400" /> : <Circle aria-hidden="true" className="h-5 w-5 text-slate-300 hover:text-slate-400 dark:text-slate-600" />}
+                  </button>
+                  <h3 className={`text-sm font-bold line-clamp-1 ${note.completed ? 'text-emerald-700 dark:text-emerald-300 line-through' : 'text-slate-900 dark:text-slate-100'}`}>
                     {note.title}
                   </h3>
                 </div>
-                {note.priority && <span className={`mb-3 inline-flex rounded-md px-2 py-0.5 text-[10px] font-semibold capitalize ${note.priority === 'high' ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300' : note.priority === 'medium' ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300' : 'bg-sky-100 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300'}`}>{note.priority} priority</span>}
+                <div className="mb-3"><PriorityBadge priority={note.priority} /></div>
 
                 <p className="text-xs text-slate-600 dark:text-slate-300 whitespace-pre-line line-clamp-4 leading-relaxed mb-4">
                   {note.content}
                 </p>
 
-                {/* Attached Image Thumbnail */}
-                {note.imageUrl && (
-                  <div
-                    onClick={() => setPreviewImage(note.imageUrl || null)}
-                    className="relative mb-4 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 h-32 cursor-pointer group/img"
-                  >
-                    <img
-                      src={note.imageUrl}
-                      alt={note.title}
-                      className="w-full h-full object-cover group-hover/img:scale-105 transition-transform duration-300"
-                    />
-                    <div className="absolute inset-0 bg-black/30 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-medium gap-1">
-                      <ExternalLink className="w-3.5 h-3.5" /> View Full Image
-                    </div>
-                  </div>
-                )}
               </div>
 
               <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[11px] text-slate-400 font-mono">
@@ -576,6 +626,30 @@ export const NotesView: React.FC<NotesViewProps> = () => {
             </div>
           ))}
         </div>
+      )}
+
+      {viewingNote && (
+        <dialog ref={viewDialogRef} onCancel={() => setViewingNote(null)} onClose={() => setViewingNote(null)} aria-labelledby="view-todo-title" className="fixed inset-0 m-auto max-h-[85vh] w-[calc(100%_-_2rem)] max-w-2xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-0 text-slate-900 shadow-2xl backdrop:bg-slate-950/60 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100">
+          <div className="flex items-start justify-between gap-4 border-b border-slate-200 p-5 dark:border-slate-800">
+            <h2 id="view-todo-title" className="min-w-0 break-words text-lg font-bold">{viewingNote.title}</h2>
+            <button type="button" onClick={() => viewDialogRef.current?.close()} aria-label="Close note" className="shrink-0 rounded-lg p-2 text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"><X className="h-4 w-4" /></button>
+          </div>
+          <div className="space-y-5 p-5">
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="rounded-md bg-indigo-50 px-2 py-0.5 text-indigo-700 dark:bg-indigo-950/80 dark:text-indigo-300">{viewingNote.category || 'General'}</span>
+              <PriorityBadge priority={viewingNote.priority} />
+              <span className={viewingNote.completed ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500 dark:text-slate-400'}>{viewingNote.completed ? 'Completed' : 'Pending'}</span>
+            </div>
+            <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-700 dark:text-slate-300">{viewingNote.content || 'No additional details.'}</p>
+            {imageLoading && <p role="status" className="flex items-center gap-2 text-xs text-slate-500"><LoaderCircle className="h-4 w-4 animate-spin" />Loading image…</p>}
+            {imageError && <p role="alert" className="text-xs text-rose-600 dark:text-rose-400">Could not load image: {imageError}. Close and reopen View to retry.</p>}
+            {viewImage && <img src={viewImage} alt={viewingNote.title} className="max-h-[50vh] w-full rounded-xl object-contain" />}
+            <div className="flex flex-wrap gap-3 text-xs text-slate-500 dark:text-slate-400">
+              <span>Created {formatDisplayDate(viewingNote.createdAt)}</span>
+              {viewingNote.updatedAt && <span>Edited {formatDisplayDate(viewingNote.updatedAt)}</span>}
+            </div>
+          </div>
+        </dialog>
       )}
 
       {isCategoryManagerOpen && (
@@ -748,16 +822,19 @@ export const NotesView: React.FC<NotesViewProps> = () => {
                       className="hidden"
                     />
                   </label>
-                  {formImageUrl && (
+                  {(formImageUrl || (editingNote && !imageChanged && (editImageLoading || editImageError))) && (
                     <button
                       type="button"
-                      onClick={() => setFormImageUrl('')}
+                      onClick={() => { setFormImageUrl(''); setImageChanged(true); }}
                       className="px-3 py-2 text-xs text-rose-600 hover:bg-rose-50 rounded-xl transition-colors"
                     >
-                      Remove
+                      Remove attachment
                     </button>
                   )}
                 </div>
+
+                {editImageLoading && <p role="status" className="mt-2 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400"><LoaderCircle className="h-4 w-4 animate-spin" />Loading existing image…</p>}
+                {editImageError && <p role="alert" className="mt-2 text-xs text-rose-600 dark:text-rose-400">Could not load image: {editImageError}. The existing attachment is kept unless replaced or removed. <button type="button" onClick={() => setEditImageRetry(value => value + 1)} className="font-semibold underline">Retry</button></p>}
 
                 {formImageUrl && (
                   <div className="mt-3 relative w-full h-32 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800">
@@ -788,23 +865,6 @@ export const NotesView: React.FC<NotesViewProps> = () => {
         </div>
       )}
 
-      {/* Full Image Preview Modal */}
-      {previewImage && (
-        <div
-          onClick={() => setPreviewImage(null)}
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm cursor-pointer"
-        >
-          <div className="relative max-w-4xl max-h-[90vh] overflow-hidden rounded-2xl" onClick={e => e.stopPropagation()}>
-            <img src={previewImage} alt="Full Preview" className="max-w-full max-h-[85vh] object-contain rounded-xl" />
-            <button
-              onClick={() => setPreviewImage(null)}
-              className="absolute top-3 right-3 p-2 bg-black/60 text-white rounded-full hover:bg-black/80 transition-colors"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

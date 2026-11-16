@@ -3,6 +3,7 @@ import { BudgetConfig, DailyTask, DailyWellness, Expense, Habit, NoteItem, Categ
 import { createUuid } from '../../utils/uuid';
 import { WellnessGoals } from '../../types';
 import { normalizeWellnessGoals } from '../../utils/wellnessGoals';
+import { NOTE_LIST_COLUMNS } from '../../utils/noteFields';
 
 export type CategorySettings = {
   expenses: Record<string, CategoryInfo>;
@@ -183,7 +184,7 @@ export const dataService = {
           db.from('tasks').select('*').eq('user_id', userId),
           db.from('task_entries').select('*').eq('user_id', userId),
           db.from('daily_notes').select('*').eq('user_id', userId),
-          db.from('notes').select('*').eq('user_id', userId).order('created_at', { ascending: false })
+          db.from('notes').select(NOTE_LIST_COLUMNS).eq('user_id', userId).order('created_at', { ascending: false })
         ]),
         new Promise<never>((_, reject) => {
           timeout = setTimeout(() => reject(new Error('Supabase workspace loading timed out after 15 seconds. Check your connection and use Refresh to try again.')), 15000);
@@ -245,7 +246,6 @@ export const dataService = {
           title: row.title,
           content: row.content,
           category: row.category || 'General',
-          imageUrl: row.image_url || undefined,
           completed: Boolean(row.completed),
           priority: row.priority || undefined,
           createdAt: new Date(row.created_at).getTime(),

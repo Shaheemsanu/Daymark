@@ -13,6 +13,21 @@ const transaction = (changes: Partial<Expense> = {}): Expense => ({
 });
 
 describe('Opening balances', () => {
+  it('enables the setup button only for a valid positive amount', () => {
+    const onSave = vi.fn();
+    render(<OpeningBalances expenses={[]} currency="INR" disabled={false} onSave={onSave} />);
+    const input = screen.getByLabelText('Cash in Hand opening balance');
+    const button = input.closest('form')!.querySelector('button')!;
+    expect(button.disabled).toBe(true);
+    fireEvent.change(input, { target: { value: '0' } });
+    expect(button.disabled).toBe(true);
+    fireEvent.change(input, { target: { value: '100' } });
+    expect(button.disabled).toBe(false);
+    fireEvent.change(input, { target: { value: '' } });
+    expect(button.disabled).toBe(true);
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
   const openingBalance = transaction({ id: 'opening', title: 'Opening balance', category: 'Opening Balance', account: 'expense', type: 'income', amount: 500 });
 
   it('recognizes an opening balance separately from ordinary transactions', () => {
