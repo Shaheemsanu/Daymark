@@ -234,3 +234,16 @@ it('avoids 502/503/504 statuses on proxied requests so reverse proxies do not re
   expect(response.headers.get('content-type')).toContain('application/json');
   expect(await response.json()).toEqual({ error: 'Gemini rejected the Daymark AI API key. Replace it in the server environment.' });
 });
+
+it('reports a Supabase project mismatch instead of expired session when JWT issuer differs from server URL', async () => {
+  const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
+  const payload = Buffer.from(JSON.stringify({ iss: 'https://other-project.supabase.co/auth/v1' })).toString('base64url');
+  const mismatchedJwt = `${header}.${payload}.sig`;
+  const server = await serve({ fetch: vi.fn(async () => new Response('', { status: 401 })) });
+  const response = await server.post({ message: 'Hello' }, mismatchedJwt);
+  expect(response.status).toBe(500);
+  expect(await response.json()).toEqual({
+    error: 'The server Supabase configuration does not match the signed-in project. Update SUPABASE_URL/VITE_SUPABASE_URL and anon key in the server environment.',
+  });
+});
+

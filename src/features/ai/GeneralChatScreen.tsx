@@ -49,11 +49,23 @@ export default function GeneralChatScreen({ active }: { active: boolean }) {
     try {
       if (!supabase) throw new Error('Sign in to use Daymark AI.');
       const { data, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError || !data.session) throw new Error('Your session expired. Sign in again.');
-      const response = await fetch('/api/general-chat/chat', {
-        method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/x-ndjson', 'X-Daymark-Json-Errors': '1', Authorization: 'Bearer ' + data.session.access_token },
+      let session = data.session;
+      if (!sessionError && session && typeof session.expires_at === 'number' && session.expires_at * 1000 <= Date.now() + 60000 && supabase.auth.refreshSession) {
+        const refreshed = await supabase.auth.refreshSession();
+        if (refreshed.data.session) session = refreshed.data.session;
+      }
+      if (sessionError || !session) throw new Error('Your session expired. Sign in again.');
+      const postChat = (accessToken: string) => fetch('/api/general-chat/chat', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/x-ndjson', 'X-Daymark-Json-Errors': '1', Authorization: 'Bearer ' + accessToken },
         body: JSON.stringify({ message: text, source, start, end, history: history.slice(-8).map(item => ({ role: item.role, text: item.text.slice(0, 4000) })) }), signal: AbortSignal.timeout(90000),
       });
+      let response = await postChat(session.access_token);
+      if (response.status === 401 && supabase.auth.refreshSession) {
+        const refreshed = await supabase.auth.refreshSession();
+        if (refreshed.data.session?.access_token) {
+          response = await postChat(refreshed.data.session.access_token);
+        }
+      }
       await readChatResponse(response, answer => setMessages([...conversation, { role: 'assistant', ...answer }]));
     } catch (cause) { setMessages(conversation); setError(cause instanceof Error ? cause.message : 'Could not send your message.'); setFailed(text); }
     finally { busy.current = false; setPending(false); input.current?.focus(); }

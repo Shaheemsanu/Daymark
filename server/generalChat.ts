@@ -31,11 +31,29 @@ export function createGeneralChatApp(dependencies: Dependencies = {}) {
   const env = dependencies.env || process.env;
   const request = dependencies.fetch || globalThis.fetch;
   const limits = new Map<string, { until: number; count: number; busy: boolean }>();
+  const sanitizeSupabaseUrl = (raw: string) => {
+    const cleaned = raw.trim().replace(/\/$/, '');
+    if (cleaned.startsWith('postgresql://') || cleaned.startsWith('postgres://')) {
+      const match = cleaned.match(/@?db\.([a-z0-9]+)\.supabase\.co/);
+      if (match?.[1]) return `https://${match[1]}.supabase.co`;
+    }
+    return cleaned;
+  };
   const settings = () => {
     const key = (env.GEMINI_GENERAL_API_KEY || '').trim();
-    const url = (env.SUPABASE_URL || env.VITE_SUPABASE_URL || '').trim().replace(/\/$/, '');
+    const url = sanitizeSupabaseUrl(env.SUPABASE_URL || env.VITE_SUPABASE_URL || '');
     const anon = (env.SUPABASE_ANON_KEY || env.VITE_SUPABASE_ANON_KEY || '').trim();
     return { key, url, anon, configured: Boolean(key && !key.startsWith('your-') && /^https?:\/\//.test(url) && anon), model: env.GEMINI_GENERAL_MODEL?.trim() || 'gemini-3.5-flash-lite' };
+  };
+  const jwtIssuerOrigin = (token: string): string | null => {
+    try {
+      const parts = token.split('.');
+      if (parts.length !== 3) return null;
+      const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8')) as { iss?: unknown };
+      return typeof payload.iss === 'string' ? new URL(payload.iss).origin : null;
+    } catch {
+      return null;
+    }
   };
   const generate = dependencies.generate || (async (input: Input) => {
     // One bounded attempt: SDK retries can otherwise multiply the time spent waiting.
@@ -75,7 +93,16 @@ export function createGeneralChatApp(dependencies: Dependencies = {}) {
       }
       // Verified identity determines ownership; client-supplied user IDs are ignored.
       const auth = await request(`${config.url}/auth/v1/user`, { method: 'GET', headers: { apikey: config.anon, Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15000) });
-      if (!auth.ok) { res.status(401).json({ error: 'Your session expired. Sign in again.' }); return; }
+      if (!auth.ok) {
+        if (auth.status >= 500) { res.status(502).json({ error: 'Could not verify your session with Supabase. Please try again.' }); return; }
+        const issuerOrigin = jwtIssuerOrigin(token);
+        if (issuerOrigin && issuerOrigin !== new URL(config.url).origin) {
+          res.status(500).json({ error: 'The server Supabase configuration does not match the signed-in project. Update SUPABASE_URL/VITE_SUPABASE_URL and anon key in the server environment.' });
+          return;
+        }
+        res.status(401).json({ error: 'Your session expired. Sign in again.' });
+        return;
+      }
       const user = await auth.json();
       if (typeof user.id !== 'string' || !/^[a-zA-Z0-9-]+$/.test(user.id)) { res.status(401).json({ error: 'Your session could not be verified.' }); return; }
       for (const [id, item] of limits) if (item.until < Date.now() && !item.busy) limits.delete(id);

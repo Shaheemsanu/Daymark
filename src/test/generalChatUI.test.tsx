@@ -3,8 +3,32 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import GeneralChatScreen from '../features/ai/GeneralChatScreen';
 
-vi.mock('../lib/supabase', () => ({ supabase: { auth: { getSession: vi.fn(async () => ({ data: { session: { access_token: 'user-token' } }, error: null })) } } }));
+import { supabase } from '../lib/supabase';
+
+vi.mock('../lib/supabase', () => ({ supabase: { auth: {
+  getSession: vi.fn(async () => ({ data: { session: { access_token: 'user-token' } }, error: null })),
+  refreshSession: vi.fn(async () => ({ data: { session: null }, error: null })),
+} } }));
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+
+it('refreshes the session and retries once when the chat backend returns 401', async () => {
+  vi.mocked(supabase!.auth.refreshSession).mockResolvedValueOnce({ data: { session: { access_token: 'fresh-token' } }, error: null } as never);
+  const request = vi.fn(async (url: string, options?: RequestInit) => {
+    if (url.endsWith('/status')) return Response.json({ configured: true });
+    const auth = (options?.headers as Record<string, string>)?.Authorization;
+    if (auth === 'Bearer user-token') return Response.json({ error: 'Your session expired. Sign in again.' }, { status: 401 });
+    return Response.json({ answer: 'Recovered with fresh token' });
+  });
+  vi.stubGlobal('fetch', request);
+  render(<GeneralChatScreen active />);
+  await screen.findByText('Ready to chat');
+  fireEvent.change(screen.getByLabelText('Message Daymark AI'), { target: { value: 'Hello' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+  await screen.findByText('Recovered with fresh token');
+  const chatCalls = request.mock.calls.filter(([url]) => url.endsWith('/chat'));
+  expect(chatCalls).toHaveLength(2);
+  expect((chatCalls[1][1]?.headers as Record<string, string>).Authorization).toBe('Bearer fresh-token');
+});
 
 it('shows streamed text before completion and retries without keeping a partial answer', async () => {
   let controller!: ReadableStreamDefaultController<Uint8Array>;

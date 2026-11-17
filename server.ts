@@ -1,4 +1,5 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
+import fs from 'fs';
 import express from 'express';
 import { createGeneralChatApp } from './server/generalChat.ts';
 import path from 'path';
@@ -6,6 +7,10 @@ import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const envPath = path.resolve(__dirname, '.env');
+if (fs.existsSync(envPath)) {
+  dotenv.config({ path: envPath, override: true });
+}
 
 const app = express();
 app.use('/api/general-chat', createGeneralChatApp());
