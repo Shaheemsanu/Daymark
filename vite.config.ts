@@ -2,6 +2,7 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 import { defineConfig } from 'vitest/config';
+import { createGeneralChatApp } from './server/generalChat.ts';
 
 import fs from 'fs';
 import dotenv from 'dotenv';
@@ -25,7 +26,7 @@ const safeBase =
     : '/';
 
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [react(), tailwindcss(), { name: 'general-chat-api', configureServer(server) { server.middlewares.use('/api/general-chat', createGeneralChatApp()); } }],
   base: safeBase,
   define: {
     'import.meta.env.VITE_SUPABASE_URL': JSON.stringify(process.env.VITE_SUPABASE_URL || ''),

@@ -12,10 +12,11 @@ import {
   LogOut,
   FileText,
   Settings,
+  Sparkles,
   LoaderCircle
 } from 'lucide-react';
 
-export type NavView = 'expenses' | 'daily' | 'habits' | 'tasks' | 'notes' | 'reports' | 'history';
+export type NavView = 'expenses' | 'daily' | 'habits' | 'tasks' | 'notes' | 'reports' | 'history' | 'ai';
 
 interface LayoutProps {
   currentView: NavView;
@@ -154,6 +155,7 @@ export const Layout: React.FC<LayoutProps> = ({
 
           {/* Zone 3: User Controls */}
           <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+            <button type="button" onClick={() => onSelectView('ai')} aria-label="Daymark AI" title="Daymark AI" aria-current={currentView === 'ai' ? 'page' : undefined} className={`inline-flex min-h-9 min-w-9 items-center justify-center gap-1.5 rounded-xl border px-2 text-xs transition-colors ${currentView === 'ai' ? 'border-indigo-400 bg-indigo-500/10 text-indigo-500' : 'border-slate-200 text-slate-500 hover:bg-indigo-500/10 dark:border-slate-800'}`}><Sparkles className="h-4 w-4" /><span className="hidden xl:inline">AI</span></button>
             <button
               type="button"
               onClick={onRefreshData}

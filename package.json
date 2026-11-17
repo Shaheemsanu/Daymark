@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
-    "build": "vite build && esbuild server.ts --platform=node --bundle --format=esm --outfile=server.js --external:express",
-    "start": "node server.ts",
+    "build": "vite build && esbuild server.ts --platform=node --bundle --format=esm --outfile=server.js --packages=external",
+    "start": "node server.js",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",

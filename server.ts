@@ -1,4 +1,6 @@
+import 'dotenv/config';
 import express from 'express';
+import { createGeneralChatApp } from './server/generalChat.ts';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -6,6 +8,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+app.use('/api/general-chat', createGeneralChatApp());
 // AI Studio container runs Nginx on port 8080 proxying traffic to port 3000.
 // If PORT is 8080, bind to port 3000 to avoid EADDRINUSE with Nginx.
 const envPort = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
