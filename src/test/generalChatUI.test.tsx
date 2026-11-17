@@ -1,10 +1,51 @@
 import React from 'react';
 import { afterEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import GeneralChatScreen from '../features/ai/GeneralChatScreen';
 
 vi.mock('../lib/supabase', () => ({ supabase: { auth: { getSession: vi.fn(async () => ({ data: { session: { access_token: 'user-token' } }, error: null })) } } }));
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+
+it('shows streamed text before completion and retries without keeping a partial answer', async () => {
+  let controller!: ReadableStreamDefaultController<Uint8Array>;
+  const body = new ReadableStream<Uint8Array>({ start(value) { controller = value; } });
+  const request = vi.fn(async (url: string, _options?: RequestInit) => url.endsWith('/status') ? Response.json({ configured: true }) : new Response(body, { headers: { 'Content-Type': 'application/x-ndjson' } }));
+  vi.stubGlobal('fetch', request);
+  render(<GeneralChatScreen active />);
+  await screen.findByText('Ready to chat');
+  fireEvent.change(screen.getByLabelText('Message Daymark AI'), { target: { value: 'Summarize' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+  const emit = (event: object) => controller.enqueue(new TextEncoder().encode(JSON.stringify(event) + '\n'));
+  await act(async () => { emit({ type: 'delta', text: 'First part of the answer' }); });
+  expect(await screen.findByText('First part of the answer')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled();
+  await act(async () => { controller.close(); });
+  expect(await screen.findByRole('alert')).toHaveTextContent('interrupted');
+  expect(screen.queryByText('First part of the answer')).toBeNull();
+  request.mockImplementation(async (url: string) => Response.json(url.endsWith('/status') ? { configured: true } : { answer: 'Complete answer' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+  await screen.findByText('Complete answer');
+  const calls = request.mock.calls.filter(([url]) => url.endsWith('/chat'));
+  expect(calls[0][1]?.headers).toMatchObject({ Accept: 'application/x-ndjson' });
+  expect(JSON.parse(String(calls[1][1]?.body))).toMatchObject({ message: 'Summarize', history: [] });
+  await waitFor(() => expect(screen.getAllByLabelText('Your message')).toHaveLength(1));
+});
+
+it('renders AI Markdown as formatted text while keeping user messages literal', async () => {
+  const answer = 'Here is your summary:\n\n* **Total Income:** ₹ 7,920.00\n* **Total Expenses:** ₹ 4,217.00\n\n<script>alert("unsafe")</script>';
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => Response.json(url.endsWith('/status') ? { configured: true } : { answer })));
+  render(<GeneralChatScreen active />);
+  await screen.findByText('Ready to chat');
+  fireEvent.change(screen.getByLabelText('Message Daymark AI'), { target: { value: '**Summarize** my records' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+  const reply = await screen.findByLabelText('Daymark AI answer');
+  expect(within(reply).getAllByRole('listitem')).toHaveLength(2);
+  expect(within(reply).getByText('Total Income:').tagName).toBe('STRONG');
+  expect(reply).toHaveTextContent('₹ 7,920.00');
+  expect(reply).not.toHaveTextContent('**');
+  expect(reply.querySelector('script')).toBeNull();
+  expect(screen.getByLabelText('Your message')).toHaveTextContent('**Summarize** my records');
+});
 
 it('opens directly to Daymark AI, sends the data scope and starts a new conversation', async () => {
   const request = vi.fn(async (url: string, _options?: RequestInit) => Response.json(url.endsWith('/status') ? { configured: true, model: 'test-model' } : { answer: 'Hello from Daymark AI' }));

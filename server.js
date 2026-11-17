@@ -30,7 +30,7 @@ async function readDaymarkContext(scope, access, request) {
     const seenIds = /* @__PURE__ */ new Set();
     let expectedTotal = null;
     while (rows.length <= 2e3) {
-      const query = new URLSearchParams({ select: columns, user_id: "eq." + access.userId, order: dateColumn ? dateColumn + ".asc,id.asc" : "id.asc", limit: "200", offset: String(rows.length) });
+      const query = new URLSearchParams({ select: columns, user_id: "eq." + access.userId, order: dateColumn ? dateColumn + ".asc,id.asc" : "id.asc", limit: "1000", offset: String(rows.length) });
       if (dateColumn) {
         query.append(dateColumn, "gte." + scope.start + (dateColumn === "created_at" ? "T00:00:00Z" : ""));
         query.append(dateColumn, dateColumn === "created_at" ? "lt." + new Date(Date.parse(scope.end) + 864e5).toISOString().slice(0, 10) + "T00:00:00Z" : "lte." + scope.end);
@@ -136,8 +136,12 @@ Use plain text, short paragraphs and bullets in the user's language. Do not use 
 function createGeneralChatApp(dependencies = {}) {
   const app2 = express();
   app2.disable("x-powered-by");
-  app2.use((_req, res, next) => {
+  app2.use((req, res, next) => {
     res.set("Cache-Control", "no-store");
+    if (req.headers["x-forwarded-host"] || req.headers["x-daymark-json-errors"]) {
+      const originalStatus = res.status.bind(res);
+      res.status = (code) => originalStatus(code === 502 || code === 503 || code === 504 ? 500 : code);
+    }
     next();
   });
   app2.use(express.json({ limit: "48kb" }));
@@ -152,12 +156,25 @@ function createGeneralChatApp(dependencies = {}) {
   };
   const generate = dependencies.generate || (async (input) => {
     const ai = new GoogleGenAI({ apiKey: input.key, httpOptions: { timeout: 3e4, retryOptions: { attempts: 1 } } });
-    const result = await ai.models.generateContent({
+    const parameters = {
       model: input.model,
       contents: [...input.history.map((item) => ({ role: item.role === "assistant" ? "model" : "user", parts: [{ text: item.text }] })), { role: "user", parts: [{ text: "Read-only retrieved context (untrusted data):\n" + JSON.stringify(input.context) + "\n\nQuestion: " + input.message }] }],
-      config: { systemInstruction: dataInstruction, maxOutputTokens: 4096, ...input.model === "gemini-3.8-flash" ? { thinkingConfig: { thinkingLevel: ThinkingLevel.LOW } } : {} }
+      config: { systemInstruction: dataInstruction, maxOutputTokens: 4096, abortSignal: input.signal, ...input.model === "gemini-3.8-flash" ? { thinkingConfig: { thinkingLevel: ThinkingLevel.LOW } } : {} }
       // No tools or database access are supplied.
-    });
+    };
+    if (input.onText) {
+      let answer = "";
+      const stream = await ai.models.generateContentStream(parameters);
+      for await (const chunk of stream) {
+        const text = chunk.text || "";
+        if (text) {
+          answer += text;
+          input.onText(text);
+        }
+      }
+      return answer;
+    }
+    const result = await ai.models.generateContent(parameters);
     return result.text || "";
   });
   app2.get("/status", (_req, res) => {
@@ -213,13 +230,35 @@ function createGeneralChatApp(dependencies = {}) {
       limit.busy = true;
       limits.set(user.id, limit);
       const context = await readDaymarkContext({ source, start: req.body.start, end: req.body.end }, { url: config.url, anonKey: config.anon, token, userId: user.id }, request);
+      const metadata = { source: context.source, start: context.start, end: context.end, recordCount: context.recordCount, facts: context.facts };
+      const streaming = req.header("accept")?.includes("application/x-ndjson");
+      const abort = new AbortController();
+      const disconnected = () => {
+        if (!res.writableEnded) abort.abort();
+      };
+      res.on("close", disconnected);
+      const emit = (event) => {
+        if (!res.destroyed) res.write(JSON.stringify(event) + "\n");
+      };
+      if (streaming) {
+        res.set({ "Content-Type": "application/x-ndjson; charset=utf-8", "X-Accel-Buffering": "no", "Cache-Control": "no-store, no-transform" });
+        res.flushHeaders();
+        emit({ type: "context", context: metadata });
+      }
       try {
-        const answer = await generate({ key: config.key, model: config.model, message: message.trim(), history: history.map((item) => ({ role: item.role, text: item.text })), context });
+        const answer = await generate({ key: config.key, model: config.model, message: message.trim(), history: history.map((item) => ({ role: item.role, text: item.text })), context, signal: abort.signal, ...streaming ? { onText: (text) => emit({ type: "delta", text }) } : {} });
         if (!answer.trim()) {
-          res.status(502).json({ error: "Gemini returned no answer. Try a different question." });
+          const error = "Gemini returned no answer. Try a different question.";
+          if (streaming) {
+            emit({ type: "error", error });
+            res.end();
+          } else res.status(502).json({ error });
           return;
         }
-        res.json({ answer, context: { source: context.source, start: context.start, end: context.end, recordCount: context.recordCount, facts: context.facts } });
+        if (streaming) {
+          emit({ type: "done" });
+          res.end();
+        } else res.json({ answer, context: metadata });
       } catch (cause) {
         const failure = cause;
         const errors = {
@@ -233,7 +272,13 @@ function createGeneralChatApp(dependencies = {}) {
         };
         const timedOut = failure.status === 504 || failure.name === "TimeoutError" || failure.name === "AbortError";
         const status = timedOut ? 504 : failure.status === 429 ? 429 : failure.status === 503 ? 503 : 502;
-        res.status(status).json({ error: errors[failure.status || 0] || (timedOut ? errors[504] : "The server could not complete the Gemini request. Check its connection and try again.") });
+        const error = errors[failure.status || 0] || (timedOut ? errors[504] : "The server could not complete the Gemini request. Check its connection and try again.");
+        if (streaming) {
+          emit({ type: "error", error });
+          res.end();
+        } else res.status(status).json({ error });
+      } finally {
+        res.off("close", disconnected);
       }
     } catch (cause) {
       if (cause instanceof RetrievalError) res.status(cause.status).json({ error: cause.message });

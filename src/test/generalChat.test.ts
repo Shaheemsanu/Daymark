@@ -28,6 +28,65 @@ it('uses the server key and verified identity for read-only data analysis', asyn
   expect((await fetch(server.base + '/chat', { method: 'DELETE' })).status).toBe(404);
 });
 
+it('delivers text before generation finishes and includes verified source figures', async () => {
+  let finish!: () => void;
+  const waiting = new Promise<void>(resolve => { finish = resolve; });
+  const server = await serve({ generate: async input => {
+    input.onText?.('First part');
+    await waiting;
+    input.onText?.(' and the rest');
+    return 'First part and the rest';
+  } });
+  try {
+    const response = await fetch(server.base + '/chat', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/x-ndjson', Authorization: 'Bearer valid-token' },
+      body: JSON.stringify({ source: 'expenses', start: '2026-11-01', end: '2026-11-17', message: 'Summarize' }),
+    });
+    expect(response.headers.get('content-type')).toContain('application/x-ndjson');
+    expect(response.headers.get('x-accel-buffering')).toBe('no');
+    const reader = response.body!.getReader();
+    const decoder = new TextDecoder();
+    let received = '';
+    while (!received.includes('First part')) received += decoder.decode((await reader.read()).value);
+    expect(received).toContain('"recordCount":0');
+    expect(received).not.toContain('"type":"done"');
+    finish();
+    while (true) { const chunk = await reader.read(); if (chunk.done) break; received += decoder.decode(chunk.value); }
+    const events = received.trim().split('\n').map(line => JSON.parse(line));
+    expect(events.filter(event => event.type === 'delta').map(event => event.text).join('')).toBe('First part and the rest');
+    expect(events.at(-1)).toEqual({ type: 'done' });
+  } finally { finish(); }
+});
+
+it('reports a provider failure inside a stream without leaking details or claiming completion', async () => {
+  const server = await serve({ generate: async input => { input.onText?.('Partial'); throw Object.assign(new Error('private provider diagnostic'), { status: 504 }); } });
+  const response = await fetch(server.base + '/chat', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/x-ndjson', Authorization: 'Bearer valid-token' },
+    body: JSON.stringify({ source: 'notes', start: '2026-11-01', end: '2026-11-17', message: 'Summarize' }),
+  });
+  const text = await response.text();
+  expect(text).toContain('took too long');
+  expect(text).not.toContain('private provider diagnostic');
+  expect(text).not.toContain('"type":"done"');
+});
+
+it('loads 1,500 records in two pages without dropping records or caching old data', async () => {
+  const request = vi.fn(async (input: string | URL | Request) => {
+    const url = new URL(String(input));
+    if (url.pathname.includes('/auth/')) return Response.json({ id: 'user-a' });
+    const offset = Number(url.searchParams.get('offset'));
+    const count = Math.min(Number(url.searchParams.get('limit')), 1500 - offset);
+    return Response.json(Array.from({ length: count }, (_, index) => ({ id: 'note-' + (offset + index), title: 'Note ' + (offset + index) })), { headers: { 'content-range': `${offset}-${offset + count - 1}/1500` } });
+  });
+  const generate = vi.fn(async (_input: { context?: any }) => 'All notes');
+  const server = await serve({ fetch: request, generate });
+  for (let attempt = 0; attempt < 2; attempt++) {
+    expect((await server.post({ source: 'notes', message: 'Summarize' })).status).toBe(200);
+    expect(generate.mock.calls[attempt][0].context.data.notes).toHaveLength(1500);
+  }
+  expect(request).toHaveBeenCalledTimes(6); // Identity + two fresh pages per question.
+});
+
 it('requires valid authentication before invoking Gemini', async () => {
   const server = await serve({ fetch: vi.fn(async () => new Response('', { status: 401 })) });
   expect((await server.post({ message: 'Hello' }, '')).status).toBe(401);

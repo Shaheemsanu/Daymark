@@ -4,6 +4,8 @@ import { supabase } from '../../lib/supabase';
 import { DATA_SOURCES, validScopeDates } from './chatScope';
 import type { ChatSource, ContextMeta } from './chatScope';
 import { formatDate } from '../../utils/constants';
+import AssistantMessage from './AssistantMessage';
+import { readChatResponse } from './chatResponse';
 
 type Message = { role: 'user' | 'assistant'; text: string; context?: ContextMeta };
 export default function GeneralChatScreen({ active }: { active: boolean }) {
@@ -41,21 +43,19 @@ export default function GeneralChatScreen({ active }: { active: boolean }) {
     const text = (retry ? failed : draft).trim();
     if (!ready || checking || !validDates || busy.current || !text || text.length > 2000) return;
     const history = retry ? messages.slice(0, -1) : messages;
+    const conversation: Message[] = [...history, { role: 'user', text }];
     busy.current = true; setPending(true); setError(''); setFailed(''); setDraft('');
-    if (!retry) setMessages(previous => [...previous, { role: 'user', text }]);
+    setMessages(conversation);
     try {
       if (!supabase) throw new Error('Sign in to use Daymark AI.');
       const { data, error: sessionError } = await supabase.auth.getSession();
       if (sessionError || !data.session) throw new Error('Your session expired. Sign in again.');
       const response = await fetch('/api/general-chat/chat', {
-        method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Daymark-Json-Errors': '1', Authorization: 'Bearer ' + data.session.access_token },
+        method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/x-ndjson', 'X-Daymark-Json-Errors': '1', Authorization: 'Bearer ' + data.session.access_token },
         body: JSON.stringify({ message: text, source, start, end, history: history.slice(-8).map(item => ({ role: item.role, text: item.text.slice(0, 4000) })) }), signal: AbortSignal.timeout(90000),
       });
-      if (!response.headers.get('content-type')?.includes('application/json')) throw new Error('The chat backend is unavailable. Check your server setup.');
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'Could not complete the chat request.');
-      setMessages(previous => [...previous, { role: 'assistant', text: result.answer, ...(result.context ? { context: result.context } : {}) }]);
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not send your message.'); setFailed(text); }
+      await readChatResponse(response, answer => setMessages([...conversation, { role: 'assistant', ...answer }]));
+    } catch (cause) { setMessages(conversation); setError(cause instanceof Error ? cause.message : 'Could not send your message.'); setFailed(text); }
     finally { busy.current = false; setPending(false); input.current?.focus(); }
   };
 
@@ -73,7 +73,7 @@ export default function GeneralChatScreen({ active }: { active: boolean }) {
       <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-2 dark:border-slate-800"><p role="status" className="text-xs text-slate-500">{checking ? 'Checking connection…' : ready ? 'Ready to chat' : 'Connection needs setup'}</p><button type="button" disabled={pending || !messages.length} onClick={() => { setMessages([]); setFailed(''); setError(''); setDraft(''); input.current?.focus(); }} className="inline-flex min-h-10 items-center gap-1 rounded-lg px-2 text-xs text-slate-500 hover:bg-slate-100 disabled:opacity-40 dark:hover:bg-slate-800"><Plus className="h-4 w-4" />New chat</button></div>
       <div ref={log} role="log" aria-label="Chat messages" aria-live="polite" className="h-[50dvh] min-h-64 space-y-4 overflow-y-auto p-4 sm:p-6">
         {!messages.length && <div className="mx-auto max-w-lg py-6 sm:py-12"><h2 className="text-lg font-semibold">What would you like to understand?</h2><p className="mt-2 text-sm leading-relaxed text-slate-500">Ask about your selected records, get explanations, or ask for suggestions. The AI cannot add, edit, complete or delete anything.</p><div className="mt-5 grid gap-2">{['Summarize these records and the main patterns', 'What can I improve based on this data?', 'Show important details and explain your findings'].map(text => <button key={text} type="button" onClick={() => { setDraft(text); input.current?.focus(); }} className="min-h-11 rounded-xl border border-slate-200 px-3 py-2 text-left text-xs hover:border-indigo-400 dark:border-slate-700">{text}</button>)}</div></div>}
-        {messages.map((message, index) => <article key={index} aria-label={message.role === 'user' ? 'Your message' : 'Daymark AI answer'} className={message.role === 'user' ? 'ml-auto max-w-[90%] rounded-2xl rounded-tr-sm bg-indigo-600 px-4 py-3 text-white sm:max-w-[80%]' : 'max-w-[95%] rounded-2xl bg-slate-100 px-4 py-3 dark:bg-slate-800/60'}><p className="mb-1 text-[10px] font-semibold uppercase opacity-60">{message.role === 'user' ? 'You' : 'Daymark AI'}</p><p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{message.text}</p>{message.context && <p className="mt-3 border-t border-slate-200 pt-2 text-[10px] text-slate-500 dark:border-slate-700">Source: {DATA_SOURCES[message.context.source]} · {message.context.start} – {message.context.end} · {message.context.recordCount} retrieved records</p>}{message.context?.facts?.length ? <details className="mt-3 rounded-xl border border-slate-200 p-3 dark:border-slate-700"><summary className="cursor-pointer text-xs font-semibold text-indigo-600 dark:text-indigo-300">View source figures</summary><p className="mt-2 text-[10px] text-slate-500">Calculated directly from your fetched records for these dates.</p><dl className="mt-2 space-y-2">{message.context.facts.map((fact, factIndex) => <div key={factIndex} className="flex flex-wrap justify-between gap-x-4 gap-y-1 text-xs"><dt className="text-slate-500">{fact.label}</dt><dd className="font-medium tabular-nums">{fact.value}</dd></div>)}</dl></details> : null}</article>)}
+        {messages.map((message, index) => <article key={index} aria-label={message.role === 'user' ? 'Your message' : 'Daymark AI answer'} className={message.role === 'user' ? 'ml-auto max-w-[90%] rounded-2xl rounded-tr-sm bg-indigo-600 px-4 py-3 text-white sm:max-w-[80%]' : 'max-w-[95%] rounded-2xl bg-slate-100 px-4 py-3 dark:bg-slate-800/60'}><p className="mb-1 text-[10px] font-semibold uppercase opacity-60">{message.role === 'user' ? 'You' : 'Daymark AI'}</p>{message.role === 'assistant' ? <AssistantMessage text={message.text} /> : <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{message.text}</p>}{message.context && <p className="mt-3 border-t border-slate-200 pt-2 text-[10px] text-slate-500 dark:border-slate-700">Source: {DATA_SOURCES[message.context.source]} · {message.context.start} – {message.context.end} · {message.context.recordCount} retrieved records</p>}{message.context?.facts?.length ? <details className="mt-3 rounded-xl border border-slate-200 p-3 dark:border-slate-700"><summary className="cursor-pointer text-xs font-semibold text-indigo-600 dark:text-indigo-300">View source figures</summary><p className="mt-2 text-[10px] text-slate-500">Calculated directly from your fetched records for these dates.</p><dl className="mt-2 space-y-2">{message.context.facts.map((fact, factIndex) => <div key={factIndex} className="flex flex-wrap justify-between gap-x-4 gap-y-1 text-xs"><dt className="text-slate-500">{fact.label}</dt><dd className="font-medium tabular-nums">{fact.value}</dd></div>)}</dl></details> : null}</article>)}
         {pending && <p role="status" className="flex items-center gap-2 text-xs text-slate-500"><LoaderCircle className="h-4 w-4 animate-spin" />Reading selected records and preparing an answer…</p>}
       </div>
       <div className="border-t border-slate-200 p-3 dark:border-slate-800 sm:p-4">

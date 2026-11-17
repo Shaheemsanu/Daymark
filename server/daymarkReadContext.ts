@@ -12,7 +12,7 @@ export async function readDaymarkContext(scope: DataScope, access: { url: string
     const seenIds = new Set<string>();
     let expectedTotal: number | null = null;
     while (rows.length <= 2000) {
-      const query = new URLSearchParams({ select: columns, user_id: 'eq.' + access.userId, order: dateColumn ? dateColumn + '.asc,id.asc' : 'id.asc', limit: '200', offset: String(rows.length) });
+      const query = new URLSearchParams({ select: columns, user_id: 'eq.' + access.userId, order: dateColumn ? dateColumn + '.asc,id.asc' : 'id.asc', limit: '1000', offset: String(rows.length) });
       if (dateColumn) {
         query.append(dateColumn, 'gte.' + scope.start + (dateColumn === 'created_at' ? 'T00:00:00Z' : ''));
         query.append(dateColumn, dateColumn === 'created_at' ? 'lt.' + new Date(Date.parse(scope.end) + 86400000).toISOString().slice(0, 10) + 'T00:00:00Z' : 'lte.' + scope.end);
