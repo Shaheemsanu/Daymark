@@ -48,10 +48,10 @@ export const Layout: React.FC<LayoutProps> = ({
   const [signOutError, setSignOutError] = useState<string | null>(null);
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100 flex flex-col selection:bg-slate-200 dark:selection:bg-slate-800">
+    <div className={`${currentView === 'ai' ? 'h-dvh overflow-hidden md:h-auto md:min-h-screen md:overflow-visible' : 'min-h-screen'} bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100 flex flex-col selection:bg-slate-200 dark:selection:bg-slate-800`}>
       {/* Top Header conforming to 3-zone contract */}
-      <header className="sticky top-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200 dark:border-slate-800">
-        <div className="max-w-7xl mx-auto flex items-center justify-between gap-4 sm:gap-6 px-4 sm:px-6 py-3">
+      <header className="sticky top-0 z-40 shrink-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200 dark:border-slate-800">
+        <div className="max-w-7xl mx-auto flex items-center justify-between gap-2 sm:gap-6 px-3 sm:px-6 py-3">
           {/* Zone 1: Wordmark */}
           <button
             onClick={() => onSelectView('expenses')}
@@ -198,7 +198,7 @@ export const Layout: React.FC<LayoutProps> = ({
       </header>
 
       {/* Main Viewport */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 pb-24 md:pb-8">
+      <main className={`flex-1 max-w-7xl w-full mx-auto ${currentView === 'ai' ? 'flex min-h-0 flex-col overflow-hidden p-2 pb-[calc(4.5rem+env(safe-area-inset-bottom))] md:block md:overflow-visible md:px-6 md:pt-2 md:pb-6 lg:px-8 lg:pb-8' : 'p-4 sm:p-6 lg:p-8 pb-24 md:pb-8'}`}>
         {currentView === 'history' && (
           <section aria-labelledby="settings-heading" className="mb-6">
             <h1 id="settings-heading" className="text-2xl font-bold tracking-tight">Settings</h1>
@@ -223,7 +223,7 @@ export const Layout: React.FC<LayoutProps> = ({
       </main>
 
       {/* Mobile Fixed Bottom Navigation Bar (Thumb-friendly touch targets) */}
-      <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 md:hidden flex items-center justify-around h-16 px-2 shadow-xl">
+      <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 md:hidden flex items-center justify-around h-[calc(4rem+env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] px-2 shadow-xl">
         <button
           onClick={() => onSelectView('daily')}
           className={`flex flex-col items-center justify-center flex-1 h-full py-1 transition-colors ${
