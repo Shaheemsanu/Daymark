@@ -163,3 +163,15 @@ it('rejects invalid amounts instead of silently treating them as zero or excludi
   expect((await server.post({ message: 'Summarize' })).status).toBe(422);
   expect(server.generate).not.toHaveBeenCalled();
 });
+
+it('avoids 502/503/504 statuses on proxied requests so reverse proxies do not replace JSON errors with HTML', async () => {
+  const server = await serve({ generate: async () => { throw Object.assign(new Error('invalid key'), { status: 401 }); } });
+  const response = await fetch(server.base + '/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Forwarded-Host': 'example.run.app', Authorization: 'Bearer valid-token' },
+    body: JSON.stringify({ source: 'expenses', start: '2026-11-01', end: '2026-11-17', message: 'Hello', history: [] }),
+  });
+  expect(response.status).toBe(500);
+  expect(response.headers.get('content-type')).toContain('application/json');
+  expect(await response.json()).toEqual({ error: 'Gemini rejected the Daymark AI API key. Replace it in the server environment.' });
+});

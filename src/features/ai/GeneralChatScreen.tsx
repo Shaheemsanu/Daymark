@@ -48,7 +48,7 @@ export default function GeneralChatScreen({ active }: { active: boolean }) {
       const { data, error: sessionError } = await supabase.auth.getSession();
       if (sessionError || !data.session) throw new Error('Your session expired. Sign in again.');
       const response = await fetch('/api/general-chat/chat', {
-        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + data.session.access_token },
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Daymark-Json-Errors': '1', Authorization: 'Bearer ' + data.session.access_token },
         body: JSON.stringify({ message: text, source, start, end, history: history.slice(-8).map(item => ({ role: item.role, text: item.text.slice(0, 4000) })) }), signal: AbortSignal.timeout(90000),
       });
       if (!response.headers.get('content-type')?.includes('application/json')) throw new Error('The chat backend is unavailable. Check your server setup.');

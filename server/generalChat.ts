@@ -18,7 +18,14 @@ Use plain text, short paragraphs and bullets in the user's language. Do not use 
 export function createGeneralChatApp(dependencies: Dependencies = {}) {
   const app = express();
   app.disable('x-powered-by');
-  app.use((_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
+  app.use((req, res, next) => {
+    res.set('Cache-Control', 'no-store');
+    if (req.headers['x-forwarded-host'] || req.headers['x-daymark-json-errors']) {
+      const originalStatus = res.status.bind(res);
+      res.status = (code: number) => originalStatus(code === 502 || code === 503 || code === 504 ? 500 : code);
+    }
+    next();
+  });
   app.use(express.json({ limit: '48kb' }));
   const env = dependencies.env || process.env;
   const request = dependencies.fetch || globalThis.fetch;
