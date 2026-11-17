@@ -8,7 +8,6 @@ vi.mock('../components/ExpenseCharts', () => ({
   CategoryDonutChart: () => null,
   DailySpendingTrendChart: () => null,
   FinancialHealth50_30_20: () => null,
-  AccountIntelligenceReport: () => null,
 }));
 
 afterEach(() => {

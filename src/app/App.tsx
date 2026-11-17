@@ -698,6 +698,7 @@ export default function App() {
       {/* 4. Dedicated Expense Dashboard (New Model) */}
       {currentView === 'expenses' && (
         <ExpenseDashboard
+          analyticsLoading={dataLoading}
           expenses={expenses}
           budget={budget}
           onAddExpense={handleAddExpense}

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, lazy, Suspense } from 'react';
 import {
   Plus,
   Search,
@@ -36,7 +36,9 @@ import {
   formatCurrency,
   formatDate,
 } from '../utils/constants';
-import { CategoryDonutChart, DailySpendingTrendChart, FinancialHealth50_30_20, AccountIntelligenceReport } from './ExpenseCharts';
+import { CategoryDonutChart, DailySpendingTrendChart, FinancialHealth50_30_20 } from './ExpenseCharts';
+
+const FinancialAnalyticsDashboard = lazy(() => import('./FinancialAnalyticsDashboard'));
 
 interface ExpenseDashboardProps {
   expenses: Expense[];
@@ -52,6 +54,7 @@ interface ExpenseDashboardProps {
   initialDate?: string;
   onAddModalOpened?: () => void;
   onQuickAddDismiss?: () => void;
+  analyticsLoading?: boolean;
 }
 
 const PRESET_AMOUNTS = [10, 20, 50, 100, 200, 500, 1000, 2000];
@@ -109,7 +112,8 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
   openAddModal = false,
   initialDate,
   onAddModalOpened,
-  onQuickAddDismiss
+  onQuickAddDismiss,
+  analyticsLoading = false
 }) => {
   const currencySymbol = budget.currency || '₹';
   const monthlyBudget = Math.max(budget.monthlyBudget || 30000, 1);
@@ -1311,65 +1315,70 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
       </div>
 
         {/* Analytics & Ledger Tab Switcher */}
-        <div className="mt-6 grid grid-cols-2 gap-1.5 border-b border-slate-200 pb-1.5 dark:border-slate-800 sm:flex sm:items-center sm:gap-2 sm:pb-px">
-          <div className="contents sm:flex sm:items-center sm:gap-1.5">
+        <div role="group" aria-label="Expense modules" className="report-module-tabs mt-4 flex gap-1.5 overflow-x-auto rounded-2xl border border-slate-200 bg-slate-100/80 p-1.5 dark:border-slate-700 dark:bg-slate-950/40 sm:mt-6 sm:flex-wrap sm:items-center sm:gap-2 sm:overflow-visible sm:rounded-none sm:border-0 sm:border-b sm:bg-transparent sm:p-0 sm:pb-px dark:sm:border-slate-800 dark:sm:bg-transparent">
+          <div className="contents sm:flex sm:flex-wrap sm:items-center sm:gap-1.5">
             <button
               type="button"
+              aria-pressed={activeTab === 'ledger'}
               onClick={() => setActiveTab('ledger')}
-              className={`col-span-2 w-full min-w-0 min-h-12 justify-center rounded-xl border bg-slate-50 py-2 px-1.5 text-center text-[11px] leading-tight dark:bg-slate-900/70 sm:col-span-1 sm:min-h-0 sm:w-auto sm:rounded-none sm:border-0 sm:border-b-2 sm:bg-transparent sm:px-5 sm:py-2.5 sm:text-left sm:text-xs font-bold transition-all flex items-center gap-1 sm:gap-2 whitespace-normal sm:whitespace-nowrap cursor-pointer ${
+              className={`shrink-0 w-auto min-w-max min-h-11 justify-center rounded-xl border py-2 px-3 text-center text-[11px] leading-tight sm:col-span-1 sm:min-h-0 sm:w-auto sm:rounded-none sm:border-0 sm:border-b-2 sm:bg-transparent sm:px-5 sm:py-2.5 sm:text-left sm:text-xs font-bold transition-all flex items-center gap-1 sm:gap-2 whitespace-nowrap snap-start focus-visible:outline-2 focus-visible:outline-indigo-500 cursor-pointer ${
                 activeTab === 'ledger'
-                  ? 'border-slate-900 text-slate-900 dark:border-slate-100 dark:text-slate-100 font-extrabold'
+                  ? 'bg-white shadow-sm dark:bg-slate-800 sm:bg-transparent sm:shadow-none dark:sm:bg-transparent border-slate-900 text-slate-900 dark:border-slate-100 dark:text-slate-100 font-extrabold'
                   : 'border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
               }`}
             >
-              <span className="sm:hidden">📋 Transaction Ledger ({expenses.length})</span><span className="hidden sm:inline">📋 Transaction Ledger ({expenses.length})</span>
+              <span className="sm:hidden">📋 Ledger ({expenses.length})</span><span className="hidden sm:inline">📋 Transaction Ledger ({expenses.length})</span>
             </button>
 
             <button
               type="button"
+              aria-pressed={activeTab === 'classification'}
               onClick={() => setActiveTab('classification')}
-              className={`w-full min-w-0 min-h-12 justify-center rounded-xl border bg-slate-50 py-2 px-1.5 text-center text-[11px] leading-tight dark:bg-slate-900/70 sm:min-h-0 sm:w-auto sm:rounded-none sm:border-0 sm:border-b-2 sm:bg-transparent sm:px-5 sm:py-2.5 sm:text-left sm:text-xs font-bold transition-all flex items-center gap-1 sm:gap-2 whitespace-normal sm:whitespace-nowrap cursor-pointer ${
+              className={`shrink-0 w-auto min-w-max min-h-11 justify-center rounded-xl border py-2 px-3 text-center text-[11px] leading-tight sm:min-h-0 sm:w-auto sm:rounded-none sm:border-0 sm:border-b-2 sm:bg-transparent sm:px-5 sm:py-2.5 sm:text-left sm:text-xs font-bold transition-all flex items-center gap-1 sm:gap-2 whitespace-nowrap snap-start focus-visible:outline-2 focus-visible:outline-indigo-500 cursor-pointer ${
                 activeTab === 'classification'
-                  ? 'border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400 font-extrabold'
+                  ? 'bg-white shadow-sm dark:bg-slate-800 sm:bg-transparent sm:shadow-none dark:sm:bg-transparent border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400 font-extrabold'
                   : 'border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
               }`}
             >
-              <span className="sm:hidden">50/30/20</span><span className="hidden sm:inline">🎯 Classification (50/30/20)</span>
+              <span className="sm:hidden">🎯 50/30/20</span><span className="hidden sm:inline">🎯 Classification (50/30/20)</span>
             </button>
 
             <button
               type="button"
+              aria-pressed={activeTab === 'category'}
               onClick={() => setActiveTab('category')}
-              className={`w-full min-w-0 min-h-12 justify-center rounded-xl border bg-slate-50 py-2 px-1.5 text-center text-[11px] leading-tight dark:bg-slate-900/70 sm:min-h-0 sm:w-auto sm:rounded-none sm:border-0 sm:border-b-2 sm:bg-transparent sm:px-5 sm:py-2.5 sm:text-left sm:text-xs font-bold transition-all flex items-center gap-1 sm:gap-2 whitespace-normal sm:whitespace-nowrap cursor-pointer ${
+              className={`shrink-0 w-auto min-w-max min-h-11 justify-center rounded-xl border py-2 px-3 text-center text-[11px] leading-tight sm:min-h-0 sm:w-auto sm:rounded-none sm:border-0 sm:border-b-2 sm:bg-transparent sm:px-5 sm:py-2.5 sm:text-left sm:text-xs font-bold transition-all flex items-center gap-1 sm:gap-2 whitespace-nowrap snap-start focus-visible:outline-2 focus-visible:outline-indigo-500 cursor-pointer ${
                 activeTab === 'category'
-                  ? 'border-emerald-600 text-emerald-600 dark:border-emerald-400 dark:text-emerald-400 font-extrabold'
+                  ? 'bg-white shadow-sm dark:bg-slate-800 sm:bg-transparent sm:shadow-none dark:sm:bg-transparent border-emerald-600 text-emerald-600 dark:border-emerald-400 dark:text-emerald-400 font-extrabold'
                   : 'border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
               }`}
             >
-              <span className="sm:hidden">Categories</span><span className="hidden sm:inline">🍩 Category Breakdown</span>
+              <span className="sm:hidden">🍩 Categories</span><span className="hidden sm:inline">🍩 Category Breakdown</span>
             </button>
 
             <button
               type="button"
+              aria-pressed={activeTab === 'velocity'}
               onClick={() => setActiveTab('velocity')}
-              className={`w-full min-w-0 min-h-12 justify-center rounded-xl border bg-slate-50 py-2 px-1.5 text-center text-[11px] leading-tight dark:bg-slate-900/70 sm:min-h-0 sm:w-auto sm:rounded-none sm:border-0 sm:border-b-2 sm:bg-transparent sm:px-5 sm:py-2.5 sm:text-left sm:text-xs font-bold transition-all flex items-center gap-1 sm:gap-2 whitespace-normal sm:whitespace-nowrap cursor-pointer ${
+              className={`shrink-0 w-auto min-w-max min-h-11 justify-center rounded-xl border py-2 px-3 text-center text-[11px] leading-tight sm:min-h-0 sm:w-auto sm:rounded-none sm:border-0 sm:border-b-2 sm:bg-transparent sm:px-5 sm:py-2.5 sm:text-left sm:text-xs font-bold transition-all flex items-center gap-1 sm:gap-2 whitespace-nowrap snap-start focus-visible:outline-2 focus-visible:outline-indigo-500 cursor-pointer ${
                 activeTab === 'velocity'
-                  ? 'border-indigo-600 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400 font-extrabold'
+                  ? 'bg-white shadow-sm dark:bg-slate-800 sm:bg-transparent sm:shadow-none dark:sm:bg-transparent border-indigo-600 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400 font-extrabold'
                   : 'border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
               }`}
             >
-              <span className="sm:hidden">Velocity</span><span className="hidden sm:inline">📈 Daily Velocity</span>
+              <span className="sm:hidden">📈 Velocity</span><span className="hidden sm:inline">📈 Daily Velocity</span>
             </button>
             <button
               type="button"
+              aria-pressed={activeTab === 'account_report'}
               onClick={() => setActiveTab('account_report')}
-              className={`w-full min-w-0 min-h-12 justify-center rounded-xl border bg-slate-50 py-2 px-1.5 text-center text-[11px] leading-tight dark:bg-slate-900/70 sm:min-h-0 sm:w-auto sm:rounded-none sm:border-0 sm:border-b-2 sm:bg-transparent sm:px-5 sm:py-2.5 sm:text-left sm:text-xs font-bold transition-all flex items-center gap-1 sm:gap-2 whitespace-normal sm:whitespace-nowrap cursor-pointer ${
+              className={`shrink-0 w-auto min-w-max min-h-11 justify-center rounded-xl border py-2 px-3 text-center text-[11px] leading-tight sm:min-h-0 sm:w-auto sm:rounded-none sm:border-0 sm:border-b-2 sm:bg-transparent sm:px-5 sm:py-2.5 sm:text-left sm:text-xs font-bold transition-all flex items-center gap-1 sm:gap-2 whitespace-nowrap snap-start focus-visible:outline-2 focus-visible:outline-indigo-500 cursor-pointer ${
                 activeTab === 'account_report'
-                  ? 'border-emerald-600 text-emerald-600 dark:border-emerald-400 dark:text-emerald-400 font-extrabold'
+                  ? 'bg-white shadow-sm dark:bg-slate-800 sm:bg-transparent sm:shadow-none dark:sm:bg-transparent border-emerald-600 text-emerald-600 dark:border-emerald-400 dark:text-emerald-400 font-extrabold'
                   : 'border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
               }`}
             >
-              <span className="sm:hidden">Accounts</span><span className="hidden sm:inline">💳 Account Spends &amp; Intelligence</span>
+              <span className="sm:hidden">💳 Accounts</span><span className="hidden sm:inline">💳 Account Spends &amp; Intelligence</span>
             </button>
           </div>
         </div>
@@ -1564,14 +1573,9 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
               </div>
             </div>
 
-            <AccountIntelligenceReport
-              expenses={expenses}
-              referenceDate={referenceDateIso}
-              currencySymbol={currencySymbol}
-              savingsCurrentBalance={savingsCurrentBalance}
-              expenseAccCurrentBalance={expenseAccCurrentBalance}
-              cashCurrentBalance={cashCurrentBalance}
-            />
+            <Suspense fallback={<div role="status" className="h-64 animate-pulse rounded-2xl bg-slate-100 p-5 text-xs text-slate-500 dark:bg-slate-800">Loading financial analytics…</div>}>
+              <FinancialAnalyticsDashboard expenses={expenses} budget={budget} referenceDate={referenceDateIso} loading={analyticsLoading} categoryNames={Object.keys(customCategories)} />
+            </Suspense>
           </div>
         )}
 
