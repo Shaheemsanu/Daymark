@@ -312,6 +312,127 @@ CREATE POLICY "Users can upsert own budget"
   WITH CHECK (auth.uid() = user_id);
 
 -- ------------------------------------------------------------------------------
+-- Firebase Messaging device registrations
+-- ------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.push_tokens (
+  token TEXT PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.push_tokens ENABLE ROW LEVEL SECURITY;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.push_tokens TO authenticated;
+
+CREATE POLICY "Users can read their own push tokens" ON public.push_tokens FOR SELECT TO authenticated USING (auth.uid() = user_id);
+CREATE POLICY "Users can add their own push tokens" ON public.push_tokens FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can update their own push tokens" ON public.push_tokens FOR UPDATE TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can delete their own push tokens" ON public.push_tokens FOR DELETE TO authenticated USING (auth.uid() = user_id);
+
+-- ------------------------------------------------------------------------------
+-- Notification history
+-- ------------------------------------------------------------------------------
+-- Notification history is created by trusted server processes.
+CREATE TABLE IF NOT EXISTS public.notifications (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL,
+  view TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  read_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_notifications_user_created ON public.notifications(user_id, created_at DESC);
+ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
+GRANT SELECT, DELETE ON public.notifications TO authenticated;
+GRANT UPDATE (read_at) ON public.notifications TO authenticated;
+CREATE POLICY "Users can read their notifications" ON public.notifications FOR SELECT TO authenticated USING (auth.uid() = user_id);
+CREATE POLICY "Users can mark their notifications read" ON public.notifications FOR UPDATE TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can delete their notifications" ON public.notifications FOR DELETE TO authenticated USING (auth.uid() = user_id);
+
+-- ------------------------------------------------------------------------------
+-- Reminder scheduling
+-- ------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.reminder_preferences (
+  user_id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  timezone TEXT NOT NULL DEFAULT 'Asia/Kolkata',
+  enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE public.reminder_preferences ENABLE ROW LEVEL SECURITY;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.reminder_preferences TO authenticated;
+CREATE POLICY "Users manage their reminder preferences" ON public.reminder_preferences FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+-- Kept separately from notification history so clearing the bell cannot re-send a reminder.
+CREATE TABLE IF NOT EXISTS public.reminder_runs (
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  reminder_date DATE NOT NULL,
+  kind TEXT NOT NULL,
+  PRIMARY KEY (user_id, reminder_date, kind)
+);
+ALTER TABLE public.reminder_runs ENABLE ROW LEVEL SECURITY;
+
+-- ------------------------------------------------------------------------------
+-- Budget alerts
+-- ------------------------------------------------------------------------------
+-- Create alerts when an expense crosses a current target.
+ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'general';
+
+CREATE OR REPLACE FUNCTION public.create_budget_alerts()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public, pg_temp AS $$
+DECLARE
+  cfg public.budget_configs%ROWTYPE;
+  today date;
+  zone_name text;
+  period_start date;
+  target numeric;
+  total numeric;
+  previous_total numeric;
+  new_amount numeric;
+  old_amount numeric;
+  period_name text;
+BEGIN
+  SELECT * INTO cfg FROM public.budget_configs WHERE user_id = NEW.user_id;
+  IF NOT FOUND THEN RETURN NEW; END IF;
+  SELECT timezone INTO zone_name FROM public.reminder_preferences WHERE user_id = NEW.user_id;
+  BEGIN
+    today := (now() AT TIME ZONE coalesce(zone_name, 'Asia/Kolkata'))::date;
+  EXCEPTION WHEN invalid_parameter_value THEN
+    today := (now() AT TIME ZONE 'Asia/Kolkata')::date;
+  END;
+  FOREACH period_name IN ARRAY ARRAY['daily', 'weekly', 'monthly'] LOOP
+    period_start := CASE period_name WHEN 'daily' THEN today WHEN 'weekly' THEN today - 6 ELSE date_trunc('month', today)::date END;
+    target := CASE period_name WHEN 'daily' THEN cfg.daily_budget WHEN 'weekly' THEN cfg.weekly_budget ELSE cfg.monthly_budget END;
+    IF target IS NULL OR target <= 0 THEN CONTINUE; END IF;
+    SELECT coalesce(sum(amount), 0) INTO total FROM public.expenses
+      WHERE user_id = NEW.user_id AND entry_date BETWEEN period_start AND today
+        AND coalesce(account, 'expense') = 'expense' AND transaction_type = 'expense'
+        AND NOT coalesce(is_transfer, false);
+    new_amount := CASE WHEN NEW.entry_date BETWEEN period_start AND today AND coalesce(NEW.account, 'expense') = 'expense'
+      AND NEW.transaction_type = 'expense' AND NOT coalesce(NEW.is_transfer, false) THEN NEW.amount ELSE 0 END;
+    old_amount := 0;
+    IF TG_OP = 'UPDATE' THEN
+      IF OLD.user_id = NEW.user_id AND OLD.entry_date BETWEEN period_start AND today AND coalesce(OLD.account, 'expense') = 'expense'
+         AND OLD.transaction_type = 'expense' AND NOT coalesce(OLD.is_transfer, false) THEN old_amount := OLD.amount; END IF;
+    END IF;
+    previous_total := total - new_amount + old_amount;
+    IF total > target AND previous_total <= target THEN
+      INSERT INTO public.notifications (user_id, title, body, view, kind)
+      VALUES (NEW.user_id, initcap(period_name) || ' budget exceeded',
+        'Expense account spending is ' || cfg.currency || to_char(total, 'FM999999999999990.00') ||
+        ', above your ' || period_name || ' target of ' || cfg.currency || to_char(target, 'FM999999999999990.00') || '.',
+        'expenses', 'budget_alert');
+    END IF;
+  END LOOP;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS expense_budget_alerts ON public.expenses;
+CREATE TRIGGER expense_budget_alerts AFTER INSERT OR UPDATE OF amount, entry_date, account, transaction_type, is_transfer
+ON public.expenses FOR EACH ROW EXECUTE FUNCTION public.create_budget_alerts();
+
+-- ------------------------------------------------------------------------------
 -- Trigger for automatic user profile creation on signup
 -- ------------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.handle_new_user()

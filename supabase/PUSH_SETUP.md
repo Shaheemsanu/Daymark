@@ -1,0 +1,15 @@
+# Daily notifications
+
+Run `20261118000002_notification_history.sql` and `20261118000003_reminder_preferences.sql` in the Supabase SQL editor, in that order. These additions are also in `schema.sql` for new projects. Then redeploy `push-test` from its local `index.ts` and deploy `daily-reminders` from its local `index.ts`. The latter is a server-to-server function: disable its gateway JWT verification, while retaining the function's `withSupabase({ auth: 'secret' })` authentication. Do not disable the function's own authentication.
+
+Keep `FIREBASE_SERVICE_ACCOUNT` in the Supabase Edge Function secrets. In Daymark Settings, click Enable notifications again after applying the migrations. This stores the browser's IANA time zone for the account and enables reminders.
+
+Schedule `daily-reminders` every 15 minutes using Supabase Cron (`*/15 * * * *`). Authenticate calls using the project's secret API key in the `apikey` header, stored in Supabase Vault; never put this key in application code or public SQL. See https://supabase.com/docs/guides/functions/schedule-functions for the current Vault and scheduling steps. The function creates reminders around 8:00 PM in the stored time zone for pending tasks and incomplete habits scheduled that day, and around 9:00 PM on days with no recorded expense. Expense reminders do not imply an expense actually occurred.
+
+For testing, send a test notification while Daymark is focused. Then use a second registered device to send another test while the first is backgrounded, and again after its Daymark tab is closed. Open Daymark and confirm the message appears in the bell. Delivery depends on device and browser settings. The function records reminder history before attempting FCM delivery; FCM failures are logged and are not currently retried. Existing device-local notification history is not migrated.
+
+## Budget alerts
+
+Apply `20261118000004_budget_alerts.sql` after the notification history and reminder preference migrations, and deploy `budget-alert-push`. Disable the gateway JWT check for that function; its `withSupabase({ auth: 'secret' })` check still requires the default Supabase secret API key in the `apikey` header. Configure a Supabase Database Webhook for INSERT on `public.notifications`, targeting `budget-alert-push` with that secret header. Keep the key out of client code, source control and chat. The function ignores other notification kinds. Test the webhook and its authentication before relying on delivery; delivery failures are logged and are not automatically retried by this implementation.
+
+Alerts are recorded when a saved expense crosses the current daily, rolling seven-day, or monthly target. They use the Expense account, exclude income and transfers, and trigger when spending becomes greater than the target. Updating an expense can also trigger an alert. Alerts are recorded in notification history independently of push delivery.

@@ -1,0 +1,5 @@
+[functions.daily-reminders]
+verify_jwt = false
+
+[functions.budget-alert-push]
+verify_jwt = false

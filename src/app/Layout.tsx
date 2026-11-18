@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { AppProfile } from '../lib/types';
+import { PushSettings } from '../features/notifications/PushSettings';
+import { ForegroundPush } from '../features/notifications/ForegroundPush';
 import {
   Calendar,
   CheckCircle2,
@@ -155,6 +157,7 @@ export const Layout: React.FC<LayoutProps> = ({
 
           {/* Zone 3: User Controls */}
           <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+            {user && <ForegroundPush userId={user.id} onNavigate={view => { if (['expenses', 'daily', 'habits', 'tasks', 'notes', 'reports', 'history', 'ai'].includes(view)) onSelectView(view as NavView); }} />}
             <button type="button" onClick={() => onSelectView('ai')} aria-label="Daymark AI" title="Daymark AI" aria-current={currentView === 'ai' ? 'page' : undefined} className={`inline-flex min-h-9 min-w-9 items-center justify-center gap-1.5 rounded-xl border px-2 text-xs transition-colors ${currentView === 'ai' ? 'border-indigo-400 bg-indigo-500/10 text-indigo-500' : 'border-slate-200 text-slate-500 hover:bg-indigo-500/10 dark:border-slate-800'}`}><Sparkles className="h-4 w-4" /><span className="hidden xl:inline">AI</span></button>
             <button
               type="button"
@@ -205,6 +208,7 @@ export const Layout: React.FC<LayoutProps> = ({
           </section>
         )}
         {children}
+        {currentView === 'history' && user && <PushSettings userId={user.id} />}
         {currentView === 'history' && user && (
           <section aria-label="Account" className="mt-8">
               <div className="flex items-center justify-between gap-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-4 py-1">

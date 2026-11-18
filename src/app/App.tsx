@@ -15,6 +15,7 @@ import {
 } from '../utils/export';
 import { formatDate } from '../utils/constants';
 import { authService } from '../features/auth/authService';
+import { disablePush } from '../features/notifications/pushRegistration';
 import { AuthPage } from '../features/auth/AuthPage';
 import { Layout, NavView } from './Layout';
 import { DailyOverview } from '../components/DailyOverview';
@@ -579,6 +580,7 @@ export default function App() {
   };
 
   const handleSignOut = async () => {
+    if (user) await disablePush(user.id);
     await authService.signOut();
     setUser(null);
   };
