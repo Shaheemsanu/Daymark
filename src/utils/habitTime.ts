@@ -15,3 +15,7 @@ export function timeRangeMinutes(start: string, end: string): number | null {
   const duration = endHour * 60 + endMinute - startHour * 60 - startMinute;
   return duration > 0 ? duration : null;
 }
+
+export function formatDuration(minutes: number): string {
+  return minutes >= 60 ? `${Math.floor(minutes / 60)} hr${minutes % 60 ? ` ${minutes % 60} min` : ''}` : `${minutes} min`;
+}

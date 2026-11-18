@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { formatHabitTime } from '../utils/habitTime';
+import { formatDuration, formatHabitTime, timeRangeMinutes } from '../utils/habitTime';
 import { HabitTimeInput } from './HabitTimeInput';
 import {
   ResponsiveContainer,
@@ -27,6 +27,7 @@ import {
   BarChart3,
   LayoutGrid,
   Calendar,
+  Clock,
   Sparkles,
   Tag,
   Check,
@@ -183,6 +184,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
   const [endTime, setEndTime] = useState('');
   const [timeError, setTimeError] = useState('');
   const invalidTimeRange = Boolean(startTime && endTime && endTime <= startTime);
+  const habitDuration = timeRangeMinutes(startTime, endTime);
 
   const today = new Date();
   const todayIso = formatDate(today);
@@ -1117,8 +1119,9 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
                               <div className="font-semibold text-slate-900 dark:text-slate-100">
                                 {habit.title}
                               </div>
-                              <div className="text-[11px] text-slate-400 dark:text-slate-500">
-                                {habit.category}{habit.startTime && habit.endTime ? ` · ${formatHabitTime(habit.startTime, habit.endTime)}` : ''}
+                              <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
+                                <span>{habit.category}</span>
+                                {habit.startTime && habit.endTime && <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-1.5 py-0.5 font-semibold text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300"><Clock className="h-3 w-3 shrink-0" />{formatHabitTime(habit.startTime, habit.endTime)}{timeRangeMinutes(habit.startTime, habit.endTime) !== null && <span className="text-emerald-600 dark:text-emerald-400">· {formatDuration(timeRangeMinutes(habit.startTime, habit.endTime)!)}</span>}</span>}
                               </div>
                             </div>
                           </div>
@@ -1218,8 +1221,8 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
                 <div className="flex min-w-0 items-center gap-2.5">
                   <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: habit.color }} />
                   <div className="min-w-0 flex-1">
-                    <h4 className="truncate text-sm font-bold text-slate-900 dark:text-slate-100">{habit.title}</h4>
-                    <p className="truncate text-[11px] text-slate-500 dark:text-slate-400">{habit.category}{habit.startTime && habit.endTime ? ` · ${formatHabitTime(habit.startTime, habit.endTime)}` : ''}</p>
+                    <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5"><h4 className="truncate text-sm font-bold text-slate-900 dark:text-slate-100">{habit.title}</h4><span className="truncate text-[11px] text-slate-500 dark:text-slate-400">{habit.category}</span></div>
+                    {habit.startTime && habit.endTime && <div className="mt-1"><span className="inline-flex flex-wrap items-center gap-1 rounded-md bg-emerald-50 px-1.5 py-0.5 text-[11px] font-semibold leading-tight text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300"><Clock className="h-3 w-3 shrink-0" />{formatHabitTime(habit.startTime, habit.endTime)}{timeRangeMinutes(habit.startTime, habit.endTime) !== null && <span className="text-emerald-600 dark:text-emerald-400">· {formatDuration(timeRangeMinutes(habit.startTime, habit.endTime)!)}</span>}</span></div>}
                   </div>
                   {isEditingOrder ? <div className="flex shrink-0 items-center gap-1">
                     <button type="button" onClick={() => moveHabit(habit.id, -1)} disabled={habitIndex === 0 || savingKeys?.has('habit:order')} aria-label={`Move ${habit.title} up`} className="rounded-lg border border-slate-200 p-2 text-slate-500 disabled:opacity-30 dark:border-slate-700"><ArrowUp className="h-4 w-4" /></button>
@@ -1852,7 +1855,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
                   <HabitTimeInput label="Start time" value={startTime} onChange={value => { setStartTime(value); setTimeError(''); }} />
                   <HabitTimeInput label="End time" value={endTime} onChange={value => { setEndTime(value); setTimeError(''); }} />
                 </div>
-                <p className="mt-1.5 text-[11px] text-slate-500 dark:text-slate-400">Select the hour, minute and AM or PM.</p>
+                {habitDuration !== null && <p className="mt-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-400">Duration: {formatDuration(habitDuration)}</p>}
                 {(startTime || endTime) && <button type="button" onClick={() => { setStartTime(''); setEndTime(''); setTimeError(''); }} className="mt-2 text-xs font-medium text-slate-500 underline dark:text-slate-400">Clear time</button>}
                 {(timeError || invalidTimeRange) && <p role="alert" className="mt-1 text-xs text-rose-600 dark:text-rose-400">{timeError || 'End time must be later than start time.'}</p>}
               </div>

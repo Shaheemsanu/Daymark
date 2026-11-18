@@ -10,10 +10,18 @@ it('converts AM and PM selections to the saved 24-hour time', () => {
   }
   render(<Example />);
   fireEvent.change(screen.getByLabelText('Start time hour'), { target: { value: '12' } });
+  fireEvent.blur(screen.getByLabelText('Start time hour'));
   expect(screen.getByText('00:00')).toBeTruthy();
   fireEvent.change(screen.getByLabelText('Start time AM or PM'), { target: { value: 'PM' } });
   fireEvent.change(screen.getByLabelText('Start time minute'), { target: { value: '30' } });
+  fireEvent.blur(screen.getByLabelText('Start time minute'));
   expect(screen.getByText('12:30')).toBeTruthy();
   fireEvent.change(screen.getByLabelText('Start time hour'), { target: { value: '9' } });
+  fireEvent.blur(screen.getByLabelText('Start time hour'));
   expect(screen.getByText('21:30')).toBeTruthy();
+  fireEvent.click(screen.getByLabelText('Start time choose hour'));
+  fireEvent.click(screen.getByRole('button', { name: '10' }));
+  fireEvent.click(screen.getByLabelText('Start time choose minute'));
+  fireEvent.click(screen.getByRole('button', { name: '15' }));
+  expect(screen.getByText('22:15')).toBeTruthy();
 });
