@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { disablePush, enablePush, hasLocalPushRegistration } from './pushRegistration';
 import { supabase } from '../../lib/supabase';
 
@@ -6,17 +6,6 @@ export function PushSettings({ userId }: { userId: string }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [enabled, setEnabled] = useState(hasLocalPushRegistration);
-  useEffect(() => {
-    if (!hasLocalPushRegistration()) return;
-    let cancelled = false;
-    setBusy(true);
-    void enablePush(userId).then(() => {
-      if (!cancelled) setEnabled(true);
-    }).catch(error => {
-      if (!cancelled) setMessage(`Could not refresh notification registration: ${error instanceof Error ? error.message : String(error)}`);
-    }).finally(() => { if (!cancelled) setBusy(false); });
-    return () => { cancelled = true; };
-  }, [userId]);
   const run = async (enable: boolean) => {
     setBusy(true);
     setMessage('');
@@ -35,7 +24,7 @@ export function PushSettings({ userId }: { userId: string }) {
       if (!supabase) throw new Error('Connect Supabase first.');
       const { data, error } = await supabase.functions.invoke('push-test', { method: 'POST' });
       if (error) throw error;
-      setMessage(`Test sent to ${data.sent} of ${data.total} registered devices.`);
+      setMessage(`Firebase accepted the test for ${data.sent} of ${data.total} registered devices. To test a locked phone, send the test from another signed-in device while the phone is locked.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
     } finally { setBusy(false); }

@@ -3,6 +3,7 @@ import { Bell, CheckCheck, Trash2, X } from 'lucide-react';
 import { getMessaging, isSupported, onMessage } from 'firebase/messaging';
 import { firebaseApp } from '../../lib/firebase';
 import { supabase } from '../../lib/supabase';
+import { enablePush, hasLocalPushRegistration } from './pushRegistration';
 
 type Notice = { id: string; title: string; body: string; receivedAt: number; read: boolean; view?: string };
 export function ForegroundPush({ userId, onNavigate }: { userId: string; onNavigate: (view: string) => void }) {
@@ -20,6 +21,7 @@ export function ForegroundPush({ userId, onNavigate }: { userId: string; onNavig
   };
   useEffect(() => {
     setNotices([]); setMessage(null); setOpen(false);
+    if (hasLocalPushRegistration()) void enablePush(userId, true).catch(() => {});
     let disposed = false;
     let unsubscribe: (() => void) | undefined;
     void loadNotices();
