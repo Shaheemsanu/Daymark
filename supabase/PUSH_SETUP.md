@@ -1,6 +1,6 @@
 # Daily notifications
 
-Run `20261118000002_notification_history.sql` and `20261118000003_reminder_preferences.sql` in the Supabase SQL editor, in that order. These additions are also in `schema.sql` for new projects. Then redeploy `push-test` from its local `index.ts` and deploy `daily-reminders` from its local `index.ts`. The latter is a server-to-server function: disable its gateway JWT verification, while retaining the function's `withSupabase({ auth: 'secret' })` authentication. Do not disable the function's own authentication.
+Apply migrations `20261118000001` through `20261118000006` in order, including the habit and task time columns. These additions are also in `schema.sql` for new projects. Then redeploy `push-test` from its local `index.ts` and deploy `daily-reminders` from its local `index.ts`. The latter is a server-to-server function: disable its gateway JWT verification, while retaining the function's `withSupabase({ auth: 'secret' })` authentication. Do not disable the function's own authentication.
 
 Keep `FIREBASE_SERVICE_ACCOUNT` in the Supabase Edge Function secrets. In Daymark Settings, click Enable notifications again after applying the migrations. This stores the browser's IANA time zone for the account and enables reminders.
 
@@ -8,8 +8,16 @@ Schedule `daily-reminders` every minute using Supabase Cron (`* * * * *`). Authe
 
 For testing, send a test notification while Daymark is focused. Then use a second registered device to send another test while the first is backgrounded, and again after its Daymark tab is closed. Open Daymark and confirm the message appears in the bell. Delivery depends on device and browser settings. The function records reminder history before attempting FCM delivery; FCM failures are logged and are not currently retried. Existing device-local notification history is not migrated.
 
+Check the Cron run history and Edge Function logs if reminders are missing. A response with `pushAvailable: false` means Firebase authentication failed: reminders can still appear in the bell, but pushes are not sent or retried. The browser must support web push and have permission enabled; on iOS/iPadOS, install the site to the Home Screen and enable notifications from the installed app. Operating system settings, browser shutdown and battery restrictions can affect delivery.
+
 ## Budget alerts
 
 Apply `20261118000004_budget_alerts.sql` after the notification history and reminder preference migrations, and deploy `budget-alert-push`. Disable the gateway JWT check for that function; its `withSupabase({ auth: 'secret' })` check still requires the default Supabase secret API key in the `apikey` header. Configure a Supabase Database Webhook for INSERT on `public.notifications`, targeting `budget-alert-push` with that secret header. Keep the key out of client code, source control and chat. The function ignores other notification kinds. Test the webhook and its authentication before relying on delivery; delivery failures are logged and are not automatically retried by this implementation.
 
 Alerts are recorded when a saved expense crosses the current daily, rolling seven-day, or monthly target. They use the Expense account, exclude income and transfers, and trigger when spending becomes greater than the target. Updating an expense can also trigger an alert. Alerts are recorded in notification history independently of push delivery.
+
+### Troubleshooting a budget alert that appears in the bell but not on the device
+
+The test push and budget push are separate function invocations. A successful test confirms the test function could send to at least one registered device; it does not confirm that the budget webhook ran. First test the same device with Daymark backgrounded or closed. Then check Database Webhooks for an INSERT webhook on `public.notifications` calling `budget-alert-push`, and check that function's invocation logs after creating a new budget crossing. If there is no invocation, inspect the webhook and its request history. If the invocation returns 401, check its secret `apikey` header and function authentication settings. A 404 indicating no registered devices means the alert's user has no token; enable push while signed in as that user. A 502 indicates FCM rejected all sends; inspect the function logs for the FCM status. Never share tokens or secret headers when asking for help.
+
+To generate a new crossing, make the relevant spending total at or below the target, then add or update an expense to take it above the target. An alert already in history is not sent again after configuring the webhook.
