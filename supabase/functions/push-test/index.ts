@@ -48,7 +48,7 @@ Deno.serve(async (request) => {
     for (const { token } of tokens) {
       const response = await fetch(`https://fcm.googleapis.com/v1/projects/${encodeURIComponent(account.project_id)}/messages:send`, {
         method: 'POST', headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: { token, notification: { title: 'Daymark test', body: 'Notifications are working on this device.' }, ...(icon ? { webpush: { notification: { title: 'Daymark test', body: 'Notifications are working on this device.', icon } } } : {}), data: { notification_id: notice.id, view: 'history' } } }),
+        body: JSON.stringify({ message: { token, notification: { title: 'Daymark test', body: 'Notifications are working on this device.' }, webpush: { notification: { title: 'Daymark test', body: 'Notifications are working on this device.', icon }, fcm_options: { link: 'https://daymarks.ai.studio/?notificationView=history' } }, data: { notification_id: notice.id, view: 'history' } } }),
       });
       if (response.ok) sent++;
       else console.error('FCM send failed:', response.status, await response.text());

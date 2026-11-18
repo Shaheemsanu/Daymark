@@ -52,7 +52,7 @@ export default {
         try {
           const response = await sendPush(`https://fcm.googleapis.com/v1/projects/${encodeURIComponent(account.project_id)}/messages:send`, {
             method: 'POST', headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message: { token, notification: { title: notice.title, body: notice.body }, ...(icon ? { webpush: { notification: { title: notice.title, body: notice.body, icon } } } : {}), data: { notification_id: notice.id, view: notice.view || 'expenses' } } }),
+            body: JSON.stringify({ message: { token, notification: { title: notice.title, body: notice.body }, webpush: { notification: { title: notice.title, body: notice.body, icon }, fcm_options: { link: `https://daymarks.ai.studio/?notificationView=${encodeURIComponent(notice.view || 'expenses')}` } }, data: { notification_id: notice.id, view: notice.view || 'expenses' } } }),
           });
           if (response.ok) sent++;
           else {

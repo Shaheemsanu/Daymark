@@ -92,7 +92,7 @@ export default {
             try {
               const response = await sendPush(`https://fcm.googleapis.com/v1/projects/${encodeURIComponent(account.project_id)}/messages:send`, {
                 method: 'POST', headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message: { token, notification: { title: reminder.title, body: reminder.body }, ...(icon ? { webpush: { notification: { title: reminder.title, body: reminder.body, icon } } } : {}), data: { notification_id: notice.id, view: reminder.view } } }),
+                body: JSON.stringify({ message: { token, notification: { title: reminder.title, body: reminder.body }, webpush: { notification: { title: reminder.title, body: reminder.body, icon }, fcm_options: { link: `https://daymarks.ai.studio/?notificationView=${encodeURIComponent(reminder.view)}` } }, data: { notification_id: notice.id, view: reminder.view } } }),
               });
               if (response.ok) pushAccepted++;
               else {

@@ -1,9 +1,10 @@
 // These Firebase web configuration values are public and passed by the app.
 const params = new URL(self.location.href).searchParams;
+self.addEventListener('install', () => { self.skipWaiting(); });
 // Register before Firebase so its default click handler does not consume the tap.
 self.addEventListener('notificationclick', (event) => {
-  const view = event.notification.data?.FCM_MSG?.data?.view;
-  if (!['daily', 'expenses', 'habits', 'tasks', 'notes', 'reports', 'history', 'ai'].includes(view)) return;
+  const requestedView = event.notification.data?.FCM_MSG?.data?.view;
+  const view = ['daily', 'expenses', 'habits', 'tasks', 'notes', 'reports', 'history', 'ai'].includes(requestedView) ? requestedView : 'history';
   event.stopImmediatePropagation();
   event.notification.close();
   const base = new URL('./', self.location.href);
