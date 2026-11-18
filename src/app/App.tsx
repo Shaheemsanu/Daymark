@@ -33,6 +33,7 @@ import { WellnessGoals } from '../types';
 import { CompactDateNavigator } from '../components/CompactDateNavigator';
 import { Account, createBalanceEntry } from '../utils/accounts';
 const GeneralChatScreen = lazy(() => import('../features/ai/GeneralChatScreen'));
+const isNotificationView = (value: unknown): value is NavView => typeof value === 'string' && ['daily', 'expenses', 'habits', 'tasks', 'notes', 'reports', 'history', 'ai'].includes(value);
 
 export default function App() {
   const [user, setUser] = useState<AppProfile | null>(null);
@@ -40,7 +41,19 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(true);
 
   // Navigation - Daily Overview 1st, Expense 2nd after overview
-  const [currentView, setCurrentView] = useState<NavView>('daily');
+  const [currentView, setCurrentView] = useState<NavView>(() => {
+    const url = new URL(window.location.href);
+    const view = url.searchParams.get('notificationView');
+    if (view) { url.searchParams.delete('notificationView'); window.history.replaceState(window.history.state, '', url.href); }
+    return isNotificationView(view) ? view : 'daily';
+  });
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'daymark-notification-navigation' && isNotificationView(event.data.view)) setCurrentView(event.data.view);
+    };
+    navigator.serviceWorker?.addEventListener('message', onMessage);
+    return () => navigator.serviceWorker?.removeEventListener('message', onMessage);
+  }, []);
   const [hasOpenedChat, setHasOpenedChat] = useState(false);
   useEffect(() => { if (currentView === 'ai') setHasOpenedChat(true); }, [currentView]);
   const [selectedDate, setSelectedDate] = useState<string>(formatDate(new Date()));
