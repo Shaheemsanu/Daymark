@@ -18,17 +18,21 @@ export default {
     let created = 0;
     for (const pref of preferences || []) {
       try {
-        const parts = new Intl.DateTimeFormat('en-CA', { timeZone: pref.timezone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date());
+        const now = new Date();
+        const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: pref.timezone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+        const parts = formatter.formatToParts(now);
         const part = (name: string) => parts.find(p => p.type === name)?.value || '';
         const hour = part('hour');
-        if (!['20', '21'].includes(hour) || Number(part('minute')) >= 15) continue;
-        const date = `${part('year')}-${part('month')}-${part('day')}`;
+        const targetParts = formatter.formatToParts(new Date(now.getTime() + 30 * 60 * 1000));
+        const targetPart = (name: string) => targetParts.find(p => p.type === name)?.value || '';
+        const date = `${targetPart('year')}-${targetPart('month')}-${targetPart('day')}`;
+        const targetTime = `${targetPart('hour')}:${targetPart('minute')}`;
         const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
         const [taskResult, habitResult, entryResult, trackerResult, expenseResult, tokenResult] = await Promise.all([
           db.from('task_entries').select('task_id,status').eq('user_id', pref.user_id).eq('entry_date', date),
-          db.from('custom_trackers').select('id,weekdays').eq('user_id', pref.user_id).eq('type', 'boolean'),
+          db.from('custom_trackers').select('id,name,weekdays,start_time').eq('user_id', pref.user_id).eq('type', 'boolean'),
           db.from('tracker_entries').select('tracker_id,boolean_value').eq('user_id', pref.user_id).eq('entry_date', date),
-          db.from('tasks').select('id,is_active').eq('user_id', pref.user_id),
+          db.from('tasks').select('id,title,is_active,start_time').eq('user_id', pref.user_id),
           db.from('expenses').select('id').eq('user_id', pref.user_id).eq('entry_date', date).eq('transaction_type', 'expense').eq('is_transfer', false).limit(1),
           db.from('push_tokens').select('token').eq('user_id', pref.user_id),
         ]);
@@ -37,10 +41,15 @@ export default {
         const pendingTasks = (taskResult.data || []).filter(row => row.status === 'pending' && active.has(row.task_id)).length;
         const completed = new Set((entryResult.data || []).filter(row => row.boolean_value).map(row => row.tracker_id));
         const pendingHabits = (habitResult.data || []).filter(row => (row.weekdays || []).includes(weekday) && !completed.has(row.id)).length;
+        const pendingTaskIds = new Set((taskResult.data || []).filter(row => row.status === 'pending').map(row => row.task_id));
         const reminders = [
-          ...(hour === '20' && pendingTasks ? [{ kind: 'tasks', title: 'Pending tasks', body: `You have ${pendingTasks} task${pendingTasks === 1 ? '' : 's'} to review today.`, view: 'tasks' }] : []),
-          ...(hour === '20' && pendingHabits ? [{ kind: 'habits', title: 'Habit reminder', body: `You have ${pendingHabits} habit${pendingHabits === 1 ? '' : 's'} to review today.`, view: 'habits' }] : []),
-          ...(hour === '21' && !expenseResult.data?.length ? [{ kind: 'expenses', title: 'Expense reminder', body: 'Remember to record any expenses from today.', view: 'expenses' }] : []),
+          ...(trackerResult.data || []).filter(row => row.is_active && pendingTaskIds.has(row.id) && row.start_time?.slice(0, 5) === targetTime)
+            .map(row => ({ kind: `task-start:${row.id}`, title: 'Task starting in 30 minutes', body: row.title, view: 'tasks' })),
+          ...(habitResult.data || []).filter(row => (row.weekdays || []).includes(weekday) && !completed.has(row.id) && row.start_time?.slice(0, 5) === targetTime)
+            .map(row => ({ kind: `habit-start:${row.id}`, title: 'Habit starting in 30 minutes', body: row.name, view: 'habits' })),
+          ...(hour === '20' && Number(part('minute')) < 15 && pendingTasks ? [{ kind: 'tasks', title: 'Pending tasks', body: `You have ${pendingTasks} task${pendingTasks === 1 ? '' : 's'} to review today.`, view: 'tasks' }] : []),
+          ...(hour === '20' && Number(part('minute')) < 15 && pendingHabits ? [{ kind: 'habits', title: 'Habit reminder', body: `You have ${pendingHabits} habit${pendingHabits === 1 ? '' : 's'} to review today.`, view: 'habits' }] : []),
+          ...(hour === '21' && Number(part('minute')) < 15 && !expenseResult.data?.length ? [{ kind: 'expenses', title: 'Expense reminder', body: 'Remember to record any expenses from today.', view: 'expenses' }] : []),
         ];
         for (const reminder of reminders) {
           const { error: claimError } = await db.from('reminder_runs').insert({ user_id: pref.user_id, reminder_date: date, kind: reminder.kind });
