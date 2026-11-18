@@ -9,6 +9,21 @@ export function hasLocalPushRegistration() {
   catch { return false; }
 }
 
+async function validateVapidKey(value: string): Promise<string> {
+  const key = value.trim();
+  try {
+    if (!/^[A-Za-z0-9_-]+$/.test(key)) throw new Error('Invalid encoding');
+    const base64 = key.replace(/-/g, '+').replace(/_/g, '/');
+    const decoded = atob(base64.padEnd(Math.ceil(base64.length / 4) * 4, '='));
+    const bytes = Uint8Array.from(decoded, char => char.charCodeAt(0));
+    if (bytes.length !== 65 || bytes[0] !== 4) throw new Error('Invalid length');
+    await crypto.subtle.importKey('raw', bytes, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
+  } catch {
+    throw new Error('The Firebase Web Push public key in this app build is invalid or incomplete. Check VITE_FIREBASE_VAPID_KEY, restart the development server, or update the hosting environment and redeploy.');
+  }
+  return key;
+}
+
 export async function enablePush(userId: string) {
   if (!supabase) throw new Error('Connect Supabase before enabling notifications.');
   if (!('Notification' in window) || !('serviceWorker' in navigator)) throw new Error('Push notifications are not supported in this browser.');
@@ -18,8 +33,9 @@ export async function enablePush(userId: string) {
   if (permission === 'denied') throw new Error('Notifications are blocked. Allow notifications in your browser’s site settings, then refresh this page.');
   if (permission !== 'granted') throw new Error('Please allow notifications in the browser permission prompt, then try again.');
   if (!await isSupported()) throw new Error('Firebase Messaging is not supported in this browser.');
-  const vapidKey = import.meta.env.VITE_FIREBASE_VAPID_KEY;
-  if (!vapidKey) throw new Error('The Firebase Web Push key is missing.');
+  const configuredKey = import.meta.env.VITE_FIREBASE_VAPID_KEY;
+  if (!configuredKey) throw new Error('The Firebase Web Push key is missing.');
+  const vapidKey = await validateVapidKey(configuredKey);
   const params = new URLSearchParams({
     apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
     projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
