@@ -43,11 +43,12 @@ Deno.serve(async (request) => {
     });
     if (!oauth.ok) throw new Error('Firebase authentication failed');
     const { access_token: accessToken } = await oauth.json();
+    const icon = 'https://daymarks.ai.studio/daymark-icon-192.png';
     let sent = 0;
     for (const { token } of tokens) {
       const response = await fetch(`https://fcm.googleapis.com/v1/projects/${encodeURIComponent(account.project_id)}/messages:send`, {
         method: 'POST', headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: { token, notification: { title: 'Daymark test', body: 'Notifications are working on this device.' }, data: { notification_id: notice.id, view: 'history' } } }),
+        body: JSON.stringify({ message: { token, notification: { title: 'Daymark test', body: 'Notifications are working on this device.' }, ...(icon ? { webpush: { notification: { title: 'Daymark test', body: 'Notifications are working on this device.', icon } } } : {}), data: { notification_id: notice.id, view: 'history' } } }),
       });
       if (response.ok) sent++;
       else console.error('FCM send failed:', response.status, await response.text());

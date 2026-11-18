@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Bell, CheckCheck, Trash2, X } from 'lucide-react';
 import { getMessaging, isSupported, onMessage } from 'firebase/messaging';
 import { firebaseApp } from '../../lib/firebase';
@@ -10,6 +10,7 @@ export function ForegroundPush({ userId, onNavigate }: { userId: string; onNavig
   const [open, setOpen] = useState(false);
   const [message, setMessage] = useState<Notice | null>(null);
   const [error, setError] = useState('');
+  const panelRef = useRef<HTMLDivElement>(null);
   const loadNotices = async () => {
     if (!supabase) return;
     const { data, error } = await supabase.from('notifications').select('id,title,body,view,created_at,read_at').eq('user_id', userId).order('created_at', { ascending: false }).limit(100);
@@ -35,6 +36,14 @@ export function ForegroundPush({ userId, onNavigate }: { userId: string; onNavig
     }).catch(() => {});
     return () => { disposed = true; unsubscribe?.(); window.removeEventListener('focus', onFocus); if (channel && supabase) void supabase.removeChannel(channel); };
   }, [userId]);
+  useEffect(() => {
+    if (!open) return;
+    const onOutsideClick = (event: MouseEvent) => {
+      if (event.target instanceof Node && !panelRef.current?.contains(event.target)) setOpen(false);
+    };
+    document.addEventListener('click', onOutsideClick);
+    return () => document.removeEventListener('click', onOutsideClick);
+  }, [open]);
   const unread = notices.filter(notice => !notice.read).length;
   const updateNotices = async (next: Notice[]) => {
     if (!supabase) return;
@@ -45,7 +54,7 @@ export function ForegroundPush({ userId, onNavigate }: { userId: string; onNavig
     await loadNotices();
   };
   return <>
-    <div className="relative">
+    <div ref={panelRef} className="relative">
       <button type="button" onClick={() => { if (!open) void loadNotices(); setOpen(!open); }} aria-label={unread ? `Notifications, ${unread} unread` : 'Notifications'} aria-expanded={open} className="relative inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-100 dark:border-slate-800 dark:hover:bg-slate-800">
         <Bell className="h-4 w-4" />
         {unread > 0 && <span aria-hidden="true" className="absolute right-1 top-1 h-2 w-2 rounded-full bg-rose-500" />}

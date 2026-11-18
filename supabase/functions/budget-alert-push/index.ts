@@ -1,6 +1,21 @@
 import { withSupabase } from 'npm:@supabase/server@1';
 import { importPKCS8, SignJWT } from 'npm:jose@6';
 
+// Retry once on a temporary server or network failure. A lost response can
+// mean Firebase accepted the first request, so a duplicate is possible.
+async function sendPush(url: string, init: RequestInit): Promise<Response> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const response = await fetch(url, init);
+      if (attempt > 0 || response.status < 500) return response;
+      await response.body?.cancel();
+    } catch (error) {
+      if (attempt > 0) throw error;
+    }
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  }
+}
+
 // Only a trusted Supabase webhook may invoke this function.
 export default {
   fetch: withSupabase({ auth: 'secret' }, async (request, { supabaseAdmin: db }) => {
@@ -31,17 +46,22 @@ export default {
       const oauth = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion }) });
       if (!oauth.ok) throw new Error('Firebase authentication failed');
       const { access_token: accessToken } = await oauth.json();
+      const icon = 'https://daymarks.ai.studio/daymark-icon-192.png';
       let sent = 0;
       for (const { token } of tokens) {
-        const response = await fetch(`https://fcm.googleapis.com/v1/projects/${encodeURIComponent(account.project_id)}/messages:send`, {
-          method: 'POST', headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: { token, notification: { title: notice.title, body: notice.body }, data: { notification_id: notice.id, view: notice.view || 'expenses' } } }),
-        });
-        if (response.ok) sent++;
-        else {
-          // Log the FCM error code without logging the device token or notification text.
-          const result = await response.json().catch(() => null);
-          console.error('Budget alert delivery failed', response.status, result?.error?.status || 'Unknown FCM error');
+        try {
+          const response = await sendPush(`https://fcm.googleapis.com/v1/projects/${encodeURIComponent(account.project_id)}/messages:send`, {
+            method: 'POST', headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: { token, notification: { title: notice.title, body: notice.body }, ...(icon ? { webpush: { notification: { title: notice.title, body: notice.body, icon } } } : {}), data: { notification_id: notice.id, view: notice.view || 'expenses' } } }),
+          });
+          if (response.ok) sent++;
+          else {
+            // Log the FCM error code without logging the device token or notification text.
+            const result = await response.json().catch(() => null);
+            console.error('Budget alert delivery failed', response.status, result?.error?.status || 'Unknown FCM error');
+          }
+        } catch (error) {
+          console.error('Budget alert delivery request failed', error instanceof Error ? error.message : 'Unknown error');
         }
       }
       if (!sent) return Response.json({ error: 'No push messages were accepted by Firebase.' }, { status: 502 });

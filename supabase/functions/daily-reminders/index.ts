@@ -1,6 +1,21 @@
 import { withSupabase } from 'npm:@supabase/server@1';
 import { importPKCS8, SignJWT } from 'npm:jose@6';
 
+// Retry once on a temporary server or network failure. Delivery cannot be
+// confirmed if the connection drops after Firebase accepts a request.
+async function sendPush(url: string, init: RequestInit): Promise<Response> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const response = await fetch(url, init);
+      if (attempt > 0 || response.status < 500) return response;
+      await response.body?.cancel();
+    } catch (error) {
+      if (attempt > 0) throw error;
+    }
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  }
+}
+
 export default {
   fetch: withSupabase({ auth: 'secret' }, async (_req, { supabaseAdmin: db }) => {
     const credentials = Deno.env.get('FIREBASE_SERVICE_ACCOUNT');
@@ -21,6 +36,9 @@ export default {
     const { data: preferences, error } = await db.from('reminder_preferences').select('user_id,timezone').eq('enabled', true);
     if (error) return Response.json({ error: 'Could not load reminders' }, { status: 500 });
     let created = 0;
+    let pushAccepted = 0;
+    let pushFailed = 0;
+    const icon = 'https://daymarks.ai.studio/daymark-icon-192.png';
     for (const pref of preferences || []) {
       try {
         const now = new Date();
@@ -28,52 +46,68 @@ export default {
         const parts = formatter.formatToParts(now);
         const part = (name: string) => parts.find(p => p.type === name)?.value || '';
         const hour = part('hour');
-        const targetParts = formatter.formatToParts(new Date(now.getTime() + 30 * 60 * 1000));
-        const targetPart = (name: string) => targetParts.find(p => p.type === name)?.value || '';
-        const date = `${targetPart('year')}-${targetPart('month')}-${targetPart('day')}`;
-        const targetTime = `${targetPart('hour')}:${targetPart('minute')}`;
-        const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
+        const today = `${part('year')}-${part('month')}-${part('day')}`;
+        // Look back five minutes to recover a delayed or missed scheduler run.
+        const targets = Array.from({ length: 5 }, (_, minute) => {
+          const targetParts = formatter.formatToParts(new Date(now.getTime() + (30 - minute) * 60 * 1000));
+          const targetPart = (name: string) => targetParts.find(p => p.type === name)?.value || '';
+          const date = `${targetPart('year')}-${targetPart('month')}-${targetPart('day')}`;
+          return { date, time: `${targetPart('hour')}:${targetPart('minute')}`, weekday: new Date(`${date}T00:00:00Z`).getUTCDay() };
+        });
+        const dates = [...new Set([today, ...targets.map(target => target.date)])];
+        const weekday = new Date(`${today}T00:00:00Z`).getUTCDay();
         const [taskResult, habitResult, entryResult, trackerResult, expenseResult, tokenResult] = await Promise.all([
-          db.from('task_entries').select('task_id,status').eq('user_id', pref.user_id).eq('entry_date', date),
+          db.from('task_entries').select('task_id,status,entry_date').eq('user_id', pref.user_id).in('entry_date', dates),
           db.from('custom_trackers').select('id,name,weekdays,start_time').eq('user_id', pref.user_id).eq('type', 'boolean'),
-          db.from('tracker_entries').select('tracker_id,boolean_value').eq('user_id', pref.user_id).eq('entry_date', date),
+          db.from('tracker_entries').select('tracker_id,boolean_value,entry_date').eq('user_id', pref.user_id).in('entry_date', dates),
           db.from('tasks').select('id,title,is_active,start_time,weekdays').eq('user_id', pref.user_id),
-          db.from('expenses').select('id').eq('user_id', pref.user_id).eq('entry_date', date).eq('transaction_type', 'expense').eq('is_transfer', false).limit(1),
+          db.from('expenses').select('id').eq('user_id', pref.user_id).eq('entry_date', today).eq('transaction_type', 'expense').eq('is_transfer', false).limit(1),
           db.from('push_tokens').select('token').eq('user_id', pref.user_id),
         ]);
         if ([taskResult, habitResult, entryResult, trackerResult, expenseResult, tokenResult].some(result => result.error)) throw new Error('Could not load reminder data');
-        const status = new Map((taskResult.data || []).map(row => [row.task_id, row.status]));
-        const pending = (trackerResult.data || []).filter(row => row.is_active && (row.weekdays || [0, 1, 2, 3, 4, 5, 6]).includes(weekday) && (status.get(row.id) || 'pending') === 'pending');
-        const pendingTasks = pending.length;
-        const completed = new Set((entryResult.data || []).filter(row => row.boolean_value).map(row => row.tracker_id));
+        const pendingFor = (date: string, day: number) => (trackerResult.data || []).filter(row => row.is_active && (row.weekdays || [0, 1, 2, 3, 4, 5, 6]).includes(day) && ((taskResult.data || []).find(entry => entry.task_id === row.id && entry.entry_date === date)?.status || 'pending') === 'pending');
+        const completedFor = (date: string) => new Set((entryResult.data || []).filter(row => row.entry_date === date && row.boolean_value).map(row => row.tracker_id));
+        const pendingTasks = pendingFor(today, weekday).length;
+        const completed = completedFor(today);
         const pendingHabits = (habitResult.data || []).filter(row => (row.weekdays || []).includes(weekday) && !completed.has(row.id)).length;
         const reminders = [
-          ...pending.filter(row => row.start_time?.slice(0, 5) === targetTime)
-            .map(row => ({ kind: `task-start:${row.id}`, title: 'Task starting in 30 minutes', body: row.title, view: 'tasks' })),
-          ...(habitResult.data || []).filter(row => (row.weekdays || []).includes(weekday) && !completed.has(row.id) && row.start_time?.slice(0, 5) === targetTime)
-            .map(row => ({ kind: `habit-start:${row.id}`, title: 'Habit starting in 30 minutes', body: row.name, view: 'habits' })),
+          ...targets.flatMap(target => pendingFor(target.date, target.weekday).filter(row => row.start_time?.slice(0, 5) === target.time)
+            .map(row => ({ date: target.date, kind: `task-start:${row.id}`, title: 'Task starting soon', body: row.title, view: 'tasks' }))),
+          ...targets.flatMap(target => (habitResult.data || []).filter(row => (row.weekdays || []).includes(target.weekday) && !completedFor(target.date).has(row.id) && row.start_time?.slice(0, 5) === target.time)
+            .map(row => ({ date: target.date, kind: `habit-start:${row.id}`, title: 'Habit starting soon', body: row.name, view: 'habits' }))),
           ...(hour === '20' && Number(part('minute')) < 15 && pendingTasks ? [{ kind: 'tasks', title: 'Pending tasks', body: `You have ${pendingTasks} task${pendingTasks === 1 ? '' : 's'} to review today.`, view: 'tasks' }] : []),
           ...(hour === '20' && Number(part('minute')) < 15 && pendingHabits ? [{ kind: 'habits', title: 'Habit reminder', body: `You have ${pendingHabits} habit${pendingHabits === 1 ? '' : 's'} to review today.`, view: 'habits' }] : []),
           ...(hour === '21' && Number(part('minute')) < 15 && !expenseResult.data?.length ? [{ kind: 'expenses', title: 'Expense reminder', body: 'Remember to record any expenses from today.', view: 'expenses' }] : []),
         ];
         for (const reminder of reminders) {
-          const { error: claimError } = await db.from('reminder_runs').insert({ user_id: pref.user_id, reminder_date: date, kind: reminder.kind });
+          const reminderDate = 'date' in reminder ? reminder.date : today;
+          const { error: claimError } = await db.from('reminder_runs').insert({ user_id: pref.user_id, reminder_date: reminderDate, kind: reminder.kind });
           if (claimError?.code === '23505') continue;
           if (claimError) throw claimError;
           const { data: notice, error: noticeError } = await db.from('notifications').insert({ user_id: pref.user_id, title: reminder.title, body: reminder.body, view: reminder.view }).select('id').single();
-          if (noticeError) { await db.from('reminder_runs').delete().eq('user_id', pref.user_id).eq('reminder_date', date).eq('kind', reminder.kind); throw noticeError; }
+          if (noticeError) { await db.from('reminder_runs').delete().eq('user_id', pref.user_id).eq('reminder_date', reminderDate).eq('kind', reminder.kind); throw noticeError; }
           created++;
           if (!accessToken || !account) continue;
           for (const { token } of tokenResult.data || []) {
-            const response = await fetch(`https://fcm.googleapis.com/v1/projects/${encodeURIComponent(account.project_id)}/messages:send`, {
-              method: 'POST', headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-              body: JSON.stringify({ message: { token, notification: { title: reminder.title, body: reminder.body }, data: { notification_id: notice.id, view: reminder.view } } }),
-            });
-            if (!response.ok) console.error('Reminder delivery failed', response.status);
+            try {
+              const response = await sendPush(`https://fcm.googleapis.com/v1/projects/${encodeURIComponent(account.project_id)}/messages:send`, {
+                method: 'POST', headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message: { token, notification: { title: reminder.title, body: reminder.body }, ...(icon ? { webpush: { notification: { title: reminder.title, body: reminder.body, icon } } } : {}), data: { notification_id: notice.id, view: reminder.view } } }),
+              });
+              if (response.ok) pushAccepted++;
+              else {
+                pushFailed++;
+                const result = await response.json().catch(() => null);
+                console.error('Reminder delivery failed', response.status, result?.error?.status || 'Unknown FCM error');
+              }
+            } catch (error) {
+              pushFailed++;
+              console.error('Reminder delivery request failed', error instanceof Error ? error.message : 'Unknown error');
+            }
           }
         }
       } catch (error) { console.error('Reminder processing failed', pref.user_id, error instanceof Error ? error.message : 'Unknown error'); }
     }
-    return Response.json({ created, pushAvailable: !!accessToken });
+    return Response.json({ created, pushAvailable: !!accessToken, pushAccepted, pushFailed });
   }),
 };
