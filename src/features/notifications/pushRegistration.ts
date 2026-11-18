@@ -12,9 +12,11 @@ export function hasLocalPushRegistration() {
 export async function enablePush(userId: string) {
   if (!supabase) throw new Error('Connect Supabase before enabling notifications.');
   if (!('Notification' in window) || !('serviceWorker' in navigator)) throw new Error('Push notifications are not supported in this browser.');
+  if (Notification.permission === 'denied') throw new Error('Notifications are blocked. Allow notifications in your browser’s site settings, then refresh this page.');
   // Request directly in response to the button click, including on iOS.
   const permission = await Notification.requestPermission();
-  if (permission !== 'granted') throw new Error('Notification permission was not granted. Check your browser settings.');
+  if (permission === 'denied') throw new Error('Notifications are blocked. Allow notifications in your browser’s site settings, then refresh this page.');
+  if (permission !== 'granted') throw new Error('Please allow notifications in the browser permission prompt, then try again.');
   if (!await isSupported()) throw new Error('Firebase Messaging is not supported in this browser.');
   const vapidKey = import.meta.env.VITE_FIREBASE_VAPID_KEY;
   if (!vapidKey) throw new Error('The Firebase Web Push key is missing.');
