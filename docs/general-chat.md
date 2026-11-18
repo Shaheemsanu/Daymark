@@ -21,6 +21,9 @@ Every request requires a valid data source and date range. The endpoint verifies
 identity and retrieves selected records before sending context and up to eight
 earlier messages to Gemini. General-chat requests are rejected. No tools, SQL,
 editing actions, or deletion actions are exposed.
+You can ask follow-up questions in the same conversation; the latest four
+completed question-and-answer pairs provide context. An unanswered question is
+excluded if you send a different message after an error.
 Chat output supports Markdown formatting; raw HTML is skipped and never executed. Keys and raw provider
 errors are excluded from API responses. Limits are 10 questions/minute per
 signed-in user with one active request. Model access, billing, quota and key
@@ -31,6 +34,10 @@ before the full answer is ready. The selected model, complete retrieved context,
 calculated figures and output limit are unchanged. Retrieval requests up to 1,000
 rows per page to reduce round trips and still checks all pages for completeness.
 Records are freshly retrieved for every question, without caching old snapshots.
+Repeated record fields are encoded compactly in the prompt to reduce the amount
+of data sent to Gemini while preserving the record details used for analysis.
+Internal record IDs are replaced in the prompt with short references that retain
+links between related records.
 Streaming improves time to visible text; provider startup and generation time
 still depend on Gemini and the network. Interrupted replies are discarded and
 can be retried without adding partial text to conversation history.

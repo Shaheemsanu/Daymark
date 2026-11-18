@@ -2,6 +2,7 @@ import React from 'react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import GeneralChatScreen from '../features/ai/GeneralChatScreen';
+import AssistantMessage from '../features/ai/AssistantMessage';
 
 import { supabase } from '../lib/supabase';
 
@@ -10,6 +11,40 @@ vi.mock('../lib/supabase', () => ({ supabase: { auth: {
   refreshSession: vi.fn(async () => ({ data: { session: null }, error: null })),
 } } }));
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+
+it('hides record IDs in complete and streaming AI replies', () => {
+  const { rerender } = render(<AssistantMessage text="Groceries (ID: dae141c1-ba2c-4d4a-98be-f34f46c6e431)" />);
+  expect(screen.getByText('Groceries')).toBeInTheDocument();
+  expect(screen.queryByText(/dae141c1/)).toBeNull();
+  rerender(<AssistantMessage text="Groceries (ID: dae141c1-ba2c" />);
+  expect(screen.getByText('Groceries')).toBeInTheDocument();
+});
+
+it('continues a conversation with completed turns and skips a failed question', async () => {
+  let count = 0;
+  const request = vi.fn(async (url: string, _options?: RequestInit) => {
+    if (url.endsWith('/status')) return Response.json({ configured: true });
+    count++;
+    if (count === 2) return Response.json({ error: 'Please try again.' }, { status: 503 });
+    return Response.json({ answer: count === 1 ? 'Food was highest.' : 'Here are the details.' });
+  });
+  vi.stubGlobal('fetch', request);
+  render(<GeneralChatScreen active />);
+  await screen.findByText('Ready to chat');
+  const input = screen.getByLabelText('Message Daymark AI');
+  const send = (text: string) => { fireEvent.change(input, { target: { value: text } }); fireEvent.click(screen.getByRole('button', { name: 'Send message' })); };
+  send('What was highest?');
+  await screen.findByText('Food was highest.');
+  await waitFor(() => expect(input).not.toBeDisabled());
+  send('Why?');
+  await screen.findByRole('alert');
+  await waitFor(() => expect(input).not.toBeDisabled());
+  send('Tell me more');
+  await screen.findByText('Here are the details.');
+  const calls = request.mock.calls.filter(([url]) => url.endsWith('/chat'));
+  expect(JSON.parse(String(calls[1][1]?.body))).toMatchObject({ message: 'Why?', history: [{ role: 'user', text: 'What was highest?' }, { role: 'assistant', text: 'Food was highest.' }] });
+  expect(JSON.parse(String(calls[2][1]?.body))).toMatchObject({ message: 'Tell me more', history: [{ role: 'user', text: 'What was highest?' }, { role: 'assistant', text: 'Food was highest.' }] });
+});
 
 it('refreshes the session and retries once when the chat backend returns 401', async () => {
   vi.mocked(supabase!.auth.refreshSession).mockResolvedValueOnce({ data: { session: { access_token: 'fresh-token' } }, error: null } as never);

@@ -42,7 +42,9 @@ export default function GeneralChatScreen({ active }: { active: boolean }) {
   const send = async (retry = false) => {
     const text = (retry ? failed : draft).trim();
     if (!ready || checking || !validDates || busy.current || !text || text.length > 2000) return;
-    const history = retry ? messages.slice(0, -1) : messages;
+    // A failed question has no assistant reply, so it must not become a
+    // consecutive user turn when retrying or asking a different question.
+    const history = failed ? messages.slice(0, -1) : messages;
     const conversation: Message[] = [...history, { role: 'user', text }];
     busy.current = true; setPending(true); setError(''); setFailed(''); setDraft('');
     setMessages(conversation);

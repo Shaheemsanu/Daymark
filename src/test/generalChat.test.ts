@@ -1,6 +1,19 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import type { Server } from 'node:http';
-import { createGeneralChatApp } from '../../server/generalChat';
+import { compactPromptData, createGeneralChatApp, shortenRecordIds } from '../../server/generalChat';
+
+it('shortens internal IDs while preserving links and ordinary text', () => {
+  expect(shortenRecordIds({ definitions: [{ id: 'long-id', name: 'long-id' }], entries: [{ id: 'entry-id', tracker_id: 'long-id' }] })).toEqual({
+    definitions: [{ id: 'ref1', name: 'long-id' }], entries: [{ id: 'ref2', tracker_id: 'ref1' }],
+  });
+});
+
+it('compacts repeated record fields without losing values or changing irregular lists', () => {
+  expect(compactPromptData({ records: [{ id: 'a', amount: 2 }, { id: 'b', amount: null }], mixed: [{ id: 'a' }, { id: 'b', note: 'x' }] })).toEqual({
+    records: { columns: ['id', 'amount'], rows: [['a', 2], ['b', null]] },
+    mixed: [{ id: 'a' }, { id: 'b', note: 'x' }],
+  });
+});
 
 const servers: Server[] = [];
 afterEach(async () => { await Promise.all(servers.splice(0).map(server => new Promise<void>(resolve => { server.close(() => resolve()); server.closeAllConnections(); }))); });
