@@ -1,4 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { formatHabitTime } from '../utils/habitTime';
+import { HabitTimeInput } from './HabitTimeInput';
 import {
   ResponsiveContainer,
   BarChart,
@@ -177,6 +179,10 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
   const [newCatInput, setNewCatInput] = useState('');
   const [selectedWeekdays, setSelectedWeekdays] = useState<number[]>([1, 2, 3, 4, 5, 6, 0]);
   const [color, setColor] = useState('#10B981');
+  const [startTime, setStartTime] = useState('');
+  const [endTime, setEndTime] = useState('');
+  const [timeError, setTimeError] = useState('');
+  const invalidTimeRange = Boolean(startTime && endTime && endTime <= startTime);
 
   const today = new Date();
   const todayIso = formatDate(today);
@@ -546,6 +552,11 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) return;
+    if ((!!startTime !== !!endTime) || (startTime && endTime <= startTime)) {
+      setTimeError('Enter both times, with the end time after the start time.');
+      return;
+    }
+    setTimeError('');
 
     let finalCategory = category;
     if (isCreatingNewCat && newCatInput.trim()) {
@@ -561,6 +572,8 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
       category: finalCategory,
       targetDaysPerWeek: selectedWeekdays.length || 1,
       weekdays: [...selectedWeekdays].sort((a, b) => a - b),
+      startTime: startTime || null,
+      endTime: endTime || null,
       color
     };
     const saved = editingHabit
@@ -580,6 +593,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
     setEditingHabit(null);
     setTitle('');
     setCategory('Health');
+    setStartTime(''); setEndTime(''); setTimeError('');
     setSelectedWeekdays([1, 2, 3, 4, 5, 6, 0]);
     setColor('#10B981');
     setIsCreatingNewCat(false);
@@ -590,6 +604,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
     setEditingHabit(habit);
     setTitle(habit.title);
     setCategory(habit.category);
+    setStartTime(habit.startTime || ''); setEndTime(habit.endTime || ''); setTimeError('');
     setSelectedWeekdays(Array.isArray(habit.weekdays) && habit.weekdays.length
       ? [...habit.weekdays]
       : [1, 2, 3, 4, 5, 6, 0].slice(0, Math.max(1, Math.min(7, habit.targetDaysPerWeek))));
@@ -1103,7 +1118,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
                                 {habit.title}
                               </div>
                               <div className="text-[11px] text-slate-400 dark:text-slate-500">
-                                {habit.category}
+                                {habit.category}{habit.startTime && habit.endTime ? ` · ${formatHabitTime(habit.startTime, habit.endTime)}` : ''}
                               </div>
                             </div>
                           </div>
@@ -1204,7 +1219,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
                   <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: habit.color }} />
                   <div className="min-w-0 flex-1">
                     <h4 className="truncate text-sm font-bold text-slate-900 dark:text-slate-100">{habit.title}</h4>
-                    <p className="truncate text-[11px] text-slate-500 dark:text-slate-400">{habit.category}</p>
+                    <p className="truncate text-[11px] text-slate-500 dark:text-slate-400">{habit.category}{habit.startTime && habit.endTime ? ` · ${formatHabitTime(habit.startTime, habit.endTime)}` : ''}</p>
                   </div>
                   {isEditingOrder ? <div className="flex shrink-0 items-center gap-1">
                     <button type="button" onClick={() => moveHabit(habit.id, -1)} disabled={habitIndex === 0 || savingKeys?.has('habit:order')} aria-label={`Move ${habit.title} up`} className="rounded-lg border border-slate-200 p-2 text-slate-500 disabled:opacity-30 dark:border-slate-700"><ArrowUp className="h-4 w-4" /></button>
@@ -1829,6 +1844,17 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
                     );
                   })}
                 </div>
+              </div>
+
+              <div>
+                <span className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Time (optional)</span>
+                <div className="grid grid-cols-2 gap-3">
+                  <HabitTimeInput label="Start time" value={startTime} onChange={value => { setStartTime(value); setTimeError(''); }} />
+                  <HabitTimeInput label="End time" value={endTime} onChange={value => { setEndTime(value); setTimeError(''); }} />
+                </div>
+                <p className="mt-1.5 text-[11px] text-slate-500 dark:text-slate-400">Select the hour, minute and AM or PM.</p>
+                {(startTime || endTime) && <button type="button" onClick={() => { setStartTime(''); setEndTime(''); setTimeError(''); }} className="mt-2 text-xs font-medium text-slate-500 underline dark:text-slate-400">Clear time</button>}
+                {(timeError || invalidTimeRange) && <p role="alert" className="mt-1 text-xs text-rose-600 dark:text-rose-400">{timeError || 'End time must be later than start time.'}</p>}
               </div>
 
               <div>

@@ -3,10 +3,16 @@ import { DailyTask } from '../types';
 export function orderTasks(tasks: DailyTask[], taskOrder: string[] = []): DailyTask[] {
   const ranks = new Map(taskOrder.map((id, index) => [id, index]));
   return [...tasks].sort((a, b) => {
-    const rank = (ranks.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (ranks.get(b.id) ?? Number.MAX_SAFE_INTEGER);
+    const rank = (ranks.get(a.id) ?? -1) - (ranks.get(b.id) ?? -1);
     if (rank !== 0) return rank;
     if (a.completed !== b.completed) return a.completed ? 1 : -1;
-    return b.date.localeCompare(a.date);
+    if (a.createdAt && b.createdAt) {
+      const createdOrder = b.createdAt.localeCompare(a.createdAt);
+      if (createdOrder !== 0) return createdOrder;
+    }
+    const dateOrder = b.date.localeCompare(a.date);
+    if (dateOrder !== 0) return dateOrder;
+    return 0;
   });
 }
 

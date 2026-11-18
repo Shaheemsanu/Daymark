@@ -61,10 +61,13 @@ export type HabitCategory = 'Health' | 'Mindfulness' | 'Productivity' | 'Fitness
 
 export interface Habit {
   id: string;
+  createdAt?: string;
   title: string;
   category: HabitCategory;
   targetDaysPerWeek: number;
   weekdays?: number[]; // 0=Sun, 1=Mon, ..., 6=Sat
+  startTime?: string | null;
+  endTime?: string | null;
   completedDates: string[]; // YYYY-MM-DD
   streak: number;
   bestStreak: number;
@@ -75,11 +78,14 @@ export type TaskPriority = 'high' | 'medium' | 'low';
 
 export interface DailyTask {
   id: string;
+  createdAt?: string;
   date: string; // YYYY-MM-DD
   title: string;
   completed: boolean;
   priority: TaskPriority;
   timeEstimateMin?: number;
+  startTime?: string | null;
+  endTime?: string | null;
   category?: string;
   completedAt?: number;
 }

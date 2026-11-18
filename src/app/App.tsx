@@ -350,11 +350,12 @@ export default function App() {
     const created: Habit = {
       ...newHabit,
       id: createUuid(),
+      createdAt: new Date().toISOString(),
       completedDates: [],
       streak: 0,
       bestStreak: 0
     };
-    const updated = [...habits, created];
+    const updated = [created, ...habits];
     setHabits(updated);
     if (!user) return false;
     return trackKeyedCloudRequest('habit:add', dataService.saveHabit(user.id, created));
@@ -380,6 +381,7 @@ export default function App() {
     const created: DailyTask = {
       ...newTask,
       id: createUuid(),
+      createdAt: new Date().toISOString(),
       completed: false
     };
     const updated = [created, ...tasks];

@@ -24,7 +24,13 @@ describe('task ordering', () => {
     const visible = ordered.filter(task => !task.completed);
     expect(moveTaskInOrder(ordered, visible, 'a', 1)).toEqual(['c', 'b', 'a']);
     expect(moveTaskInOrder(ordered, visible, 'a', -1)).toEqual(['a', 'b', 'c']);
-    expect(orderTasks([...tasks, { ...tasks[0], id: 'new' }], ['c', 'a', 'deleted']).map(task => task.id)).toEqual(['c', 'a', 'new', 'b']);
+    expect(orderTasks([...tasks, { ...tasks[0], id: 'new' }], ['c', 'a', 'deleted']).map(task => task.id)).toEqual(['new', 'b', 'c', 'a']);
+  });
+
+  it('places newer unranked tasks first and keeps saved ranks intact', () => {
+    const newer = { ...tasks[0], id: 'newer', createdAt: '2026-11-18T12:00:00Z' };
+    const newest = { ...tasks[0], id: 'newest', createdAt: '2026-11-18T13:00:00Z' };
+    expect(orderTasks([newer, ...tasks, newest], ['c', 'a', 'b']).map(task => task.id)).toEqual(['newest', 'newer', 'c', 'a', 'b']);
   });
 
   it('edits order, saves moves and restores edit/delete actions on Done', async () => {

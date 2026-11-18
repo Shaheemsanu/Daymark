@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { formatHabitTime } from '../utils/habitTime';
 import {
   ChevronLeft,
   ChevronRight,
@@ -653,7 +654,7 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
                             {habit.title}
                           </span>
                           <span className="text-[11px] text-slate-400 dark:text-slate-500">
-                            {habit.category} · Target {habit.targetDaysPerWeek}d/wk
+                            {habit.category} · Target {habit.targetDaysPerWeek}d/wk{habit.startTime && habit.endTime ? ` · ${formatHabitTime(habit.startTime, habit.endTime)}` : ''}
                           </span>
                         </div>
                       </div>

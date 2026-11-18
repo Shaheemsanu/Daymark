@@ -1,4 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { HabitTimeInput } from './HabitTimeInput';
+import { formatHabitTime, timeRangeMinutes } from '../utils/habitTime';
 import {
   ResponsiveContainer,
   BarChart,
@@ -153,7 +155,11 @@ export const TasksView: React.FC<TasksViewProps> = ({
   const [title, setTitle] = useState('');
   const [date, setDate] = useState(selectedDate || formatDate(new Date()));
   const [priority, setPriority] = useState<TaskPriority>('medium');
-  const [timeEstimate, setTimeEstimate] = useState('30');
+  const [startTime, setStartTime] = useState('');
+  const [endTime, setEndTime] = useState('');
+  const [timeError, setTimeError] = useState('');
+  const duration = timeRangeMinutes(startTime, endTime);
+  const invalidTimeRange = Boolean(startTime && endTime && duration === null);
   const [category, setCategory] = useState('General');
   const [isCreatingNewCat, setIsCreatingNewCat] = useState(false);
   const [newCatInput, setNewCatInput] = useState('');
@@ -211,7 +217,7 @@ interface TaskChartPoint {
         const dayTasks = analyticsTasks.filter(task => task.date === dateStr);
         const done = dayTasks.filter(task => task.completed).length;
         const pending = dayTasks.length - done;
-        const focusMins = dayTasks.filter(task => task.completed).reduce((sum, task) => sum + (task.timeEstimateMin || 30), 0);
+        const focusMins = dayTasks.filter(task => task.completed).reduce((sum, task) => sum + (task.timeEstimateMin ?? 0), 0);
         return {
           label: formatShortDate(dateStr),
           subLabel: dateStr,
@@ -247,7 +253,7 @@ interface TaskChartPoint {
         const pending = dayTasks.filter(t => !t.completed).length;
         const focusMins = dayTasks
           .filter(t => t.completed)
-          .reduce((sum, t) => sum + (t.timeEstimateMin || 30), 0);
+          .reduce((sum, t) => sum + (t.timeEstimateMin ?? 0), 0);
         return {
           label: formatShortDate(dateStr),
           subLabel: dateStr,
@@ -283,7 +289,7 @@ interface TaskChartPoint {
         const pending = weekTasks.filter(t => !t.completed).length;
         const focusMins = weekTasks
           .filter(t => t.completed)
-          .reduce((sum, t) => sum + (t.timeEstimateMin || 30), 0);
+          .reduce((sum, t) => sum + (t.timeEstimateMin ?? 0), 0);
         return {
           label: w.label,
           subLabel: w.subLabel,
@@ -320,7 +326,7 @@ interface TaskChartPoint {
         const pending = monthTasks.filter(t => !t.completed).length;
         const focusMins = monthTasks
           .filter(t => t.completed)
-          .reduce((sum, t) => sum + (t.timeEstimateMin || 30), 0);
+          .reduce((sum, t) => sum + (t.timeEstimateMin ?? 0), 0);
         return {
           label: m.label,
           subLabel: m.subLabel,
@@ -357,7 +363,7 @@ interface TaskChartPoint {
       const pending = yearTasks.filter(t => !t.completed).length;
       const focusMins = yearTasks
         .filter(t => t.completed)
-        .reduce((sum, t) => sum + (t.timeEstimateMin || 30), 0);
+        .reduce((sum, t) => sum + (t.timeEstimateMin ?? 0), 0);
       return {
         label: y.label,
         subLabel: y.subLabel,
@@ -454,6 +460,11 @@ interface TaskChartPoint {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) return;
+    if ((!!startTime !== !!endTime) || invalidTimeRange) {
+      setTimeError('Enter both times, with the end time after the start time.');
+      return;
+    }
+    setTimeError('');
 
     let finalCategory = category;
     if (isCreatingNewCat && newCatInput.trim()) {
@@ -468,7 +479,9 @@ interface TaskChartPoint {
       title: title.trim(),
       date,
       priority,
-      timeEstimateMin: parseInt(timeEstimate) || 30,
+      timeEstimateMin: duration ?? (editingTask && !editingTask.startTime ? editingTask.timeEstimateMin : undefined),
+      startTime: startTime || null,
+      endTime: endTime || null,
       category: finalCategory || 'General'
     };
 
@@ -481,6 +494,7 @@ interface TaskChartPoint {
     }
 
     setTitle('');
+    setStartTime(''); setEndTime(''); setTimeError('');
     setIsCreatingNewCat(false);
     setNewCatInput('');
     setIsAddOpen(false);
@@ -492,7 +506,7 @@ interface TaskChartPoint {
     setTitle(task.title);
     setDate(task.date);
     setPriority(task.priority);
-    setTimeEstimate(String(task.timeEstimateMin || 30));
+    setStartTime(task.startTime || ''); setEndTime(task.endTime || ''); setTimeError('');
     setCategory(task.category || 'General');
     setIsCreatingNewCat(false);
     setNewCatInput('');
@@ -618,7 +632,7 @@ interface TaskChartPoint {
           </button>
 
           <button
-            onClick={() => { setEditingTask(null); setDate(selectedDate || todayIso); setIsAddOpen(true); }}
+            onClick={() => { setEditingTask(null); setStartTime(''); setEndTime(''); setTimeError(''); setDate(selectedDate || todayIso); setIsAddOpen(true); }}
             className="flex min-h-11 flex-1 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-slate-900 px-3 py-2 text-xs font-medium text-white shadow-xs transition-colors hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-white sm:h-9 sm:min-h-9 sm:flex-none sm:px-4"
           >
             <Plus className="w-4 h-4" />
@@ -707,7 +721,7 @@ interface TaskChartPoint {
                 <button type="button" aria-pressed={isEditingOrder} onClick={() => setIsEditingOrder(value => !value)} className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${isEditingOrder ? 'border-blue-500 bg-blue-600 text-white' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'}`}><ListOrdered className="h-3.5 w-3.5" />{isEditingOrder ? 'Done' : 'Edit Order'}</button>
                 <button
                   type="button"
-                  onClick={() => { setEditingTask(null); setDate(selectedDate || todayIso); setIsAddOpen(true); }}
+                  onClick={() => { setEditingTask(null); setStartTime(''); setEndTime(''); setTimeError(''); setDate(selectedDate || todayIso); setIsAddOpen(true); }}
                   aria-label="Add task"
                   title="Add task"
                   className="inline-flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-slate-900 text-white shadow-xs transition-colors hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-white"
@@ -731,13 +745,13 @@ interface TaskChartPoint {
                 return (
                   <div
                     key={task.id}
-                    className={`flex items-center justify-between border-l-4 p-4 transition-colors ${
+                    className={`relative flex items-center border-l-4 px-3 py-3 transition-colors sm:px-4 ${
                       task.completed
                         ? 'border-l-emerald-500 bg-emerald-50/70 text-slate-600 dark:bg-emerald-950/25 dark:text-slate-300'
                         : 'border-l-transparent hover:bg-slate-50/80 dark:hover:bg-slate-800/40'
                     }`}
                   >
-                    <div className="flex items-center gap-3.5 min-w-0">
+                    <div className="flex min-w-0 flex-1 items-center gap-3 pr-20">
                       <button
                         type="button"
                         onClick={() => onToggleTask(task.id)}
@@ -748,8 +762,8 @@ interface TaskChartPoint {
                         {isSavingTask ? <LoaderCircle className="h-5 w-5 animate-spin text-sky-500" /> : task.completed ? <CheckCircle2 className="h-5 w-5 text-sky-600 dark:text-sky-400" /> : <Circle className="h-5 w-5 text-slate-300 transition-colors hover:text-slate-400 dark:text-slate-600" />}
                       </button>
 
-                      <div className="min-w-0">
-                        <div className="flex min-w-0 items-center gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex min-h-7 min-w-0 items-center gap-2">
                           <span
                           className={`min-w-0 truncate text-sm font-medium ${
                             task.completed
@@ -762,47 +776,21 @@ interface TaskChartPoint {
                           {task.completed && <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-800 dark:bg-emerald-900/70 dark:text-emerald-200"><Check className="h-3 w-3" />Completed</span>}
                         </div>
 
-                        <div className="flex items-center gap-2 text-[11px] text-slate-400 dark:text-slate-500 mt-1 flex-wrap">
-                          <span className="flex items-center gap-1 font-mono">
-                            <Calendar className="w-3 h-3" />
-                            {formatDisplayDate(task.date)}
-                          </span>
-                          <span aria-hidden="true">·</span>
-
-                          {/* Category Tag Badge */}
-                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium text-[10px]">
-                            <Tag className="w-2.5 h-2.5 text-slate-400" />
-                            {taskCat}
-                          </span>
-                          <span aria-hidden="true">·</span>
-
-                          {/* Priority Indicator */}
-                          <span
-                            className={`font-semibold capitalize ${
-                              isHigh
-                                ? 'text-rose-500'
-                                : isLow
-                                ? 'text-slate-400'
-                                : 'text-amber-500'
-                            }`}
-                          >
-                            {task.priority} priority
-                          </span>
-
-                          {task.timeEstimateMin && (
-                            <>
-                              <span aria-hidden="true">·</span>
-                              <span className="flex items-center gap-1 font-mono">
-                                <Clock className="w-3 h-3" />
-                                {task.timeEstimateMin}m
-                              </span>
-                            </>
-                          )}
+                        <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500 dark:text-slate-400">
+                          <span className="inline-flex items-center gap-1.5 whitespace-nowrap"><Calendar className="h-3.5 w-3.5 shrink-0" />{formatDisplayDate(task.date)}</span>
+                          {(task.startTime && task.endTime || task.timeEstimateMin) && <span className="inline-flex items-center gap-1.5 whitespace-nowrap"><Clock className="h-3.5 w-3.5 shrink-0" />
+                            {task.startTime && task.endTime && <span>{formatHabitTime(task.startTime, task.endTime)}</span>}
+                            {task.timeEstimateMin && <span className="text-slate-400 dark:text-slate-500">{task.startTime && task.endTime ? '· ' : ''}{task.timeEstimateMin} min</span>}
+                          </span>}
+                        </div>
+                        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                          <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-[10px] font-medium leading-none text-slate-600 dark:bg-slate-800 dark:text-slate-300"><Tag className="h-3 w-3 text-slate-400" />{taskCat}</span>
+                          <span className={`rounded-md px-2 py-1 text-[10px] font-semibold capitalize leading-none ${isHigh ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400' : isLow ? 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400' : 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400'}`}>{task.priority} priority</span>
                         </div>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div className="absolute right-3 top-1/2 flex -translate-y-1/2 items-center gap-1 sm:right-4">
                       {isEditingOrder ? <>
                         <button type="button" onClick={() => { void moveTask(task.id, -1); }} disabled={taskIndex === 0 || isSavingOrder || savingKeys?.has('task:order')} aria-label={`Move ${task.title} up`} title="Move up" className="rounded-lg border border-slate-200 p-2 text-slate-500 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-30 dark:border-slate-700 dark:hover:bg-slate-800"><ArrowUp className="h-4 w-4" /></button>
                         <button type="button" onClick={() => { void moveTask(task.id, 1); }} disabled={taskIndex === filteredTasks.length - 1 || isSavingOrder || savingKeys?.has('task:order')} aria-label={`Move ${task.title} down`} title="Move down" className="rounded-lg border border-slate-200 p-2 text-slate-500 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-30 dark:border-slate-700 dark:hover:bg-slate-800"><ArrowDown className="h-4 w-4" /></button>
@@ -1095,7 +1083,7 @@ interface TaskChartPoint {
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="p-5 space-y-4">
+            <form onSubmit={handleSubmit} className="max-h-[calc(100dvh-10rem)] overflow-y-auto p-5 space-y-4">
               <div>
                 <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
                   Task Title *
@@ -1203,17 +1191,14 @@ interface TaskChartPoint {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                  Est. Duration (minutes)
-                </label>
-                <input
-                  type="number"
-                  step="5"
-                  min="5"
-                  value={timeEstimate}
-                  onChange={e => setTimeEstimate(e.target.value)}
-                  className="w-full px-3 py-2 text-xs font-mono bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none"
-                />
+                <span className="mb-2 block text-xs font-medium text-slate-700 dark:text-slate-300">Time (optional)</span>
+                <div className="grid grid-cols-2 gap-3">
+                  <HabitTimeInput label="Start time" value={startTime} onChange={value => { setStartTime(value); setTimeError(''); }} />
+                  <HabitTimeInput label="End time" value={endTime} onChange={value => { setEndTime(value); setTimeError(''); }} />
+                </div>
+                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">{duration ? `Estimated duration: ${duration} minutes` : 'Select both times to calculate duration.'}</p>
+                {(startTime || endTime) && <button type="button" onClick={() => { setStartTime(''); setEndTime(''); setTimeError(''); }} className="mt-1 text-xs text-slate-500 underline dark:text-slate-400">Clear time</button>}
+                {(timeError || invalidTimeRange) && <p role="alert" className="mt-1 text-xs text-rose-600 dark:text-rose-400">{timeError || 'End time must be later than start time.'}</p>}
               </div>
 
               <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex justify-end gap-2">

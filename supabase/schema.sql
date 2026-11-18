@@ -44,12 +44,17 @@ CREATE TABLE IF NOT EXISTS public.tasks (
   weekdays INTEGER[] DEFAULT '{0,1,2,3,4,5,6}' NOT NULL, -- 0=Sun, 1=Mon, ..., 6=Sat
   priority TEXT DEFAULT 'medium' CHECK (priority IN ('low', 'medium', 'high')),
   time_estimate_min INTEGER DEFAULT 30,
+  start_time TIME,
+  end_time TIME,
   category TEXT DEFAULT 'General',
   created_at TIMESTAMPTZ DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
   updated_at TIMESTAMPTZ DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
 );
 
 ALTER TABLE public.tasks ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS start_time TIME;
+ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS end_time TIME;
 
 CREATE POLICY "Users can select own tasks"
   ON public.tasks FOR SELECT
@@ -116,6 +121,8 @@ CREATE TABLE IF NOT EXISTS public.custom_trackers (
   unit TEXT, -- e.g. 'ml', 'hours', 'pages', 'mins'
   target_value NUMERIC DEFAULT 1,
   weekdays INTEGER[] NOT NULL DEFAULT '{0,1,2,3,4,5,6}', -- 0=Sun, 1=Mon, ..., 6=Sat
+  start_time TIME,
+  end_time TIME,
   color TEXT DEFAULT '#3B82F6',
   icon TEXT,
   created_at TIMESTAMPTZ DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
@@ -123,6 +130,9 @@ CREATE TABLE IF NOT EXISTS public.custom_trackers (
 
 ALTER TABLE public.custom_trackers
   ADD COLUMN IF NOT EXISTS weekdays INTEGER[] NOT NULL DEFAULT '{0,1,2,3,4,5,6}';
+
+ALTER TABLE public.custom_trackers ADD COLUMN IF NOT EXISTS start_time TIME;
+ALTER TABLE public.custom_trackers ADD COLUMN IF NOT EXISTS end_time TIME;
 
 ALTER TABLE public.custom_trackers ENABLE ROW LEVEL SECURITY;
 

@@ -122,9 +122,12 @@ function mappedHabit(row: any, completedDates: string[]): Habit {
   return {
     id: row.id,
     title: row.name,
+    createdAt: row.created_at || undefined,
     category: row.unit || 'Health',
     targetDaysPerWeek: Number(row.target_value) || 1,
     weekdays: Array.isArray(row.weekdays) ? row.weekdays.map(Number).filter((day: number) => Number.isInteger(day) && day >= 0 && day <= 6) : [0, 1, 2, 3, 4, 5, 6],
+    startTime: row.start_time?.slice(0, 5) || null,
+    endTime: row.end_time?.slice(0, 5) || null,
     completedDates: sorted,
     streak,
     bestStreak,
@@ -142,7 +145,9 @@ function taskRow(userId: string, task: DailyTask) {
     is_active: true,
     weekdays: [day],
     priority: task.priority,
-    time_estimate_min: task.timeEstimateMin || 30,
+    time_estimate_min: task.timeEstimateMin ?? null,
+    start_time: task.startTime || null,
+    end_time: task.endTime || null,
     category: task.category || 'General'
   };
 }
@@ -208,11 +213,14 @@ export const dataService = {
         if (!row) return [];
         return [{
           id: row.id,
+          createdAt: row.created_at || undefined,
           date: entry.entry_date,
           title: row.title,
           completed: entry.status === 'complete',
           priority: row.priority || 'medium',
           timeEstimateMin: row.time_estimate_min || undefined,
+          startTime: row.start_time?.slice(0, 5) || null,
+          endTime: row.end_time?.slice(0, 5) || null,
           category: row.category || undefined,
           completedAt: entry.completed_at ? new Date(entry.completed_at).getTime() : undefined
         } as DailyTask];
@@ -276,7 +284,8 @@ export const dataService = {
     const id = uuid(item.id);
     const { error: trackerError } = await db.from('custom_trackers').upsert({
       id, user_id: userId, name: item.title, type: 'boolean', unit: item.category,
-      target_value: item.targetDaysPerWeek, weekdays: item.weekdays || [0, 1, 2, 3, 4, 5, 6], color: item.color, icon: null
+      target_value: item.targetDaysPerWeek, weekdays: item.weekdays || [0, 1, 2, 3, 4, 5, 6], color: item.color, icon: null,
+      start_time: item.startTime || null, end_time: item.endTime || null
     }, { onConflict: 'id' });
     if (trackerError) throw trackerError;
     const { data: current, error: readError } = await db.from('tracker_entries')
