@@ -565,3 +565,30 @@ CREATE TRIGGER account_intelligence_follows_analytics
 
 UPDATE public.account_permissions SET account_intelligence_enabled = true
 WHERE analytics_enabled AND NOT account_intelligence_enabled;
+
+-- User details in the permissions table follow Supabase Auth.
+ALTER TABLE public.account_permissions
+  ADD COLUMN IF NOT EXISTS full_name text,
+  ADD COLUMN IF NOT EXISTS email text;
+
+INSERT INTO public.account_permissions (user_id, full_name, email)
+SELECT id, COALESCE(NULLIF(raw_user_meta_data->>'full_name', ''), split_part(email, '@', 1)), email
+FROM auth.users
+ON CONFLICT (user_id) DO UPDATE
+SET full_name = EXCLUDED.full_name, email = EXCLUDED.email;
+
+CREATE OR REPLACE FUNCTION public.sync_account_permissions_user_details()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+BEGIN
+  INSERT INTO public.account_permissions (user_id, full_name, email)
+  VALUES (NEW.id, COALESCE(NULLIF(NEW.raw_user_meta_data->>'full_name', ''), split_part(NEW.email, '@', 1)), NEW.email)
+  ON CONFLICT (user_id) DO UPDATE
+  SET full_name = EXCLUDED.full_name, email = EXCLUDED.email;
+  RETURN NEW;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.sync_account_permissions_user_details() FROM PUBLIC;
+DROP TRIGGER IF EXISTS sync_account_permissions_user_details ON auth.users;
+CREATE TRIGGER sync_account_permissions_user_details
+  AFTER INSERT OR UPDATE OF email, raw_user_meta_data ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.sync_account_permissions_user_details();
