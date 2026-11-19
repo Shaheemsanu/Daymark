@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { useDialogBack } from '../hooks/useDialogBack';
 import { HabitTimeInput } from './HabitTimeInput';
 import { formatHabitTime, timeRangeMinutes } from '../utils/habitTime';
 import {
@@ -128,6 +129,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
   const [filterCategory, setFilterCategory] = useState<string>('all');
   const [analyticsCategory, setAnalyticsCategory] = useState<string>('all');
   const [isAddOpen, setIsAddOpen] = useState(Boolean(openAddOnMount));
+  useDialogBack(isAddOpen, () => { setIsAddOpen(false); setEditingTask(null); setIsCreatingNewCat(false); });
   useEffect(() => { if (openAddOnMount) onAddOpened?.(); }, [openAddOnMount, onAddOpened]);
   const [editingTask, setEditingTask] = useState<DailyTask | null>(null);
   const [taskToDelete, setTaskToDelete] = useState<DailyTask | null>(null);

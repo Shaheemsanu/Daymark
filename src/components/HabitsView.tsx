@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { useDialogBack } from '../hooks/useDialogBack';
 import { formatDuration, formatHabitTime, timeRangeMinutes } from '../utils/habitTime';
 import { HabitTimeInput } from './HabitTimeInput';
 import {
@@ -148,6 +149,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
   const [selectedAnalyticsHabitId, setSelectedAnalyticsHabitId] = useState('all');
   const [isMobileCategoryMenuOpen, setIsMobileCategoryMenuOpen] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(Boolean(openAddOnMount));
+  useDialogBack(isAddModalOpen, () => { setIsAddModalOpen(false); setEditingHabit(null); setIsCreatingNewCat(false); onAddOpened?.(); });
   useEffect(() => { if (openAddOnMount) setIsAddModalOpen(true); }, [openAddOnMount]);
   const [editingHabit, setEditingHabit] = useState<Habit | null>(null);
   const [habitToDelete, setHabitToDelete] = useState<Habit | null>(null);

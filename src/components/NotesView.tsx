@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { useDialogBack } from '../hooks/useDialogBack';
 import {
   FileText,
   Plus,
@@ -74,6 +75,7 @@ export const NotesView: React.FC<NotesViewProps> = () => {
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
+  useDialogBack(isModalOpen, () => setIsModalOpen(false));
   const [editingNote, setEditingNote] = useState<NoteItem | null>(null);
   const [viewingNote, setViewingNote] = useState<NoteItem | null>(null);
   const [viewImage, setViewImage] = useState<string | undefined>();

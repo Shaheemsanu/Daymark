@@ -32,6 +32,7 @@ import { createUuid } from '../utils/uuid';
 import { WellnessGoals } from '../types';
 import { CompactDateNavigator } from '../components/CompactDateNavigator';
 import { Account, createBalanceEntry } from '../utils/accounts';
+import { isDialogBackPending, useDialogBack } from '../hooks/useDialogBack';
 const GeneralChatScreen = lazy(() => import('../features/ai/GeneralChatScreen'));
 const isNotificationView = (value: unknown): value is NavView => typeof value === 'string' && ['daily', 'expenses', 'habits', 'tasks', 'notes', 'reports', 'history', 'ai'].includes(value);
 
@@ -70,6 +71,7 @@ export default function App() {
 
   useEffect(() => {
     const onBack = (event: PopStateEvent) => {
+      if (isDialogBackPending() || (event as PopStateEvent & { daymarkDialogHandled?: boolean }).daymarkDialogHandled) return;
       setOpenHabitAddOnMount(false);
       setOpenTaskAddOnMount(false);
       setOpenExpenseAddOnMount(false);
@@ -122,6 +124,7 @@ export default function App() {
 
   // Quick Log Drawer
   const [isQuickLogOpen, setIsQuickLogOpen] = useState(false);
+  useDialogBack(isQuickLogOpen, () => setIsQuickLogOpen(false));
   const [quickLogTab, setQuickLogTab] = useState<'expense' | 'task' | 'habit'>('expense');
 
   // Sync theme

@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, lazy, Suspense } from 'react';
+import { useDialogBack } from '../hooks/useDialogBack';
 import {
   Plus,
   Search,
@@ -134,6 +135,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
   const [isUpdatingTransaction, setIsUpdatingTransaction] = useState(false);
   const [transactionUpdateError, setTransactionUpdateError] = useState<string | null>(null);
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
+  useDialogBack(isAddModalOpen || Boolean(editingExpense), () => { setIsAddModalOpen(false); setEditingExpense(null); });
   const [viewingExpense, setViewingExpense] = useState<LedgerExpense | null>(null);
   const viewingInflow = viewingExpense?.transferDirection === 'received' || (!viewingExpense?.isTransfer && viewingExpense?.type === 'income');
   const viewingNote = viewingExpense ? getBalanceAdjustmentNote(viewingExpense) : undefined;

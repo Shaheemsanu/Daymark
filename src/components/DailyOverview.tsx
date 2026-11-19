@@ -14,7 +14,6 @@ import {
   Calendar,
   Clock,
   Sparkles,
-  Trash2,
   LoaderCircle,
   Wallet,
   ListTodo
@@ -99,7 +98,6 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
   onToggleTask,
   onAddTask,
   onOpenAddTask,
-  onDeleteTask,
   onUpdateWellness,
   onQuickLogExpense,
   onOpenAddHabit,
@@ -486,7 +484,7 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
       </div>
 
       {/* Main Grid: Habits, Tasks & Wellness */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <div className="grid grid-cols-1 items-stretch lg:grid-cols-12 gap-6">
         <div className="lg:col-span-12 lg:min-w-0">
           {/* Card: Daily Wellness & Mood */}
           <div className="p-4 sm:p-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs">
@@ -629,9 +627,9 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
           </div>
         </div>
         {/* Left Column (Habits) */}
-        <div className="lg:col-span-7 space-y-6 lg:flex lg:min-w-0 lg:flex-col lg:space-y-0 lg:gap-6">
+        <div className="lg:col-span-7 lg:h-full lg:min-w-0">
           {/* Card: Daily Habits Checklist */}
-          <div className={`p-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs ${sharedListHeight ? 'lg:flex-1' : ''}`}>
+          <div className="p-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs lg:flex lg:h-full lg:min-w-0 lg:flex-col">
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
@@ -650,9 +648,9 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
               <button type="button" onClick={onOpenAddHabit} className="inline-flex items-center justify-center gap-1 px-4 py-2 text-xs font-semibold text-white bg-slate-900 dark:bg-slate-100 dark:text-slate-950 rounded-lg hover:bg-slate-800 dark:hover:bg-white whitespace-nowrap cursor-pointer"><Plus className="h-3.5 w-3.5" aria-hidden="true" />Add Habit</button>
             </div>
 
-            <div className="space-y-2.5">
+            <div className="space-y-2.5 lg:flex lg:flex-1 lg:flex-col">
               {filteredHabits.length === 0 ? (
-                <div className="text-center py-8 text-xs text-slate-400">
+                <div className="text-center py-8 text-xs text-slate-400 lg:flex lg:flex-1 lg:items-center lg:justify-center">
                   {habits.length === 0
                     ? 'No habits added yet. Click "Add Habit" to establish your routine.'
                     : habitsForSelectedDay.length === 0 ? 'No habits are scheduled for this day.' : 'No habits match these filters.'}
@@ -725,9 +723,9 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
         </div>
 
         {/* Right Column (Priority Tasks) */}
-        <div className="lg:col-span-5 space-y-6 lg:min-w-0">
+        <div className="lg:col-span-5 lg:h-full lg:min-w-0">
           {/* Card: Daily Tasks & Priorities */}
-          <div className={`p-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs lg:flex lg:min-w-0 lg:flex-1 lg:flex-col ${sharedListHeight ? 'lg:h-full' : ''}`}>
+          <div className="p-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs lg:flex lg:h-full lg:min-w-0 lg:flex-col">
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
@@ -763,7 +761,7 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
                   return (
                   <div
                     key={task.id}
-                    className={`px-3 py-2 rounded-xl border grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 transition-colors ${
+                    className={`px-3 py-2 rounded-xl border grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-1 transition-colors ${
                       task.completed
                         ? 'border-slate-200/60 dark:border-slate-800/60 bg-slate-50/40 dark:bg-slate-900/40'
                         : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs hover:border-slate-300 dark:hover:border-slate-700'
@@ -817,15 +815,6 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
                         </span>
                       )}
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => onDeleteTask(task.id)}
-                      className="col-start-3 row-span-2 row-start-1 self-center shrink-0 rounded-md p-1.5 text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-500 dark:hover:bg-rose-950/40 dark:hover:text-rose-400 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400"
-                      aria-label={`Delete ${task.title}`}
-                      title="Delete task"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
                   </div>
                   );
                 })}
