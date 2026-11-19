@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   ResponsiveContainer,
   BarChart,
@@ -94,6 +94,8 @@ interface ReportsPageProps {
   budget?: BudgetConfig;
   defaultModule?: ReportModule;
   wellnessEnabled?: boolean;
+  habitsEnabled?: boolean;
+  tasksEnabled?: boolean;
 }
 
 export const ReportsPage: React.FC<ReportsPageProps> = ({
@@ -103,9 +105,18 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
   wellness = {},
   budget = { monthlyBudget: 30000, dailyBudget: 1000, weeklyBudget: 7000, currency: '₹', categoryBudgets: {} },
   defaultModule = 'all',
-  wellnessEnabled = true
+  wellnessEnabled = true,
+  habitsEnabled = true,
+  tasksEnabled = true
 }) => {
   const [selectedModule, setSelectedModule] = useState<ReportModule>(defaultModule);
+  useEffect(() => {
+    if ((selectedModule === 'habits' && !habitsEnabled) ||
+        (selectedModule === 'tasks' && !tasksEnabled) ||
+        (selectedModule === 'wellness' && !wellnessEnabled)) {
+      setSelectedModule('all');
+    }
+  }, [selectedModule, habitsEnabled, tasksEnabled, wellnessEnabled]);
   const [expenseRange, setExpenseRange] = useState<ReportDateRange>('14');
   const [habitRange, setHabitRange] = useState<ReportDateRange>('14');
   const [taskRange, setTaskRange] = useState<ReportDateRange>('14');
@@ -462,7 +473,7 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
           <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 mt-1">
             <span>Modular visual intelligence</span>
             <span aria-hidden="true">·</span>
-            <span>Expenses velocity, habits, daily tasks &amp; wellness</span>
+            <span>Insights for your enabled features</span>
           </div>
         </div>
 
@@ -499,7 +510,7 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
           <span className="hidden sm:inline">Expense Analytics &amp; Accounts</span>
         </button>
 
-        <button
+        {habitsEnabled && (<button
           aria-label="Habit Analytics"
           onClick={() => setSelectedModule('habits')}
           className={`col-span-1 flex min-w-0 flex-col items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-slate-200 px-1 py-2 transition-all duration-150 cursor-pointer active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-100 dark:border-slate-700/80 dark:focus-visible:ring-offset-slate-800 sm:col-span-auto sm:flex-row sm:shrink-0 sm:snap-start sm:gap-1.5 sm:border-0 sm:px-3.5 ${
@@ -511,9 +522,9 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
           <Flame className="w-3.5 h-3.5 text-amber-500" />
           <span className="sm:hidden">Habits</span>
           <span className="hidden sm:inline">Habit Analytics</span>
-        </button>
+        </button>)}
 
-        <button
+        {tasksEnabled && (<button
           aria-label="Daily Tasks Analytics"
           onClick={() => setSelectedModule('tasks')}
           className={`col-span-1 flex min-w-0 flex-col items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-slate-200 px-1 py-2 transition-all duration-150 cursor-pointer active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-100 dark:border-slate-700/80 dark:focus-visible:ring-offset-slate-800 sm:col-span-auto sm:flex-row sm:shrink-0 sm:snap-start sm:gap-1.5 sm:border-0 sm:px-3.5 ${
@@ -525,7 +536,7 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
           <ListTodo className="w-3.5 h-3.5 text-blue-500" />
           <span className="sm:hidden">Tasks</span>
           <span className="hidden sm:inline">Daily Tasks Analytics</span>
-        </button>
+        </button>)}
 
         {wellnessEnabled && (<button
           aria-label="Sleep & Hydration Curves"
@@ -566,6 +577,7 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
         </div>
 
         {/* 2. HABITS KPI CARD */}
+        {habitsEnabled && (
         <div className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs">
           <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 mb-1">
             <span>Habits Active</span>
@@ -578,8 +590,10 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
             Top streak: {Math.max(...habits.map(h => h.streak), 0)} days
           </p>
         </div>
+        )}
 
         {/* 3. TASKS KPI CARD */}
+        {tasksEnabled && (
         <div className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs">
           <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 mb-1">
             <span>Tasks Completed</span>
@@ -590,8 +604,10 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
           </div>
           <p className="text-[11px] text-slate-400 mt-2">Tasks in {taskTimeframeLabel}</p>
         </div>
+        )}
 
         {/* 4. WELLNESS KPI CARD */}
+        {wellnessEnabled && (
         <div className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs">
           <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 mb-1">
             <span>Sleep &amp; Water</span>
@@ -602,6 +618,7 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
           </div>
           <p className="text-[11px] text-slate-400 mt-2">Daily recorded averages</p>
         </div>
+        )}
       </div>
       </div>
 
@@ -820,7 +837,7 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
       {/* ------------------------------------------------------------- */}
       {/* MODULE 2: HABITS ANALYTICS (Recharts Completion Consistency)  */}
       {/* ------------------------------------------------------------- */}
-      {(selectedModule === 'all' || selectedModule === 'habits') && (
+      {habitsEnabled && (selectedModule === 'all' || selectedModule === 'habits') && (
         <div className="space-y-4 pt-4">
           <div className="flex flex-col gap-3 border-b border-slate-200 pb-3 dark:border-slate-800 sm:flex-row sm:items-center sm:justify-between xl:flex-nowrap">
             <div className="flex min-w-0 items-center gap-2 xl:flex-1">
@@ -988,7 +1005,7 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
       {/* ------------------------------------------------------------- */}
       {/* MODULE 3: DAILY TASKS ANALYTICS (Task Status Share & Trends)  */}
       {/* ------------------------------------------------------------- */}
-      {(selectedModule === 'all' || selectedModule === 'tasks') && (
+      {tasksEnabled && (selectedModule === 'all' || selectedModule === 'tasks') && (
         <div className="space-y-4 pt-4">
           <div className="flex flex-col gap-3 border-b border-slate-200 pb-3 dark:border-slate-800 sm:flex-row sm:items-center sm:justify-between xl:flex-nowrap">
             <div className="flex min-w-0 items-center gap-2 xl:flex-1">

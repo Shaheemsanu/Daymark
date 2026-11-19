@@ -53,6 +53,7 @@ interface ExpenseDashboardProps {
   onSaveCustomCategories: (categories: Record<string, CategoryInfo>) => void | Promise<boolean>;
   openAddModal?: boolean;
   analyticsEnabled?: boolean;
+  accountIntelligenceEnabled?: boolean;
   accountVisibility?: { cash: boolean; savings: boolean };
   openTransactionHistory?: boolean;
   initialDate?: string;
@@ -115,6 +116,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
   onSaveCustomCategories,
   openAddModal = false,
   analyticsEnabled = true,
+  accountIntelligenceEnabled = true,
   accountVisibility = { cash: true, savings: true },
   openTransactionHistory = false,
   initialDate,
@@ -133,10 +135,10 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
 
   // Tab switcher state for Analytics & Ledger (default to Transaction Ledger as first tab)
   const [activeTab, setActiveTab] = useState<'ledger' | 'classification' | 'category' | 'velocity' | 'account_report'>('ledger');
-  useEffect(() => { if (!analyticsEnabled) setActiveTab('ledger'); }, [analyticsEnabled]);
   useEffect(() => {
-    if (activeTab === 'account_report' && (!accountVisibility.cash || !accountVisibility.savings)) setActiveTab('ledger');
-  }, [activeTab, accountVisibility.cash, accountVisibility.savings]);
+    if ((!analyticsEnabled && ['classification', 'category', 'velocity'].includes(activeTab)) ||
+        (!accountIntelligenceEnabled && activeTab === 'account_report')) setActiveTab('ledger');
+  }, [activeTab, analyticsEnabled, accountIntelligenceEnabled]);
 
   // Modals state
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -1401,7 +1403,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
             >
               <span className="sm:hidden">📈 Velocity</span><span className="hidden sm:inline">📈 Daily Velocity</span>
             </button>)}
-            {(analyticsEnabled && accountVisibility.cash && accountVisibility.savings) && <button
+            {accountIntelligenceEnabled && <button
               type="button"
               aria-pressed={activeTab === 'account_report'}
               onClick={() => setActiveTab('account_report')}
@@ -1590,7 +1592,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
         )}
 
         {/* Tab: Account Intelligence Report */}
-        {analyticsEnabled && activeTab === 'account_report' && accountVisibility.cash && accountVisibility.savings && (
+        {accountIntelligenceEnabled && activeTab === 'account_report' && (
           <div className="p-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs animate-in fade-in duration-150">
             <div className="flex items-center gap-2 mb-4 pb-3 border-b border-slate-100 dark:border-slate-800">
               <span className="p-1.5 rounded-lg bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 font-bold text-xs">
@@ -1601,13 +1603,13 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                   Account Spends &amp; Financial Intelligence Report
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  Detailed breakdown of spending and balances across Expense Account, Cash in Hand, and Savings Account with custom filters
+                  Explore spending and balances across your enabled accounts with custom filters
                 </p>
               </div>
             </div>
 
             <Suspense fallback={<div role="status" className="h-64 animate-pulse rounded-2xl bg-slate-100 p-5 text-xs text-slate-500 dark:bg-slate-800">Loading financial analytics…</div>}>
-              <FinancialAnalyticsDashboard expenses={expenses} budget={budget} referenceDate={referenceDateIso} loading={analyticsLoading} categoryNames={Object.keys(customCategories)} />
+              <FinancialAnalyticsDashboard expenses={expenses} budget={budget} referenceDate={referenceDateIso} loading={analyticsLoading} categoryNames={Object.keys(customCategories)} accountVisibility={accountVisibility} />
             </Suspense>
           </div>
         )}

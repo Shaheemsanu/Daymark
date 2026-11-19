@@ -36,7 +36,7 @@ import { Account, createBalanceEntry, isAccountTransactionVisible } from '../uti
 import { isDialogBackPending, useDialogBack } from '../hooks/useDialogBack';
 const GeneralChatScreen = lazy(() => import('../features/ai/GeneralChatScreen'));
 const isNotificationView = (value: unknown): value is NavView => typeof value === 'string' && ['daily', 'expenses', 'habits', 'tasks', 'notes', 'reports', 'history', 'ai'].includes(value);
-const disabledPermissions: AccountPermissions = { canSelectAccounts: false, cash: false, savings: false, habits: false, tasks: false, notes: false, analytics: false, ai: false, wellness: false };
+const disabledPermissions: AccountPermissions = { canSelectAccounts: false, cash: false, savings: false, habits: false, tasks: false, notes: false, analytics: false, accountIntelligence: false, ai: false, wellness: false };
 const canOpenView = (view: NavView, permissions: AccountPermissions) => view === 'habits' ? permissions.habits : view === 'tasks' ? permissions.tasks : view === 'notes' ? permissions.notes : view === 'reports' ? permissions.analytics : view === 'ai' ? permissions.ai : true;
 
 export default function App() {
@@ -827,6 +827,7 @@ export default function App() {
       {currentView === 'expenses' && (
         <ExpenseDashboard
           analyticsEnabled={accountPermissions.analytics}
+          accountIntelligenceEnabled={permissionsLoaded && accountPermissions.accountIntelligence}
           analyticsLoading={dataLoading}
           expenses={expenses}
           budget={budget}
@@ -849,6 +850,8 @@ export default function App() {
       {/* 5. Performance Analytics & Recharts Trends */}
       {currentView === 'reports' && accountPermissions.analytics && (
         <ReportsPage
+          habitsEnabled={accountPermissions.habits}
+          tasksEnabled={accountPermissions.tasks}
           wellnessEnabled={accountPermissions.wellness}
           habits={habits}
           tasks={tasks}

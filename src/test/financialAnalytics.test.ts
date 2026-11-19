@@ -54,6 +54,21 @@ describe('financial calculations', () => {
     expect(expense.cashOther).toBe(-290);
   });
 
+  it('reports only enabled accounts while retaining transfers in their true balances', () => {
+    const withCashSpending = [...records, tx('cash-purchase', '2026-11-15', 30, { account: 'cash' })];
+    const expenseOnly = buildFinancialAnalytics(withCashSpending, budget, filters, ['expense'])!;
+    expect(expenseOnly.accounts.map(account => account.account)).toEqual(['expense']);
+    expect(expenseOnly.total.expenses).toBe(100);
+    expect(expenseOnly.closingBalance).toBe(getAccountBalance(withCashSpending, 'expense', filters.end));
+    expect(expenseOnly.transfers).toHaveLength(0);
+
+    const expenseAndCash = buildFinancialAnalytics(withCashSpending, budget, filters, ['expense', 'cash'])!;
+    expect(expenseAndCash.accounts.map(account => account.account)).toEqual(['expense', 'cash']);
+    expect(expenseAndCash.total.expenses).toBe(130);
+    expect(expenseAndCash.transfers).toHaveLength(1);
+    expect(expenseAndCash.closingBalance).toBe(1280);
+  });
+
   it('applies category and type filters to current and previous periods', () => {
     const report = buildFinancialAnalytics([...records, tx('prior', '2026-11-04', 50), tx('other', '2026-11-11', 300, { category: 'Shopping' })], budget, { ...filters, category: 'Food', type: 'expense' })!;
     expect(report.total.income).toBe(0);

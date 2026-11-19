@@ -18,7 +18,7 @@ export default function SpendingSnapshot({ expenses, referenceDate, currency }: 
   const money = (value: number | null) => value === null ? '—' : formatCurrency(value, currency);
   return <section className={financePanel} aria-label="Essential spending summary">
     <div className="flex flex-wrap items-start justify-between gap-4">
-      <div><h3 className="text-lg font-semibold tracking-tight">Your spending at a glance</h3><p className="mt-1 text-xs leading-relaxed text-slate-500 dark:text-slate-400">All accounts · All categories · Through {formatDisplayDate(referenceDate)}</p></div>
+      <div><h3 className="text-lg font-semibold tracking-tight">Your spending at a glance</h3><p className="mt-1 text-xs leading-relaxed text-slate-500 dark:text-slate-400">Enabled accounts · All categories · Through {formatDisplayDate(referenceDate)}</p></div>
       <button type="button" aria-expanded={expanded} aria-controls="snapshot-today-details snapshot-7days-details snapshot-30days-details" onClick={() => setExpanded(value => !value)} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-slate-200 px-3 text-xs font-semibold transition-colors hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 dark:border-slate-700 dark:hover:bg-slate-800">{expanded ? 'Less detail' : 'More details'}<ChevronDown aria-hidden="true" className={`h-4 w-4 transition-transform ${expanded ? 'rotate-180' : ''}`} /></button>
     </div>
     <div className="mt-3 grid items-stretch gap-3 lg:grid-cols-3">{periods.map((period, index) => {

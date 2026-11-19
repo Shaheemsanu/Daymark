@@ -44,12 +44,12 @@ export function resolveAnalyticsRange(preset: string, reference: string) {
 
 export const budgetStatus = (utilization: number) => utilization > 100 ? 'Over budget' : utilization >= 90 ? 'Warning' : utilization >= 70 ? 'Approaching limit' : 'Normal';
 
-export function buildFinancialAnalytics(expenses: Expense[], budget: BudgetConfig, filters: AnalyticsFilters) {
+export function buildFinancialAnalytics(expenses: Expense[], budget: BudgetConfig, filters: AnalyticsFilters, enabledAccounts: Account[] = analyticsAccounts) {
   const skeleton = buildExpenseReport([], filters.start, filters.end);
   if (!skeleton) return null;
   // A single row per ID; deleted records are absent from the workspace model.
   const records = [...new Map(expenses.filter(expense => Number.isFinite(expense.amount)).map(expense => [expense.id, expense])).values()];
-  const scoped = records.filter(expense => isOperatingTransaction(expense) &&
+  const scoped = records.filter(expense => isOperatingTransaction(expense) && enabledAccounts.includes(sourceAccount(expense)) &&
     (filters.account === 'all' || sourceAccount(expense) === filters.account) &&
     (filters.category === 'all' || expense.category === filters.category) &&
     (!filters.payment || filters.payment === 'all' || expense.paymentMethod === filters.payment) &&
@@ -83,7 +83,7 @@ export function buildFinancialAnalytics(expenses: Expense[], budget: BudgetConfi
     row.type === 'income' ? day.income += cents(row.amount) : day.expenses += cents(row.amount);
     previousDaily.set(row.date, day);
   }
-  const selectedAccounts = filters.account === 'all' ? analyticsAccounts : [filters.account];
+  const selectedAccounts = filters.account === 'all' ? enabledAccounts : enabledAccounts.filter(account => account === filters.account);
   const accountMovements = new Map<string, Record<Account, number>>();
   for (const row of records) {
     if (row.date < filters.start || row.date > filters.end) continue;
@@ -202,7 +202,7 @@ export function buildFinancialAnalytics(expenses: Expense[], budget: BudgetConfi
     highestDay: [...days].sort((a, b) => b.expenses - a.expenses)[0], lowestDay: [...days].sort((a, b) => a.expenses - b.expenses)[0],
     periodBudget, budgetRows, budgetHistory, budgetAmount, projection, closingBalance, openingBalance, cashOther,
     previousStart: skeleton.previousStart, previousEnd: skeleton.previousEnd,
-    transfers: records.filter(row => isInternalTransfer(row) && row.date >= filters.start && row.date <= filters.end &&
+    transfers: records.filter(row => isInternalTransfer(row) && enabledAccounts.includes(sourceAccount(row)) && enabledAccounts.includes(transferTarget(row)) && row.date >= filters.start && row.date <= filters.end &&
       (filters.account === 'all' || sourceAccount(row) === filters.account || transferTarget(row) === filters.account) &&
       (filters.category === 'all' || row.category === filters.category) && (!filters.payment || filters.payment === 'all' || row.paymentMethod === filters.payment) && filters.type === 'all'),
     mostFrequent: [...categories].sort((a, b) => b.count - a.count)[0] };

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { ArrowDownLeft, ArrowUpRight, Wallet, PiggyBank, Percent, Receipt, CalendarDays, Gauge, Download, RotateCcw, Info, LayoutDashboard, ChartPie, Lightbulb } from 'lucide-react';
 import { BudgetConfig, Expense } from '../types';
 import { AnalyticsFilters, FinancialAnalytics, accountNames, analyticsAccounts, buildFinancialAnalytics, resolveAnalyticsRange, sourceAccount, transferTarget, automaticChartGrouping, analyticsGroupLabel, isOperatingTransaction } from '../utils/financialAnalytics';
@@ -44,13 +44,16 @@ function Intelligence({ report, currency }: { report: FinancialAnalytics; curren
   return <div className="grid gap-3 md:grid-cols-2">{messages.length ? messages.map((message, index) => <article key={index} className={`${financePanel} border-l-4 ${message.level === 'warning' ? 'border-l-amber-500' : message.level === 'good' ? 'border-l-emerald-500' : 'border-l-indigo-500'}`}><h4 className="text-sm font-semibold">{message.title}</h4><p className="mt-2 text-xs leading-relaxed text-slate-500 dark:text-slate-400">{message.body}</p></article>) : <p className={`${financePanel} text-sm text-slate-500`}>Add transactions or widen your date range to generate insights.</p>}</div>;
 }
 
-export default function FinancialAnalyticsDashboard({ expenses, budget, referenceDate, loading = false, categoryNames = [] }: { expenses: Expense[]; budget: BudgetConfig; referenceDate: string; loading?: boolean; categoryNames?: string[] }) {
-  const expenseCategoryNames = [...new Set([...categoryNames, ...expenses.filter(row => row.type !== 'income' && isOperatingTransaction(row)).map(row => row.category)])];
+export default function FinancialAnalyticsDashboard({ expenses, budget, referenceDate, loading = false, categoryNames = [], accountVisibility = { cash: true, savings: true } }: { expenses: Expense[]; budget: BudgetConfig; referenceDate: string; loading?: boolean; categoryNames?: string[]; accountVisibility?: { cash: boolean; savings: boolean } }) {
+  const enabledAccounts = useMemo(() => analyticsAccounts.filter(name => name === 'expense' || accountVisibility[name]), [accountVisibility.cash, accountVisibility.savings]);
+  const visibleExpenses = useMemo(() => expenses.filter(row => enabledAccounts.includes(sourceAccount(row))), [expenses, enabledAccounts]);
+  const expenseCategoryNames = [...new Set([...categoryNames, ...visibleExpenses.filter(row => row.type !== 'income' && isOperatingTransaction(row)).map(row => row.category)])];
   const [section, setSection] = useState<Section>('Overview');
   const [preset, setPreset] = useState('30days');
   const [customStart, setCustomStart] = useState(referenceDate.slice(0, 7) + '-01');
   const [customEnd, setCustomEnd] = useState(referenceDate);
   const [account, setAccount] = useState<AnalyticsFilters['account']>('all');
+  useEffect(() => { if (account !== 'all' && !enabledAccounts.includes(account)) setAccount('all'); }, [account, enabledAccounts]);
   const [category, setCategory] = useState('all');
   const [payment, setPayment] = useState('all');
   const [type, setType] = useState<AnalyticsFilters['type']>('all');
@@ -60,7 +63,7 @@ export default function FinancialAnalyticsDashboard({ expenses, budget, referenc
   const range = preset === 'custom' ? { start: customStart, end: customEnd } : resolveAnalyticsRange(preset, referenceDate);
   const autoGrouping = automaticChartGrouping(range.start, range.end);
   const grouping = chartGrouping === 'auto' ? autoGrouping : chartGrouping;
-  const report = useMemo(() => buildFinancialAnalytics(expenses, budget, { ...range, account, category, payment, type, grouping }), [expenses, budget, range.start, range.end, account, category, payment, type, grouping]);
+  const report = useMemo(() => buildFinancialAnalytics(expenses, budget, { ...range, account: account !== 'all' && !enabledAccounts.includes(account) ? 'all' : account, category, payment, type, grouping }, enabledAccounts), [expenses, budget, range.start, range.end, account, category, payment, type, grouping, enabledAccounts]);
   const currency = budget.currency;
   const money = (value: number) => formatCurrency(value, currency);
   const reset = () => { setPreset('30days'); setAccount('all'); setCategory('all'); setPayment('all'); setType('all'); setChartGrouping('auto'); };
@@ -85,16 +88,16 @@ export default function FinancialAnalyticsDashboard({ expenses, budget, referenc
   const chartGroups = groups.map(row => ({ name: analyticsGroupLabel(row), income: row.income, expenses: row.expenses, net: row.net, rate: row.rate }));
   const savingsOrder = [...groups].sort((a, b) => a.net - b.net);
   const worstSavings = savingsOrder[0], bestSavings = savingsOrder[savingsOrder.length - 1];
-  const accountSeries = analyticsAccounts.filter(name => account === 'all' || account === name).map(name => ({ key: name, label: accountNames[name] }));
+  const accountSeries = enabledAccounts.filter(name => account === 'all' || account === name).map(name => ({ key: name, label: accountNames[name] }));
   return <section className="space-y-5" aria-label="Financial analytics dashboard">
-    <SpendingSnapshot expenses={expenses} referenceDate={referenceDate} currency={currency} />
+    <SpendingSnapshot expenses={visibleExpenses} referenceDate={referenceDate} currency={currency} />
     <div className={financePanel} role="region" aria-label="Shared report filters">
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3"><div><h3 className="text-lg font-semibold tracking-tight">Your financial picture</h3><p className="mt-1 text-xs text-slate-500">One set of filters for all summaries, charts, insights, and exports.</p></div>{canReset && <button type="button" onClick={reset} className={action}><RotateCcw className="h-3.5 w-3.5" />Reset filters</button>}</div>
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         <label className="space-y-1 text-xs text-slate-500">Date range<select aria-label="Analytics period" value={preset} onChange={event => setPreset(event.target.value)} className={control}>{[['today', 'Today'], ['yesterday', 'Yesterday'], ['7days', 'Last 7 days'], ['30days', 'Last 30 days'], ['custom', 'Custom range']].map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
-        <label className="space-y-1 text-xs text-slate-500">Account<select aria-label="Analytics account" value={account} onChange={event => setAccount(event.target.value as typeof account)} className={control}><option value="all">All accounts</option>{analyticsAccounts.map(name => <option key={name} value={name}>{accountNames[name]}</option>)}</select></label>
-        <label className="space-y-1 text-xs text-slate-500">Category<select aria-label="Analytics category" value={category} onChange={event => setCategory(event.target.value)} className={control}><option value="all">All categories</option>{[...new Set(expenses.map(row => row.category))].sort().map(name => <option key={name}>{name}</option>)}</select></label>
-        <label className="space-y-1 text-xs text-slate-500">Payment<select aria-label="Analytics payment" value={payment} onChange={event => setPayment(event.target.value)} className={control}><option value="all">All payment methods</option>{[...new Set(expenses.map(row => row.paymentMethod))].sort().map(name => <option key={name}>{name}</option>)}</select></label>
+        <label className="space-y-1 text-xs text-slate-500">Account<select aria-label="Analytics account" value={account} onChange={event => setAccount(event.target.value as typeof account)} className={control}><option value="all">All enabled accounts</option>{enabledAccounts.map(name => <option key={name} value={name}>{accountNames[name]}</option>)}</select></label>
+        <label className="space-y-1 text-xs text-slate-500">Category<select aria-label="Analytics category" value={category} onChange={event => setCategory(event.target.value)} className={control}><option value="all">All categories</option>{[...new Set(visibleExpenses.map(row => row.category))].sort().map(name => <option key={name}>{name}</option>)}</select></label>
+        <label className="space-y-1 text-xs text-slate-500">Payment<select aria-label="Analytics payment" value={payment} onChange={event => setPayment(event.target.value)} className={control}><option value="all">All payment methods</option>{[...new Set(visibleExpenses.map(row => row.paymentMethod))].sort().map(name => <option key={name}>{name}</option>)}</select></label>
         <label className="space-y-1 text-xs text-slate-500">Type<select aria-label="Analytics transaction type" value={type} onChange={event => setType(event.target.value as typeof type)} className={control}><option value="all">Income & expenses</option><option value="income">Income only</option><option value="expense">Expenses only</option></select></label>
       </div>
       {preset === 'custom' && <div className="mt-3 grid gap-3 sm:grid-cols-2"><label className="space-y-1 text-xs text-slate-500">From<input aria-label="Analytics start date" type="date" max={customEnd} value={customStart} onChange={event => setCustomStart(event.target.value)} className={control} /></label><label className="space-y-1 text-xs text-slate-500">To<input aria-label="Analytics end date" type="date" min={customStart} max={referenceDate} value={customEnd} onChange={event => setCustomEnd(event.target.value)} className={control} /></label></div>}

@@ -75,6 +75,20 @@ it('mounts only the shared filter toolbar in Account Spends & Intelligence', asy
   expect(screen.queryByLabelText('Report period')).toBeNull();
 });
 
+it.each([
+  [{ cash: false, savings: false }, ['Expense Account']],
+  [{ cash: true, savings: false }, ['Expense Account', 'Cash in Hand']],
+  [{ cash: false, savings: true }, ['Expense Account', 'Savings Account']],
+])('opens the report for enabled accounts: %o', async (visibility, labels) => {
+  render(<ExpenseDashboard expenses={expenses} budget={budget} initialDate="2026-11-16" accountVisibility={visibility}
+    onAddExpense={vi.fn()} onUpdateExpense={vi.fn()} onDeleteExpense={vi.fn()}
+    onUpdateBudget={vi.fn()} onExportCSV={vi.fn()} customCategories={{}} onSaveCustomCategories={vi.fn()} />);
+  fireEvent.click(screen.getByRole('button', { name: /Account Spends & Intelligence/ }));
+  const filter = await screen.findByLabelText('Analytics account');
+  expect(within(filter).getAllByRole('option').map(option => option.textContent)).toEqual(['All enabled accounts', ...labels]);
+  expect(within(kpi('Total expenses')).getByText(visibility.cash ? 'INR 100.00' : 'INR 40.00')).toBeInTheDocument();
+});
+
 it('shares global filters across KPIs, sections, and exports', () => {
   render(<FinancialAnalyticsDashboard expenses={expenses} budget={budget} referenceDate="2026-11-16" />);
   expect(within(kpi('Total expenses')).getByText('INR 100.00')).toBeInTheDocument();

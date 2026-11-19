@@ -29,6 +29,21 @@ const props = {
 };
 
 describe('Cumulative expense target balances', () => {
+  it('controls account intelligence independently and returns to the ledger when access is removed', () => {
+    const view = render(<ExpenseDashboard {...props} expenses={[]} analyticsEnabled={false} accountIntelligenceEnabled={false} />);
+    const reportTab = () => screen.queryByRole('button', { name: /Account Spends & Intelligence/i });
+    expect(reportTab()).toBeNull();
+    view.rerender(<ExpenseDashboard {...props} expenses={[]} analyticsEnabled={false} accountIntelligenceEnabled />);
+    expect(reportTab()).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Classification \(50\/30\/20\)/i })).toBeNull();
+    fireEvent.click(reportTab()!);
+    view.rerender(<ExpenseDashboard {...props} expenses={[]} analyticsEnabled accountIntelligenceEnabled={false} />);
+    expect(reportTab()).toBeNull();
+    expect(screen.getByRole('button', { name: /Transaction Ledger/i }).getAttribute('aria-pressed')).toBe('true');
+    view.rerender(<ExpenseDashboard {...props} expenses={[]} analyticsEnabled accountIntelligenceEnabled />);
+    expect(reportTab()).toBeTruthy();
+  });
+
   it('copies transaction details, reports clipboard failures and opens the entry for editing', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     vi.stubGlobal('navigator', Object.create(window.navigator, { clipboard: { value: { writeText } } }));

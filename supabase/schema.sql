@@ -487,6 +487,7 @@ CREATE TABLE IF NOT EXISTS public.account_permissions (
   tasks_enabled boolean NOT NULL DEFAULT false,
   notes_enabled boolean NOT NULL DEFAULT false,
   analytics_enabled boolean NOT NULL DEFAULT false,
+  account_intelligence_enabled boolean NOT NULL DEFAULT false,
   ai_enabled boolean NOT NULL DEFAULT false,
   wellness_enabled boolean NOT NULL DEFAULT false
 );
@@ -541,3 +542,26 @@ REVOKE UPDATE (habits_enabled, tasks_enabled, notes_enabled, analytics_enabled, 
 ALTER TABLE public.account_permissions
   ADD COLUMN IF NOT EXISTS wellness_enabled boolean NOT NULL DEFAULT false;
 REVOKE UPDATE (wellness_enabled) ON public.account_permissions FROM PUBLIC, anon, authenticated;
+
+ALTER TABLE public.account_permissions
+  ADD COLUMN IF NOT EXISTS account_intelligence_enabled boolean NOT NULL DEFAULT false;
+REVOKE UPDATE (account_intelligence_enabled) ON public.account_permissions FROM PUBLIC, anon, authenticated;
+
+-- Analytics always includes account intelligence.
+CREATE OR REPLACE FUNCTION public.enable_account_intelligence_for_analytics()
+RETURNS trigger LANGUAGE plpgsql SET search_path = public AS $$
+BEGIN
+  IF NEW.analytics_enabled THEN
+    NEW.account_intelligence_enabled := true;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.enable_account_intelligence_for_analytics() FROM PUBLIC;
+DROP TRIGGER IF EXISTS account_intelligence_follows_analytics ON public.account_permissions;
+CREATE TRIGGER account_intelligence_follows_analytics
+  BEFORE INSERT OR UPDATE ON public.account_permissions
+  FOR EACH ROW EXECUTE FUNCTION public.enable_account_intelligence_for_analytics();
+
+UPDATE public.account_permissions SET account_intelligence_enabled = true
+WHERE analytics_enabled AND NOT account_intelligence_enabled;
