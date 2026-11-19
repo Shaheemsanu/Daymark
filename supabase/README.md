@@ -14,6 +14,21 @@ WHERE user_id = '<user UUID>';
 
 When `can_select_accounts` is true, the user can change the two account switches in Settings. When false, the switches are hidden and the administrator's `cash_enabled` and `savings_enabled` values determine what the app shows. Authenticated users can read only their own row and cannot change `can_select_accounts`; they may update the two enabled flags only while selection is allowed. Disabling an account hides its controls and transactions in supported views without deleting data. These flags control app features and are not transaction-data access policies.
 
+### Administrator-managed features
+
+Apply `migrations/20261119000003_feature_permissions.sql` after the account permissions migrations. It adds `habits_enabled`, `tasks_enabled`, `notes_enabled`, `analytics_enabled`, and `ai_enabled` to `public.account_permissions`. All default to false for existing and new users. These switches are not exposed in Settings; administrators can change them using the Table Editor or SQL Editor:
+
+```sql
+UPDATE public.account_permissions
+SET habits_enabled = true, tasks_enabled = true, notes_enabled = false,
+    analytics_enabled = false, ai_enabled = false
+WHERE user_id = '<user UUID>';
+```
+
+The app hides disabled features, including their overview sections and navigation. These feature flags control app presentation and do not replace database RLS or API authorization policies. Existing records are retained.
+
+Apply `migrations/20261119000004_wellness_permission.sql` after the feature permissions migration to add `wellness_enabled`, also false by default. Administrators can turn it on per user in the Table Editor or with `UPDATE public.account_permissions SET wellness_enabled = true WHERE user_id = '<user UUID>';`. The flag is not shown in Settings and does not delete wellness records.
+
 This directory contains the database schema and initialization instructions for **Daymark — Daily Todo & Habit Tracker**.
 
 ---

@@ -8,7 +8,7 @@ import AssistantMessage from './AssistantMessage';
 import { readChatResponse } from './chatResponse';
 
 type Message = { role: 'user' | 'assistant'; text: string; context?: ContextMeta };
-export default function GeneralChatScreen({ active }: { active: boolean }) {
+export default function GeneralChatScreen({ active, featureVisibility = { habits: true, tasks: true, notes: true, wellness: true } }: { active: boolean; featureVisibility?: { habits: boolean; tasks: boolean; notes: boolean; wellness: boolean } }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState('');
   const [source, setSource] = useState<ChatSource>('expenses');
@@ -25,6 +25,14 @@ export default function GeneralChatScreen({ active }: { active: boolean }) {
   const busy = useRef(false);
   const log = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if ((source === 'habits' && !featureVisibility.habits) || (source === 'tasks' && !featureVisibility.tasks) || (source === 'notes' && !featureVisibility.notes) || (source === 'wellness' && !featureVisibility.wellness)) {
+      setSource('expenses');
+      setMessages([]);
+      setDraft('');
+    }
+  }, [source, featureVisibility.habits, featureVisibility.tasks, featureVisibility.notes, featureVisibility.wellness]);
 
   useEffect(() => {
     if (!active) return;
@@ -77,7 +85,7 @@ export default function GeneralChatScreen({ active }: { active: boolean }) {
     <header className="hidden shrink-0 flex-wrap items-center justify-between gap-2 md:flex md:gap-2"><div className="flex items-center gap-2 md:gap-2"><span className="rounded-lg bg-indigo-500/10 p-1 text-indigo-500 md:rounded-xl md:p-2"><Sparkles className="h-4 w-4 md:h-4 md:w-4" /></span><div><h1 className="text-sm font-bold md:text-lg">Daymark AI</h1><p className="mt-0.5 hidden text-[11px] text-slate-500 md:block">Insights and suggestions from your selected records.</p></div></div><span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[9px] md:gap-1.5 font-medium md:px-2 md:py-1 md:text-[10px] text-emerald-600 dark:text-emerald-300"><ShieldCheck className="h-3 w-3 md:h-3.5 md:w-3.5" />Read-only access</span></header>
     <div className="max-h-[35%] shrink-0 overflow-y-auto rounded-xl border border-slate-200 bg-white px-1.5 py-1 dark:border-slate-800 dark:bg-slate-900 md:max-h-none md:rounded-xl md:px-2.5 md:py-2">
       <div className="grid min-w-0 grid-cols-3 gap-1 md:gap-2">
-        <label className="block min-w-0 space-y-0 text-[10px] leading-3 text-slate-500 md:space-y-0.5 md:text-[11px] md:leading-normal">Data source<select aria-label="AI data source" value={source} disabled={pending} onChange={event => { resetChat(); setSource(event.target.value as ChatSource); }} className="h-6 min-w-0 w-full rounded-lg border border-slate-200 bg-transparent px-1 dark:border-slate-700 dark:bg-slate-900 md:h-8 md:w-full md:rounded-lg md:px-2">{Object.entries(DATA_SOURCES).map(([value, name]) => <option key={value} value={value}>{name}</option>)}</select></label>
+        <label className="block min-w-0 space-y-0 text-[10px] leading-3 text-slate-500 md:space-y-0.5 md:text-[11px] md:leading-normal">Data source<select aria-label="AI data source" value={source} disabled={pending} onChange={event => { resetChat(); setSource(event.target.value as ChatSource); }} className="h-6 min-w-0 w-full rounded-lg border border-slate-200 bg-transparent px-1 dark:border-slate-700 dark:bg-slate-900 md:h-8 md:w-full md:rounded-lg md:px-2">{Object.entries(DATA_SOURCES).filter(([value]) => value !== 'habits' && value !== 'tasks' && value !== 'notes' && value !== 'wellness' || featureVisibility[value]).map(([value, name]) => <option key={value} value={value}>{name}</option>)}</select></label>
         <label className="block min-w-0 space-y-0 text-[10px] leading-3 text-slate-500 md:space-y-0.5 md:text-[11px] md:leading-normal">From<input aria-label="AI start date" type="date" value={start} max={end} disabled={pending} onChange={event => { resetChat(); setStart(event.target.value); }} className="h-6 min-w-0 w-full max-w-full flex-1 rounded-lg border border-slate-200 bg-transparent px-1 dark:border-slate-700 md:h-8 md:rounded-lg md:px-2" /></label>
         <label className="block min-w-0 space-y-0 text-[10px] leading-3 text-slate-500 md:space-y-0.5 md:text-[11px] md:leading-normal">To<input aria-label="AI end date" type="date" value={end} min={start} max={today} disabled={pending} onChange={event => { resetChat(); setEnd(event.target.value); }} className="h-6 min-w-0 w-full max-w-full flex-1 rounded-lg border border-slate-200 bg-transparent px-1 dark:border-slate-700 md:h-8 md:rounded-lg md:px-2" /></label>
       </div>

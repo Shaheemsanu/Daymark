@@ -7,6 +7,19 @@ import { DailyWellness } from '../types';
 
 afterEach(cleanup);
 
+it('shows the overview wellness log only when enabled', () => {
+  const props = {
+    habits: [], tasks: [], expenses: [], wellness: {}, selectedDate: '2026-11-13',
+    budget: { monthlyBudget: 1000, weeklyBudget: 250, dailyBudget: 30, currency: 'USD', categoryBudgets: {} },
+    onSelectDate: vi.fn(), onToggleHabit: vi.fn(), onUpdateWellness: vi.fn(), onToggleTask: vi.fn(),
+    onAddTask: vi.fn(), onDeleteTask: vi.fn(), onQuickLogExpense: vi.fn(), onOpenAddHabit: vi.fn(),
+  };
+  const view = render(<DailyOverview {...props} featureVisibility={{ habits: false, tasks: false, wellness: false }} />);
+  expect(screen.queryByText('Daily Wellness Log')).toBeNull();
+  view.rerender(<DailyOverview {...props} featureVisibility={{ habits: false, tasks: false, wellness: true }} />);
+  expect(screen.getByText('Daily Wellness Log')).toBeTruthy();
+});
+
 it.each(['habits', 'overview'])('toggles mood and energy off and back on in %s', view => {
   const save = vi.fn();
   const date = '2026-11-13';

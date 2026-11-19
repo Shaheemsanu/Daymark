@@ -69,6 +69,8 @@ interface HabitsViewProps {
   wellness?: Record<string, DailyWellness>;
   onUpdateWellness?: (date: string, data: Partial<DailyWellness>) => void;
   selectedDate?: string;
+  analyticsEnabled?: boolean;
+  wellnessEnabled?: boolean;
   openAddOnMount?: boolean;
   onAddOpened?: () => void;
   customCategories: string[];
@@ -134,6 +136,8 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
   wellness,
   onUpdateWellness,
   selectedDate,
+  analyticsEnabled = true,
+  wellnessEnabled = true,
   openAddOnMount,
   onAddOpened,
   customCategories,
@@ -145,6 +149,8 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
   onSaveWellnessGoals
 }) => {
   const [viewMode, setViewMode] = useState<HabitsViewMode>('matrix');
+  useEffect(() => { if (!analyticsEnabled) setViewMode('matrix'); }, [analyticsEnabled]);
+  useEffect(() => { if (!wellnessEnabled && viewMode === 'wellnessAnalytics') setViewMode('matrix'); }, [wellnessEnabled, viewMode]);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedAnalyticsHabitId, setSelectedAnalyticsHabitId] = useState('all');
   const [isMobileCategoryMenuOpen, setIsMobileCategoryMenuOpen] = useState(false);
@@ -720,7 +726,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
               <span className="lg:hidden">14-Day Matrix</span>
               <span className="hidden lg:inline">14-Day Matrix</span>
             </button>
-            <button
+            {analyticsEnabled && (<button
               type="button"
               aria-pressed={viewMode === 'analytics'}
               onClick={() => setViewMode('analytics')}
@@ -733,8 +739,8 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
               <BarChart3 className="w-3.5 h-3.5" />
               <span className="lg:hidden">Habit Analytics</span>
               <span className="hidden lg:inline">Habit Analytics</span>
-            </button>
-            <button
+            </button>)}
+            {analyticsEnabled && wellnessEnabled && (<button
               type="button"
               aria-pressed={viewMode === 'wellnessAnalytics'}
               onClick={() => setViewMode('wellnessAnalytics')}
@@ -747,7 +753,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
               <Droplet className="h-3.5 w-3.5" />
               <span className="lg:hidden">Wellness Analytics</span>
               <span className="hidden lg:inline">Wellness Analytics</span>
-            </button>
+            </button>)}
           </div>
 
           <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
@@ -772,6 +778,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
       </div>
 
       {viewMode === 'matrix' && <>
+      {wellnessEnabled && (<>
       {/* Quick Daily Wellness Tracker Bar (Water, Sleep, Mood & Energy) */}
       <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs">
         <div className="grid grid-cols-1 items-center gap-3 sm:grid-cols-[minmax(0,1fr)_auto] mb-3 pb-3 border-b border-slate-100 dark:border-slate-800/80">
@@ -994,6 +1001,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
 
       </div>
 
+      </>)}
       {/* Category Filter Toolbar with custom categories */}
       <div className="hidden items-center gap-1 overflow-x-auto rounded-xl bg-slate-100 p-1 text-xs font-medium dark:bg-slate-800 sm:flex">
         <button
@@ -1268,7 +1276,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
       )}
 
       {/* VIEW 2: DEDICATED HABIT ANALYTICS BY DAY, WEEK, MONTH, YEAR */}
-      {viewMode === 'analytics' && (
+      {analyticsEnabled && viewMode === 'analytics' && (
         <div className="space-y-6">
           {/* Grain Switcher & Overview Cards */}
           <div className="flex flex-col justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900 lg:flex-row lg:items-center">
@@ -1539,7 +1547,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
         </div>
       )}
 
-      {viewMode === 'wellnessAnalytics' && (
+      {analyticsEnabled && wellnessEnabled && viewMode === 'wellnessAnalytics' && (
         <section className="space-y-5" aria-label="Wellness analytics">
           <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900 lg:flex-row lg:items-center lg:justify-between">
             <div>

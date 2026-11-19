@@ -482,7 +482,13 @@ CREATE TABLE IF NOT EXISTS public.account_permissions (
   user_id uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   can_select_accounts boolean NOT NULL DEFAULT false,
   cash_enabled boolean NOT NULL DEFAULT false,
-  savings_enabled boolean NOT NULL DEFAULT false
+  savings_enabled boolean NOT NULL DEFAULT false,
+  habits_enabled boolean NOT NULL DEFAULT false,
+  tasks_enabled boolean NOT NULL DEFAULT false,
+  notes_enabled boolean NOT NULL DEFAULT false,
+  analytics_enabled boolean NOT NULL DEFAULT false,
+  ai_enabled boolean NOT NULL DEFAULT false,
+  wellness_enabled boolean NOT NULL DEFAULT false
 );
 
 ALTER TABLE public.account_permissions ENABLE ROW LEVEL SECURITY;
@@ -518,3 +524,20 @@ BEGIN
     ALTER PUBLICATION supabase_realtime ADD TABLE public.account_permissions;
   END IF;
 END $$;
+
+
+-- Feature access is managed by administrators; existing and new users default off.
+ALTER TABLE public.account_permissions
+  ADD COLUMN IF NOT EXISTS habits_enabled boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS tasks_enabled boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS notes_enabled boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS analytics_enabled boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS ai_enabled boolean NOT NULL DEFAULT false;
+
+-- Only cash_enabled and savings_enabled remain user-updatable.
+REVOKE UPDATE (habits_enabled, tasks_enabled, notes_enabled, analytics_enabled, ai_enabled)
+  ON public.account_permissions FROM PUBLIC, anon, authenticated;
+
+ALTER TABLE public.account_permissions
+  ADD COLUMN IF NOT EXISTS wellness_enabled boolean NOT NULL DEFAULT false;
+REVOKE UPDATE (wellness_enabled) ON public.account_permissions FROM PUBLIC, anon, authenticated;

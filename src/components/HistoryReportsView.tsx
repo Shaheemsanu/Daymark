@@ -19,6 +19,8 @@ interface HistoryReportsViewProps {
   accountVisibility?: { cash: boolean; savings: boolean };
   canSelectAccounts?: boolean;
   onSaveAccountVisibility?: (visibility: { cash: boolean; savings: boolean }) => Promise<boolean>;
+  analyticsEnabled?: boolean;
+  wellnessEnabled?: boolean;
 }
 
 export const HistoryReportsView: React.FC<HistoryReportsViewProps> = ({
@@ -34,7 +36,9 @@ export const HistoryReportsView: React.FC<HistoryReportsViewProps> = ({
   onSaveOpeningBalance,
   accountVisibility = { cash: true, savings: true },
   canSelectAccounts = false,
-  onSaveAccountVisibility
+  onSaveAccountVisibility,
+  analyticsEnabled = true,
+  wellnessEnabled = true
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
@@ -100,7 +104,7 @@ export const HistoryReportsView: React.FC<HistoryReportsViewProps> = ({
       <OpeningBalances expenses={expenses} currency={budget.currency} disabled={isCloudSyncing} onSave={onSaveOpeningBalance} accountVisibility={accountVisibility} />
 
       {/* Aggregate Stats Strip */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {analyticsEnabled && <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="p-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs">
           <div className="text-xs text-slate-500 dark:text-slate-400 mb-1">
             Total Tracked Disbursements
@@ -121,7 +125,7 @@ export const HistoryReportsView: React.FC<HistoryReportsViewProps> = ({
           <p className="text-[11px] text-slate-400 mt-2">of {tasks.length} recorded items</p>
         </div>
 
-        <div className="p-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs">
+        {wellnessEnabled && <div className="p-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs">
           <div className="text-xs text-slate-500 dark:text-slate-400 mb-1">
             Average Sleep Duration
           </div>
@@ -129,9 +133,9 @@ export const HistoryReportsView: React.FC<HistoryReportsViewProps> = ({
             {avgSleep}h
           </div>
           <p className="text-[11px] text-slate-400 mt-2">Across recorded logs</p>
-        </div>
+        </div>}
 
-        <div className="p-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs">
+        {wellnessEnabled && <div className="p-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs">
           <div className="text-xs text-slate-500 dark:text-slate-400 mb-1">
             Average Water Intake
           </div>
@@ -139,8 +143,8 @@ export const HistoryReportsView: React.FC<HistoryReportsViewProps> = ({
             {avgWater} <span className="text-sm font-normal text-slate-400">glasses</span>
           </div>
           <p className="text-[11px] text-slate-400 mt-2">~{Math.round(parseFloat(avgWater) * 250)}ml daily average</p>
-        </div>
-      </div>
+        </div>}
+      </div>}
 
       {/* Data Import / Export / Backup Panel */}
       <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs p-6 space-y-6">

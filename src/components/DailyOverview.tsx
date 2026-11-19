@@ -43,6 +43,7 @@ interface DailyOverviewProps {
   onUpdateWellness: (date: string, data: Partial<DailyWellness>) => void;
   onQuickLogExpense: () => void;
   accountVisibility?: { cash: boolean; savings: boolean };
+  featureVisibility?: { habits: boolean; tasks: boolean; wellness: boolean };
   onViewTransactions?: () => void;
   onOpenAddHabit: () => void;
   wellnessGoals?: WellnessGoals;
@@ -103,6 +104,7 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
   onUpdateWellness,
   onQuickLogExpense,
   accountVisibility = { cash: true, savings: true },
+  featureVisibility = { habits: true, tasks: true, wellness: true },
   onViewTransactions,
   onOpenAddHabit,
   wellnessGoals,
@@ -278,8 +280,8 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
             const habitsForDay = habits.filter(habit =>
               (habit.weekdays || [0, 1, 2, 3, 4, 5, 6]).includes(itemWeekday)
             );
-            const habitsDoneForDay = habitsForDay.filter(habit => habit.completedDates.includes(item.iso)).length;
-            const tasksDoneForDay = tasks.filter(t => t.date === item.iso && t.completed).length;
+            const habitsDoneForDay = featureVisibility.habits ? habitsForDay.filter(habit => habit.completedDates.includes(item.iso)).length : 0;
+            const tasksDoneForDay = featureVisibility.tasks ? tasks.filter(t => t.date === item.iso && t.completed).length : 0;
             const spendForDay = expenses.filter(e => e.date === item.iso && isAccountTransactionVisible(e, accountVisibility)).reduce((sum, e) => sum + e.amount, 0);
 
             return (
@@ -332,7 +334,7 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
       </div>
 
       {/* Snapshot Cards - Expense First */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+      <div className={`grid grid-cols-1 sm:grid-cols-2 ${featureVisibility.habits && featureVisibility.tasks ? 'xl:grid-cols-4' : featureVisibility.habits || featureVisibility.tasks ? 'xl:grid-cols-3' : 'xl:grid-cols-2'} gap-4`}>
         {/* 1. Today's Finance & Accounts Snapshot (EXPENSE FIRST) */}
         <div className="grid min-w-0 row-span-5 grid-rows-subgrid gap-y-2 px-4 pt-3 pb-1 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs hover:border-slate-300 dark:hover:border-slate-700 transition-colors">
           <div className="min-w-0">
@@ -426,6 +428,7 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
           </div>
         </div>
 
+        {featureVisibility.habits && (<>
         {/* 2. Habit Completion */}
         <div className="grid min-w-0 row-span-5 grid-rows-subgrid gap-y-2 px-4 pt-3 pb-1 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs hover:border-slate-300 dark:hover:border-slate-700 transition-colors">
           <div className="min-w-0">
@@ -460,6 +463,8 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
           </div>
         </div>
 
+        </>)}
+        {featureVisibility.tasks && (<>
         {/* 3. Priority Tasks */}
         <div className="grid min-w-0 row-span-5 grid-rows-subgrid gap-y-2 px-4 pt-3 pb-1 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs hover:border-slate-300 dark:hover:border-slate-700 transition-colors">
           <div className="min-w-0">
@@ -498,11 +503,12 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
           </div>
         </div>
 
+        </>)}
       </div>
 
       {/* Main Grid: Habits, Tasks & Wellness */}
       <div className="grid grid-cols-1 items-stretch lg:grid-cols-12 gap-6">
-        <div className="lg:col-span-12 lg:min-w-0">
+        {featureVisibility.wellness && <div className="lg:col-span-12 lg:min-w-0">
           {/* Card: Daily Wellness & Mood */}
           <div className="p-4 sm:p-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs">
             <div className="mb-3 sm:mb-4">
@@ -642,9 +648,10 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
             </div>
             </div>
           </div>
-        </div>
+        </div>}
+        {featureVisibility.habits && (<>
         {/* Left Column (Habits) */}
-        <div className="lg:col-span-7 lg:h-full lg:min-w-0">
+        <div className={`${featureVisibility.tasks ? 'lg:col-span-7' : 'lg:col-span-12'} lg:h-full lg:min-w-0`}>
           {/* Card: Daily Habits Checklist */}
           <div className="p-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs lg:flex lg:h-full lg:min-w-0 lg:flex-col">
             <div className="flex items-center justify-between mb-4">
@@ -739,8 +746,10 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
 
         </div>
 
+        </>)}
+        {featureVisibility.tasks && (<>
         {/* Right Column (Priority Tasks) */}
-        <div className="lg:col-span-5 lg:h-full lg:min-w-0">
+        <div className={`${featureVisibility.habits ? 'lg:col-span-5' : 'lg:col-span-12'} lg:h-full lg:min-w-0`}>
           {/* Card: Daily Tasks & Priorities */}
           <div className="p-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs lg:flex lg:h-full lg:min-w-0 lg:flex-col">
             <div className="flex items-center justify-between mb-4">
@@ -840,6 +849,7 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
             </div>
           </div>
         </div>
+        </>)}
       </div>
       {/* Main Section: Financial Ledger */}
       <div className="p-4 sm:p-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs">

@@ -52,6 +52,7 @@ interface ExpenseDashboardProps {
   customCategories: Record<string, CategoryInfo>;
   onSaveCustomCategories: (categories: Record<string, CategoryInfo>) => void | Promise<boolean>;
   openAddModal?: boolean;
+  analyticsEnabled?: boolean;
   accountVisibility?: { cash: boolean; savings: boolean };
   openTransactionHistory?: boolean;
   initialDate?: string;
@@ -113,6 +114,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
   customCategories,
   onSaveCustomCategories,
   openAddModal = false,
+  analyticsEnabled = true,
   accountVisibility = { cash: true, savings: true },
   openTransactionHistory = false,
   initialDate,
@@ -131,6 +133,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
 
   // Tab switcher state for Analytics & Ledger (default to Transaction Ledger as first tab)
   const [activeTab, setActiveTab] = useState<'ledger' | 'classification' | 'category' | 'velocity' | 'account_report'>('ledger');
+  useEffect(() => { if (!analyticsEnabled) setActiveTab('ledger'); }, [analyticsEnabled]);
   useEffect(() => {
     if (activeTab === 'account_report' && (!accountVisibility.cash || !accountVisibility.savings)) setActiveTab('ledger');
   }, [activeTab, accountVisibility.cash, accountVisibility.savings]);
@@ -1360,7 +1363,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
               <span className="sm:hidden">📋 Ledger ({expenses.length})</span><span className="hidden sm:inline">📋 Transaction Ledger ({expenses.length})</span>
             </button>
 
-            <button
+            {analyticsEnabled && (<button
               type="button"
               aria-pressed={activeTab === 'classification'}
               onClick={() => setActiveTab('classification')}
@@ -1371,9 +1374,9 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
               }`}
             >
               <span className="sm:hidden">🎯 50/30/20</span><span className="hidden sm:inline">🎯 Classification (50/30/20)</span>
-            </button>
+            </button>)}
 
-            <button
+            {analyticsEnabled && (<button
               type="button"
               aria-pressed={activeTab === 'category'}
               onClick={() => setActiveTab('category')}
@@ -1384,9 +1387,9 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
               }`}
             >
               <span className="sm:hidden">🍩 Categories</span><span className="hidden sm:inline">🍩 Category Breakdown</span>
-            </button>
+            </button>)}
 
-            <button
+            {analyticsEnabled && (<button
               type="button"
               aria-pressed={activeTab === 'velocity'}
               onClick={() => setActiveTab('velocity')}
@@ -1397,8 +1400,8 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
               }`}
             >
               <span className="sm:hidden">📈 Velocity</span><span className="hidden sm:inline">📈 Daily Velocity</span>
-            </button>
-            {(accountVisibility.cash && accountVisibility.savings) && <button
+            </button>)}
+            {(analyticsEnabled && accountVisibility.cash && accountVisibility.savings) && <button
               type="button"
               aria-pressed={activeTab === 'account_report'}
               onClick={() => setActiveTab('account_report')}
@@ -1415,7 +1418,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
 
       {/* Tab Content Display */}
       <div className="mt-6">
-        {(activeTab === 'classification' || activeTab === 'category' || activeTab === 'velocity') && (
+        {analyticsEnabled && (activeTab === 'classification' || activeTab === 'category' || activeTab === 'velocity') && (
           <section className="mb-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900" aria-label={`${activeTab} filters`}>
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
@@ -1448,7 +1451,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                   <option value="all">All Accounts</option><option value="expense">Expense Account</option>{accountVisibility.cash && <option value="cash">Cash in Hand</option>}{accountVisibility.savings && <option value="savings">Savings Account</option>}
                 </select>
               )}
-              {activeTab === 'classification' && (
+              {analyticsEnabled && activeTab === 'classification' && (
                 <select aria-label="Classification period" value={classificationPeriod} onChange={e => setClassificationPeriod(e.target.value as typeof classificationPeriod)} className="w-full min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2.5 text-xs text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
                   <option value="this_month">This Month</option><option value="last_30_days">Last 30 Days</option><option value="custom">Custom Dates</option>
                 </select>
@@ -1458,7 +1461,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                   <option value="this_month">This Month</option><option value="last_30_days">Last 30 Days</option><option value="custom">Custom Dates</option><option value="all">All Records</option>
                 </select>
               </>}
-              {activeTab === 'velocity' && (
+              {analyticsEnabled && activeTab === 'velocity' && (
                 <select aria-label="Velocity range" value={velocityDays} onChange={e => {
                   const value = e.target.value;
                   if (value === 'custom') {
@@ -1472,7 +1475,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                   <option value={7}>Last 7 Days</option><option value={30}>Last 30 Days</option><option value={90}>Last 90 Days</option><option value="custom">Custom Dates</option>
                 </select>
               )}
-              {activeTab === 'category' && (
+              {analyticsEnabled && activeTab === 'category' && (
                 <select aria-label="Payment method" value={analyticsPayment} onChange={e => setAnalyticsPayment(e.target.value)} className="w-full min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2.5 text-xs text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
                   <option value="all">All Payments</option>{PAYMENT_METHODS.map(method => <option key={method} value={method}>{method}</option>)}
                 </select>
@@ -1499,7 +1502,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
         )}
 
         {/* Tab 1: Classification (50/30/20) */}
-        {activeTab === 'classification' && (
+        {analyticsEnabled && activeTab === 'classification' && (
           <div className="p-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs animate-in fade-in duration-150">
             <div className="flex items-center gap-2 mb-4 pb-3 border-b border-slate-100 dark:border-slate-800">
               <span className="p-1.5 rounded-lg bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 font-bold text-xs">
@@ -1524,7 +1527,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
         )}
 
         {/* Tab 2: Category Breakdown */}
-        {activeTab === 'category' && (
+        {analyticsEnabled && activeTab === 'category' && (
           <div className="p-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs animate-in fade-in duration-150">
             <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100 dark:border-slate-800">
               <div className="flex items-center gap-2">
@@ -1560,7 +1563,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
         )}
 
         {/* Tab 3: Daily Velocity */}
-        {activeTab === 'velocity' && (
+        {analyticsEnabled && activeTab === 'velocity' && (
           <div className="p-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs animate-in fade-in duration-150">
             <div className="flex items-center gap-2 mb-4 pb-3 border-b border-slate-100 dark:border-slate-800">
               <span className="p-1.5 rounded-lg bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 font-bold text-xs">
@@ -1587,7 +1590,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
         )}
 
         {/* Tab: Account Intelligence Report */}
-        {activeTab === 'account_report' && accountVisibility.cash && accountVisibility.savings && (
+        {analyticsEnabled && activeTab === 'account_report' && accountVisibility.cash && accountVisibility.savings && (
           <div className="p-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs animate-in fade-in duration-150">
             <div className="flex items-center gap-2 mb-4 pb-3 border-b border-slate-100 dark:border-slate-800">
               <span className="p-1.5 rounded-lg bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 font-bold text-xs">

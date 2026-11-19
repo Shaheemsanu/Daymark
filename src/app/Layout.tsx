@@ -30,6 +30,7 @@ interface LayoutProps {
   onRefreshData: () => void;
   isRefreshingData: boolean;
   isSyncing: boolean;
+  featureVisibility?: { habits: boolean; tasks: boolean; notes: boolean; analytics: boolean; ai: boolean };
   children: React.ReactNode;
 }
 
@@ -43,6 +44,7 @@ export const Layout: React.FC<LayoutProps> = ({
   onRefreshData,
   isRefreshingData,
   isSyncing,
+  featureVisibility = { habits: true, tasks: true, notes: true, analytics: true, ai: true },
   children
 }) => {
   const [isSignOutConfirmOpen, setIsSignOutConfirmOpen] = useState(false);
@@ -98,7 +100,7 @@ export const Layout: React.FC<LayoutProps> = ({
               <IndianRupee className="w-3.5 h-3.5" />
               <span>Expense Tracker</span>
             </button>
-            <button
+            {featureVisibility.habits && (<button
               onClick={() => onSelectView('habits')}
               className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap ${
                 currentView === 'habits'
@@ -108,8 +110,8 @@ export const Layout: React.FC<LayoutProps> = ({
             >
               <CheckCircle2 className="w-3.5 h-3.5" />
               <span>Habit Tracker</span>
-            </button>
-            <button
+            </button>)}
+            {featureVisibility.tasks && (<button
               onClick={() => onSelectView('tasks')}
               className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap ${
                 currentView === 'tasks'
@@ -119,8 +121,8 @@ export const Layout: React.FC<LayoutProps> = ({
             >
               <ListTodo className="w-3.5 h-3.5" />
               <span>Daily Tasks</span>
-            </button>
-            <button
+            </button>)}
+            {featureVisibility.notes && (<button
               onClick={() => onSelectView('notes')}
               className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap ${
                 currentView === 'notes'
@@ -130,8 +132,8 @@ export const Layout: React.FC<LayoutProps> = ({
             >
               <FileText className="w-3.5 h-3.5" />
               <span>Todo Notes</span>
-            </button>
-            <button
+            </button>)}
+            {featureVisibility.analytics && (<button
               onClick={() => onSelectView('reports')}
               className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap ${
                 currentView === 'reports'
@@ -141,7 +143,7 @@ export const Layout: React.FC<LayoutProps> = ({
             >
               <BarChart3 className="w-3.5 h-3.5" />
               <span>Analytics &amp; Trends</span>
-            </button>
+            </button>)}
             <button
               onClick={() => onSelectView('history')}
               className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap ${
@@ -158,7 +160,7 @@ export const Layout: React.FC<LayoutProps> = ({
           {/* Zone 3: User Controls */}
           <div className="flex items-center gap-1 sm:gap-2 shrink-0">
             {user && <ForegroundPush userId={user.id} onNavigate={view => { if (['expenses', 'daily', 'habits', 'tasks', 'notes', 'reports', 'history', 'ai'].includes(view)) onSelectView(view as NavView); }} />}
-            <button type="button" onClick={() => onSelectView('ai')} aria-label="Daymark AI" title="Daymark AI" aria-current={currentView === 'ai' ? 'page' : undefined} className={`inline-flex min-h-9 min-w-9 items-center justify-center gap-1.5 rounded-xl border px-2 text-xs transition-colors ${currentView === 'ai' ? 'border-indigo-400 bg-indigo-500/10 text-indigo-500' : 'border-slate-200 text-slate-500 hover:bg-indigo-500/10 dark:border-slate-800'}`}><Sparkles className="h-4 w-4" /><span className="hidden xl:inline">AI</span></button>
+            {featureVisibility.ai && (<button type="button" onClick={() => onSelectView('ai')} aria-label="Daymark AI" title="Daymark AI" aria-current={currentView === 'ai' ? 'page' : undefined} className={`inline-flex min-h-9 min-w-9 items-center justify-center gap-1.5 rounded-xl border px-2 text-xs transition-colors ${currentView === 'ai' ? 'border-indigo-400 bg-indigo-500/10 text-indigo-500' : 'border-slate-200 text-slate-500 hover:bg-indigo-500/10 dark:border-slate-800'}`}><Sparkles className="h-4 w-4" /><span className="hidden xl:inline">AI</span></button>)}
             <button
               type="button"
               onClick={onRefreshData}
@@ -250,7 +252,7 @@ export const Layout: React.FC<LayoutProps> = ({
           <IndianRupee className="w-5 h-5 mb-0.5" />
           <span className="text-[10px] tracking-tight">Expenses</span>
         </button>
-        <button
+        {featureVisibility.habits && (<button
           onClick={() => onSelectView('habits')}
           className={`flex flex-col items-center justify-center flex-1 h-full py-1 transition-colors ${
             currentView === 'habits'
@@ -260,8 +262,8 @@ export const Layout: React.FC<LayoutProps> = ({
         >
           <CheckCircle2 className="w-5 h-5 mb-0.5" />
           <span className="text-[10px] tracking-tight">Habits</span>
-        </button>
-        <button
+        </button>)}
+        {featureVisibility.tasks && (<button
           onClick={() => onSelectView('tasks')}
           className={`flex flex-col items-center justify-center flex-1 h-full py-1 transition-colors ${
             currentView === 'tasks'
@@ -271,8 +273,8 @@ export const Layout: React.FC<LayoutProps> = ({
         >
           <ListTodo className="w-5 h-5 mb-0.5" />
           <span className="text-[10px] tracking-tight">Tasks</span>
-        </button>
-        <button
+        </button>)}
+        {featureVisibility.notes && (<button
           onClick={() => onSelectView('notes')}
           className={`flex flex-col items-center justify-center flex-1 h-full py-1 transition-colors ${
             currentView === 'notes'
@@ -282,8 +284,8 @@ export const Layout: React.FC<LayoutProps> = ({
         >
           <FileText className="w-5 h-5 mb-0.5" />
           <span className="text-[10px] tracking-tight">Notes</span>
-        </button>
-        <button
+        </button>)}
+        {featureVisibility.analytics && (<button
           onClick={() => onSelectView('reports')}
           className={`flex flex-col items-center justify-center flex-1 h-full py-1 transition-colors ${
             currentView === 'reports'
@@ -293,7 +295,7 @@ export const Layout: React.FC<LayoutProps> = ({
         >
           <BarChart3 className="w-5 h-5 mb-0.5" />
           <span className="text-[10px] tracking-tight">Analytics</span>
-        </button>
+        </button>)}
       </nav>
 
 

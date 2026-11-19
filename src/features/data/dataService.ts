@@ -15,7 +15,11 @@ export type CategorySettings = {
   wellnessGoals?: WellnessGoals;
 };
 
-export type AccountPermissions = { canSelectAccounts: boolean; cash: boolean; savings: boolean };
+export type AccountPermissions = { canSelectAccounts: boolean; cash: boolean; savings: boolean; habits: boolean; tasks: boolean; notes: boolean; analytics: boolean; ai: boolean; wellness: boolean };
+
+function mapAccountPermissions(data: any): AccountPermissions {
+  return { canSelectAccounts: data?.can_select_accounts === true, cash: data?.cash_enabled === true, savings: data?.savings_enabled === true, habits: data?.habits_enabled === true, tasks: data?.tasks_enabled === true, notes: data?.notes_enabled === true, analytics: data?.analytics_enabled === true, ai: data?.ai_enabled === true, wellness: data?.wellness_enabled === true };
+}
 
 export type WorkspaceData = {
   expenses: Expense[];
@@ -179,14 +183,14 @@ function wellnessRow(userId: string, item: DailyWellness) {
 
 export const dataService = {
   async loadAccountPermissions(userId: string): Promise<AccountPermissions> {
-    const { data, error } = await client().from('account_permissions').select('can_select_accounts,cash_enabled,savings_enabled').eq('user_id', userId).maybeSingle();
+    const { data, error } = await client().from('account_permissions').select('can_select_accounts,cash_enabled,savings_enabled,habits_enabled,tasks_enabled,notes_enabled,analytics_enabled,ai_enabled,wellness_enabled').eq('user_id', userId).maybeSingle();
     if (error) throw error;
-    return { canSelectAccounts: data?.can_select_accounts === true, cash: data?.cash_enabled === true, savings: data?.savings_enabled === true };
+    return mapAccountPermissions(data);
   },
   async saveAccountVisibility(userId: string, visibility: { cash: boolean; savings: boolean }): Promise<AccountPermissions> {
-    const { data, error } = await client().from('account_permissions').update({ cash_enabled: visibility.cash, savings_enabled: visibility.savings }).eq('user_id', userId).select('can_select_accounts,cash_enabled,savings_enabled').single();
+    const { data, error } = await client().from('account_permissions').update({ cash_enabled: visibility.cash, savings_enabled: visibility.savings }).eq('user_id', userId).select('can_select_accounts,cash_enabled,savings_enabled,habits_enabled,tasks_enabled,notes_enabled,analytics_enabled,ai_enabled,wellness_enabled').single();
     if (error) throw error;
-    return { canSelectAccounts: data.can_select_accounts === true, cash: data.cash_enabled === true, savings: data.savings_enabled === true };
+    return mapAccountPermissions(data);
   },
   async loadWorkspace(userId: string): Promise<WorkspaceData> {
     const db = client();

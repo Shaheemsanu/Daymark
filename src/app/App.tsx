@@ -36,11 +36,14 @@ import { Account, createBalanceEntry, isAccountTransactionVisible } from '../uti
 import { isDialogBackPending, useDialogBack } from '../hooks/useDialogBack';
 const GeneralChatScreen = lazy(() => import('../features/ai/GeneralChatScreen'));
 const isNotificationView = (value: unknown): value is NavView => typeof value === 'string' && ['daily', 'expenses', 'habits', 'tasks', 'notes', 'reports', 'history', 'ai'].includes(value);
+const disabledPermissions: AccountPermissions = { canSelectAccounts: false, cash: false, savings: false, habits: false, tasks: false, notes: false, analytics: false, ai: false, wellness: false };
+const canOpenView = (view: NavView, permissions: AccountPermissions) => view === 'habits' ? permissions.habits : view === 'tasks' ? permissions.tasks : view === 'notes' ? permissions.notes : view === 'reports' ? permissions.analytics : view === 'ai' ? permissions.ai : true;
 
 export default function App() {
   const [user, setUser] = useState<AppProfile | null>(null);
   const userId = user?.id;
   const [authLoading, setAuthLoading] = useState(true);
+  const permissionsRef = useRef<AccountPermissions>(disabledPermissions);
 
   // Navigation - Daily Overview 1st, Expense 2nd after overview
   const [currentView, setCurrentView] = useState<NavView>(() => {
@@ -59,6 +62,7 @@ export default function App() {
   const [returnToDailyAfterExpenseAdd, setReturnToDailyAfterExpenseAdd] = useState(false);
 
   const navigateTo = (view: NavView) => {
+    if (!canOpenView(view, permissionsRef.current)) return;
     const currentHistoryView = window.history.state?.daymarkView;
     if (view === 'daily') {
       if (isNotificationView(currentHistoryView) && currentHistoryView !== 'daily') window.history.back();
@@ -80,7 +84,8 @@ export default function App() {
       setOpenExpenseAddOnMount(false);
       setOpenTransactionHistory(false);
       setReturnToDailyAfterExpenseAdd(false);
-      setCurrentView(isNotificationView(event.state?.daymarkView) ? event.state.daymarkView : 'daily');
+      const nextView = isNotificationView(event.state?.daymarkView) ? event.state.daymarkView : 'daily';
+      setCurrentView(canOpenView(nextView, permissionsRef.current) ? nextView : 'daily');
     };
     window.addEventListener('popstate', onBack);
     return () => window.removeEventListener('popstate', onBack);
@@ -125,7 +130,9 @@ export default function App() {
   const [dataError, setDataError] = useState<string | null>(null);
   const [cloudPendingCount, setCloudPendingCount] = useState(0);
   const [savingKeys, setSavingKeys] = useState<Set<string>>(() => new Set());
-  const [accountPermissions, setAccountPermissions] = useState<AccountPermissions>({ canSelectAccounts: false, cash: false, savings: false });
+  const [accountPermissions, setAccountPermissions] = useState<AccountPermissions>(disabledPermissions);
+  const [permissionsLoaded, setPermissionsLoaded] = useState(false);
+  permissionsRef.current = accountPermissions;
   const permissionsVersion = useRef(0);
 
   // Quick Log Drawer
@@ -195,14 +202,15 @@ export default function App() {
   }, [userId]);
 
   useEffect(() => {
-    setAccountPermissions({ canSelectAccounts: false, cash: false, savings: false });
+    setAccountPermissions(disabledPermissions);
+    setPermissionsLoaded(false);
     if (!userId) return;
     let disposed = false;
     const refresh = async () => {
       const version = permissionsVersion.current;
       try {
         const next = await dataService.loadAccountPermissions(userId);
-        if (!disposed && version === permissionsVersion.current) setAccountPermissions(next);
+        if (!disposed && version === permissionsVersion.current) { setAccountPermissions(next); setPermissionsLoaded(true); }
       } catch (error) {
         if (!disposed) setDataError(`Could not load account permissions: ${error instanceof Error ? error.message : String(error)}`);
       }
@@ -213,6 +221,10 @@ export default function App() {
     window.addEventListener('focus', refresh);
     return () => { disposed = true; window.clearInterval(timer); window.removeEventListener('focus', refresh); if (channel && supabase) void supabase.removeChannel(channel); };
   }, [userId]);
+
+  useEffect(() => {
+    if (permissionsLoaded && !canOpenView(currentView, accountPermissions)) setCurrentView('daily');
+  }, [permissionsLoaded, currentView, accountPermissions]);
 
   const saveAccountVisibility = async (visibility: { cash: boolean; savings: boolean }): Promise<boolean> => {
     if (!userId || !accountPermissions.canSelectAccounts) return false;
@@ -715,6 +727,7 @@ export default function App() {
   return (
     <Layout
       currentView={currentView}
+      featureVisibility={accountPermissions}
       onSelectView={navigateTo}
       user={user}
       onSignOut={handleSignOut}
@@ -724,7 +737,7 @@ export default function App() {
       isRefreshingData={workspaceRefreshing}
       isSyncing={false}
     >
-      {(currentView === 'ai' || hasOpenedChat) && <div hidden={currentView !== 'ai'} className="min-h-0 flex-1"><Suspense fallback={<p role="status" className="p-4 text-sm text-slate-500">Loading Daymark AI…</p>}><GeneralChatScreen key={user.id} active={currentView === 'ai'} /></Suspense></div>}
+      {accountPermissions.ai && (currentView === 'ai' || hasOpenedChat) && <div hidden={currentView !== 'ai'} className="min-h-0 flex-1"><Suspense fallback={<p role="status" className="p-4 text-sm text-slate-500">Loading Daymark AI…</p>}><GeneralChatScreen key={user.id} active={currentView === 'ai'} featureVisibility={accountPermissions} /></Suspense></div>}
       {dataLoading && <div role="status" aria-live="polite" className="mx-4 mt-3 flex items-center gap-2 rounded-lg bg-slate-100 px-4 py-2 text-sm text-slate-700 dark:bg-slate-800 dark:text-slate-200"><LoaderCircle className="h-4 w-4 animate-spin" /> Loading your Supabase workspace…</div>}
       {dataError && <div role="alert" className="mx-4 mt-3 rounded-lg bg-rose-50 px-4 py-2 text-sm text-rose-700">{dataError}</div>}
       {/* 1. Daily Overview Dashboard */}
@@ -748,6 +761,7 @@ export default function App() {
           onUpdateWellness={handleUpdateWellness}
           onQuickLogExpense={openExpenseAddFromOverview}
           accountVisibility={accountPermissions}
+          featureVisibility={accountPermissions}
           onViewTransactions={() => { setOpenTransactionHistory(true); navigateTo('expenses'); }}
           onOpenAddHabit={() => { setOpenHabitAddOnMount(true); navigateTo('habits'); }}
           onOpenAddTask={() => { setOpenTaskAddOnMount(true); navigateTo('tasks'); }}
@@ -758,8 +772,10 @@ export default function App() {
       )}
 
       {/* 2. Habit Tracker (Module 1 - same as previous first code) */}
-      {currentView === 'habits' && (
+      {currentView === 'habits' && accountPermissions.habits && (
         <HabitsView
+          analyticsEnabled={accountPermissions.analytics}
+          wellnessEnabled={accountPermissions.wellness}
           habits={habits}
           onAddHabit={handleAddHabit}
           onUpdateHabit={handleUpdateHabit}
@@ -781,8 +797,9 @@ export default function App() {
       )}
 
       {/* 3. Daily Tasks & Priorities (Module 2 - same as previous first code) */}
-      {currentView === 'tasks' && (
+      {currentView === 'tasks' && accountPermissions.tasks && (
         <TasksView
+          analyticsEnabled={accountPermissions.analytics}
           tasks={tasks}
           onAddTask={handleAddTask}
           onToggleTask={handleToggleTask}
@@ -800,7 +817,7 @@ export default function App() {
       )}
 
       {/* 3b. Notes & Journal Module with Image & Supabase Support */}
-      {currentView === 'notes' && (
+      {currentView === 'notes' && accountPermissions.notes && (
         <NotesView
           currencySymbol={budget.currency}
         />
@@ -809,6 +826,7 @@ export default function App() {
       {/* 4. Dedicated Expense Dashboard (New Model) */}
       {currentView === 'expenses' && (
         <ExpenseDashboard
+          analyticsEnabled={accountPermissions.analytics}
           analyticsLoading={dataLoading}
           expenses={expenses}
           budget={budget}
@@ -829,8 +847,9 @@ export default function App() {
       )}
 
       {/* 5. Performance Analytics & Recharts Trends */}
-      {currentView === 'reports' && (
+      {currentView === 'reports' && accountPermissions.analytics && (
         <ReportsPage
+          wellnessEnabled={accountPermissions.wellness}
           habits={habits}
           tasks={tasks}
           expenses={expenses.filter(item => isAccountTransactionVisible(item, accountPermissions))}
@@ -854,6 +873,8 @@ export default function App() {
           accountVisibility={accountPermissions}
           canSelectAccounts={accountPermissions.canSelectAccounts}
           onSaveAccountVisibility={saveAccountVisibility}
+          analyticsEnabled={accountPermissions.analytics}
+          wellnessEnabled={accountPermissions.wellness}
           isCloudSyncing={cloudPendingCount > 0}
         />
       )}
@@ -862,6 +883,7 @@ export default function App() {
       <QuickLogModal
         isOpen={isQuickLogOpen}
         accountVisibility={accountPermissions}
+        featureVisibility={accountPermissions}
         onClose={() => setIsQuickLogOpen(false)}
         onAddExpense={exp => {
           handleAddExpense({

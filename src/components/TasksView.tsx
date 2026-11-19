@@ -64,6 +64,7 @@ interface TasksViewProps {
   taskOrder?: string[];
   onSaveTaskOrder?: (taskOrder: string[]) => void | Promise<boolean>;
   selectedDate?: string;
+  analyticsEnabled?: boolean;
   openAddOnMount?: boolean;
   onAddOpened?: () => void;
 }
@@ -115,10 +116,12 @@ export const TasksView: React.FC<TasksViewProps> = ({
   taskOrder,
   onSaveTaskOrder,
   selectedDate,
+  analyticsEnabled = true,
   openAddOnMount,
   onAddOpened
 }) => {
   const [viewMode, setViewMode] = useState<'list' | 'analytics'>('list');
+  useEffect(() => { if (!analyticsEnabled) setViewMode('list'); }, [analyticsEnabled]);
   const [isEditingOrder, setIsEditingOrder] = useState(false);
   const [isSavingOrder, setIsSavingOrder] = useState(false);
   const [orderError, setOrderError] = useState('');
@@ -616,7 +619,7 @@ interface TaskChartPoint {
               <ListTodo className="w-3.5 h-3.5" />
               <span>Task List</span>
             </button>
-            <button
+            {analyticsEnabled && (<button
               onClick={() => setViewMode('analytics')}
               className={`flex min-h-9 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 transition-colors cursor-pointer sm:h-7 sm:min-h-0 sm:flex-none ${
                 viewMode === 'analytics'
@@ -626,7 +629,7 @@ interface TaskChartPoint {
             >
               <BarChart3 className="w-3.5 h-3.5" />
               <span>Task Analytics</span>
-            </button>
+            </button>)}
           </div>
 
           <button
@@ -831,7 +834,7 @@ interface TaskChartPoint {
       )}
 
       {/* VIEW 2: TASK ANALYTICS BY DAY, WEEK, MONTH, YEAR */}
-      {viewMode === 'analytics' && (
+      {analyticsEnabled && viewMode === 'analytics' && (
         <div className="space-y-6">
           {/* Grain Switcher & Overview Header */}
           <div className="flex flex-col justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900 lg:flex-row lg:items-center">

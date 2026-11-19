@@ -18,6 +18,7 @@ interface QuickLogModalProps {
   initialTab?: 'expense' | 'task' | 'habit';
   customCategories?: Record<string, CategoryInfo>;
   accountVisibility?: { cash: boolean; savings: boolean };
+  featureVisibility?: { habits: boolean; tasks: boolean };
 }
 
 const PAYMENT_METHODS: PaymentMethod[] = [
@@ -55,15 +56,16 @@ export const QuickLogModal: React.FC<QuickLogModalProps> = ({
   currencySymbol,
   initialTab = 'expense',
   customCategories = {},
-  accountVisibility = { cash: true, savings: true }
+  accountVisibility = { cash: true, savings: true },
+  featureVisibility = { habits: true, tasks: true }
 }) => {
   const [activeTab, setActiveTab] = useState<'expense' | 'task' | 'habit'>(initialTab);
 
   React.useEffect(() => {
     if (isOpen) {
-      setActiveTab(initialTab);
+      setActiveTab(initialTab === 'habit' && !featureVisibility.habits || initialTab === 'task' && !featureVisibility.tasks ? 'expense' : initialTab);
     }
-  }, [isOpen, initialTab]);
+  }, [isOpen, initialTab, featureVisibility.habits, featureVisibility.tasks]);
 
   // Expense / Income / Account form
   const [expAccount, setExpAccount] = useState<'expense' | 'savings' | 'cash'>('expense');
@@ -200,7 +202,7 @@ export const QuickLogModal: React.FC<QuickLogModalProps> = ({
               <IndianRupee className="w-3.5 h-3.5" />
               <span>Log Finance</span>
             </button>
-            <button
+            {featureVisibility.tasks && (<button
               onClick={() => setActiveTab('task')}
               className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg transition-colors ${
                 activeTab === 'task'
@@ -210,8 +212,8 @@ export const QuickLogModal: React.FC<QuickLogModalProps> = ({
             >
               <ListTodo className="w-3.5 h-3.5" />
               <span>Add Task</span>
-            </button>
-            <button
+            </button>)}
+            {featureVisibility.habits && (<button
               onClick={() => setActiveTab('habit')}
               className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg transition-colors ${
                 activeTab === 'habit'
@@ -221,7 +223,7 @@ export const QuickLogModal: React.FC<QuickLogModalProps> = ({
             >
               <CheckCircle2 className="w-3.5 h-3.5" />
               <span>Habit Status</span>
-            </button>
+            </button>)}
           </div>
 
           <button
@@ -492,7 +494,7 @@ export const QuickLogModal: React.FC<QuickLogModalProps> = ({
         )}
 
         {/* Tab 2: Quick Task */}
-        {activeTab === 'task' && (
+        {featureVisibility.tasks && activeTab === 'task' && (
           <form onSubmit={handleTaskSubmit} className="p-5 space-y-4 overflow-y-auto max-h-[75vh]">
             <div>
               <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
@@ -572,7 +574,7 @@ export const QuickLogModal: React.FC<QuickLogModalProps> = ({
         )}
 
         {/* Tab 3: Habit Status */}
-        {activeTab === 'habit' && (
+        {featureVisibility.habits && activeTab === 'habit' && (
           <div className="p-5 space-y-3 overflow-y-auto max-h-[75vh]">
             <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">
               Toggle habit completion for {selectedDate}:

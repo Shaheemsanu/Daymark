@@ -93,6 +93,7 @@ interface ReportsPageProps {
   wellness: Record<string, DailyWellness>;
   budget?: BudgetConfig;
   defaultModule?: ReportModule;
+  wellnessEnabled?: boolean;
 }
 
 export const ReportsPage: React.FC<ReportsPageProps> = ({
@@ -101,7 +102,8 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
   expenses = [],
   wellness = {},
   budget = { monthlyBudget: 30000, dailyBudget: 1000, weeklyBudget: 7000, currency: '₹', categoryBudgets: {} },
-  defaultModule = 'all'
+  defaultModule = 'all',
+  wellnessEnabled = true
 }) => {
   const [selectedModule, setSelectedModule] = useState<ReportModule>(defaultModule);
   const [expenseRange, setExpenseRange] = useState<ReportDateRange>('14');
@@ -525,7 +527,7 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
           <span className="hidden sm:inline">Daily Tasks Analytics</span>
         </button>
 
-        <button
+        {wellnessEnabled && (<button
           aria-label="Sleep & Hydration Curves"
           onClick={() => setSelectedModule('wellness')}
           className={`col-span-1 flex min-w-0 flex-col items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-slate-200 px-1 py-2 transition-all duration-150 cursor-pointer active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-100 dark:border-slate-700/80 dark:focus-visible:ring-offset-slate-800 sm:col-span-auto sm:flex-row sm:shrink-0 sm:snap-start sm:gap-1.5 sm:border-0 sm:px-3.5 ${
@@ -537,7 +539,7 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
           <Moon className="w-3.5 h-3.5 text-indigo-500" />
           <span className="sm:hidden">Wellness</span>
           <span className="hidden sm:inline">Sleep &amp; Hydration Curves</span>
-        </button>
+        </button>)}
       </div>
 
       {/* Overview KPI Cards (EXPENSE FIRST AT TOP) */}
@@ -1159,7 +1161,7 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
       {/* ------------------------------------------------------------- */}
       {/* MODULE 4: WELLNESS ANALYTICS (Sleep vs. Hydration Curves)     */}
       {/* ------------------------------------------------------------- */}
-      {(selectedModule === 'all' || selectedModule === 'wellness') && (
+      {wellnessEnabled && (selectedModule === 'all' || selectedModule === 'wellness') && (
         <div className="space-y-4 pt-4">
           <div className="flex flex-col gap-3 border-b border-slate-200 pb-3 dark:border-slate-800 sm:flex-row sm:items-center sm:justify-between xl:flex-nowrap">
             <div className="flex min-w-0 items-center gap-2 xl:flex-1">
