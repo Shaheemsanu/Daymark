@@ -58,6 +58,8 @@ export default function App() {
   useEffect(() => { if (currentView === 'ai') setHasOpenedChat(true); }, [currentView]);
   const [selectedDate, setSelectedDate] = useState<string>(formatDate(new Date()));
   const [openExpenseAddOnMount, setOpenExpenseAddOnMount] = useState(false);
+  const [openTaskAddOnMount, setOpenTaskAddOnMount] = useState(false);
+  const [openHabitAddOnMount, setOpenHabitAddOnMount] = useState(false);
   const [returnToDailyAfterExpenseAdd, setReturnToDailyAfterExpenseAdd] = useState(false);
 
   // Dark mode
@@ -318,7 +320,7 @@ export default function App() {
   };
 
   // Habit Handlers (Module 1 - same as previous first code)
-  const handleToggleHabit = (habitId: string, dateIso: string) => {
+  const handleToggleHabit = async (habitId: string, dateIso: string) => {
     const targetWeekday = new Date(`${dateIso}T00:00:00`).getDay();
     const targetHabit = habits.find(habit => habit.id === habitId);
     if (!targetHabit || !(targetHabit.weekdays || [0, 1, 2, 3, 4, 5, 6]).includes(targetWeekday)) return;
@@ -354,9 +356,10 @@ export default function App() {
       };
     });
 
-    setHabits(updated);
     const changed = updated.find(h => h.id === habitId);
-    if (user && changed) void trackKeyedCloudRequest(`habit:${habitId}:${dateIso}`, dataService.saveHabit(user.id, changed));
+    if (!changed) return;
+    if (user && !await trackKeyedCloudRequest(`habit:${habitId}:${dateIso}`, dataService.saveHabit(user.id, changed))) return;
+    setHabits(current => current.map(habit => habit.id === habitId ? changed : habit));
   };
 
   const handleAddHabit = async (newHabit: Omit<Habit, 'id' | 'completedDates' | 'streak' | 'bestStreak'>): Promise<boolean> => {
@@ -390,16 +393,16 @@ export default function App() {
   };
 
   // Task Handlers (Module 2 - same as previous first code)
-  const handleAddTask = (newTask: Omit<DailyTask, 'id' | 'completed'>) => {
+  const handleAddTask = async (newTask: Omit<DailyTask, 'id' | 'completed'>): Promise<boolean> => {
     const created: DailyTask = {
       ...newTask,
       id: createUuid(),
       createdAt: new Date().toISOString(),
       completed: false
     };
-    const updated = [created, ...tasks];
-    setTasks(updated);
-    if (user) return trackKeyedCloudRequest('task:add', dataService.saveTask(user.id, created));
+    if (user && !await trackKeyedCloudRequest('task:add', dataService.saveTask(user.id, created))) return false;
+    setTasks(current => [created, ...current]);
+    return true;
   };
 
   const handleToggleTask = (taskId: string) => {
@@ -632,7 +635,7 @@ export default function App() {
   return (
     <Layout
       currentView={currentView}
-      onSelectView={setCurrentView}
+      onSelectView={view => { if (view !== 'habits') setOpenHabitAddOnMount(false); setCurrentView(view); }}
       user={user}
       onSignOut={handleSignOut}
       isDarkMode={isDarkMode}
@@ -664,7 +667,8 @@ export default function App() {
           onDeleteTask={handleDeleteTask}
           onUpdateWellness={handleUpdateWellness}
           onQuickLogExpense={openExpenseAddFromOverview}
-          onOpenAddHabit={() => setCurrentView('habits')}
+          onOpenAddHabit={() => { setOpenHabitAddOnMount(true); setCurrentView('habits'); }}
+          onOpenAddTask={() => { setOpenTaskAddOnMount(true); setCurrentView('tasks'); }}
           taskOrder={categories.taskOrder}
           habitOrder={categories.habitOrder}
           wellnessGoals={categories.wellnessGoals}
@@ -683,6 +687,8 @@ export default function App() {
           onUpdateWellness={handleUpdateWellness}
           selectedDate={selectedDate}
           customCategories={categories.habits}
+          openAddOnMount={openHabitAddOnMount}
+          onAddOpened={() => setOpenHabitAddOnMount(false)}
           savingKeys={savingKeys}
           habitOrder={categories.habitOrder}
           onSaveCustomCategories={saveHabitCategories}
@@ -706,6 +712,8 @@ export default function App() {
           taskOrder={categories.taskOrder}
           onSaveTaskOrder={saveTaskOrder}
           selectedDate={selectedDate}
+          openAddOnMount={openTaskAddOnMount}
+          onAddOpened={() => setOpenTaskAddOnMount(false)}
         />
       )}
 

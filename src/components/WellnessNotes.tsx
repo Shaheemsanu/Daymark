@@ -7,9 +7,10 @@ interface WellnessNotesProps extends Notes {
   onSave?: (notes: Notes) => void;
   footerText?: string;
   accent?: 'amber' | 'blue';
+  fillHeight?: boolean;
 }
 
-export const WellnessNotes: React.FC<WellnessNotesProps> = ({ gratitude, journalNotes, onSave, footerText, accent = 'amber' }) => {
+export const WellnessNotes: React.FC<WellnessNotesProps> = ({ gratitude, journalNotes, onSave, footerText, accent = 'amber', fillHeight = false }) => {
   const [draft, setDraft] = useState<Notes | null>(null);
   const [mode, setMode] = useState<'auto' | 'editing' | 'saved'>('auto');
   const firstField = useRef<HTMLInputElement>(null);
@@ -40,7 +41,7 @@ export const WellnessNotes: React.FC<WellnessNotesProps> = ({ gratitude, journal
   const fieldClass = `mt-1.5 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs font-normal text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 ${colors.focus} read-only:cursor-default read-only:caret-transparent read-only:focus:ring-0 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100`;
 
   return (
-    <form aria-label="Personal notes" className="space-y-2.5 rounded-xl border border-slate-200 bg-slate-50/60 p-3 dark:border-slate-700 dark:bg-slate-950/25" onSubmit={event => {
+    <form aria-label="Personal notes" className={`space-y-2.5 rounded-xl border border-slate-200 bg-slate-50/60 p-3 dark:border-slate-700 dark:bg-slate-950/25 ${fillHeight ? 'lg:flex lg:h-full lg:flex-col lg:space-y-0 lg:gap-2.5' : ''}`} onSubmit={event => {
       event.preventDefault();
       saveNotes();
     }}>
@@ -53,15 +54,15 @@ export const WellnessNotes: React.FC<WellnessNotesProps> = ({ gratitude, journal
           }}
           placeholder="One thing I'm grateful for today..." className={fieldClass} />
       </label>
-      <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+      <label className={`block text-xs font-semibold text-slate-700 dark:text-slate-300 ${fillHeight ? 'lg:flex lg:min-h-0 lg:flex-1 lg:flex-col' : ''}`}>
         Daily Reflection / Journal
-        <textarea rows={3} value={values.journalNotes}
+        <textarea rows={fillHeight ? 2 : 3} value={values.journalNotes}
           readOnly={!editing || !onSave}
           onChange={event => {
             if (editing && onSave) setDraft({ ...values, journalNotes: event.target.value });
           }}
           placeholder="Key observations, accomplishments, thoughts..."
-          className={`${fieldClass} resize-y`} />
+          className={`${fieldClass} resize-y ${fillHeight ? 'lg:min-h-20 lg:flex-1' : ''}`} />
       </label>
       <div className="flex items-center justify-end gap-3 border-t border-slate-200 pt-2 dark:border-slate-700">
         {footerText && <p className={`mr-auto text-[11px] leading-relaxed ${colors.note}`}>{footerText}</p>}

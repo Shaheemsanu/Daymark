@@ -12,6 +12,7 @@ import {
   Zap,
   BookOpen,
   Calendar,
+  Clock,
   Sparkles,
   Trash2,
   LoaderCircle,
@@ -22,6 +23,7 @@ import { Habit, DailyTask, DailyWellness, Expense, MoodType, BudgetConfig, Welln
 import { normalizeWellnessGoals } from '../utils/wellnessGoals';
 import { orderTasks } from '../utils/taskOrder';
 import { orderHabits } from '../utils/habitOrder';
+import { getAccountBalance } from '../utils/accounts';
 import { formatCurrency, formatDate, CATEGORIES } from '../utils/constants';
 import { WellnessNotes } from './WellnessNotes';
 
@@ -36,7 +38,8 @@ interface DailyOverviewProps {
   budget: BudgetConfig;
   onToggleHabit: (habitId: string, date: string) => void;
   onToggleTask: (taskId: string) => void | boolean | Promise<boolean>;
-  onAddTask: (task: Omit<DailyTask, 'id' | 'completed'>) => void;
+  onAddTask: (task: Omit<DailyTask, 'id' | 'completed'>) => void | boolean | Promise<void | boolean>;
+  onOpenAddTask?: () => void;
   onDeleteTask: (taskId: string) => void;
   onUpdateWellness: (date: string, data: Partial<DailyWellness>) => void;
   onQuickLogExpense: () => void;
@@ -54,6 +57,35 @@ const MOODS: { type: MoodType; label: string; icon: string; color: string }[] = 
   { type: 'stressed', label: 'Stressed', icon: '😫', color: 'text-rose-500' }
 ];
 
+const OverviewItemList: React.FC<{ count: number; label: string; children: React.ReactNode; sharedHeight?: number; onMeasure: (height: number) => void }> = ({ count, label, children, sharedHeight, onMeasure }) => {
+  const listRef = React.useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState<number>();
+
+  React.useLayoutEffect(() => {
+    const list = listRef.current;
+    if (!list || count <= 15) {
+      setHeight(undefined);
+      return;
+    }
+    const measure = () => {
+      const lastVisible = list.children.item(14);
+      if (lastVisible) {
+        const measured = lastVisible.getBoundingClientRect().bottom - list.getBoundingClientRect().top + list.scrollTop;
+        setHeight(measured);
+        onMeasure(measured);
+      }
+    };
+    measure();
+    const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(measure);
+    observer?.observe(list);
+    Array.from(list.children).slice(0, 15).forEach(child => observer?.observe(child));
+    window.addEventListener('resize', measure);
+    return () => { observer?.disconnect(); window.removeEventListener('resize', measure); };
+  }, [count, children, onMeasure]);
+
+  return <div ref={listRef} role={count > 15 ? 'region' : undefined} aria-label={count > 15 ? label : undefined} tabIndex={count > 15 ? 0 : undefined} className="space-y-2 overflow-y-auto" style={count > 15 && height !== undefined ? { maxHeight: sharedHeight ?? height, ...(sharedHeight ? { height: sharedHeight } : {}) } : undefined}>{children}</div>;
+};
+
 export const DailyOverview: React.FC<DailyOverviewProps> = ({
   selectedDate,
   onSelectDate,
@@ -66,6 +98,7 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
   onToggleHabit,
   onToggleTask,
   onAddTask,
+  onOpenAddTask,
   onDeleteTask,
   onUpdateWellness,
   onQuickLogExpense,
@@ -74,15 +107,22 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
   taskOrder,
   habitOrder
 }) => {
-  const [newTaskTitle, setNewTaskTitle] = useState('');
-  const [newTaskPriority, setNewTaskPriority] = useState<'high' | 'medium' | 'low'>('high');
-  const [newTaskTime, setNewTaskTime] = useState<string>('30');
-  const [newTaskCategory, setNewTaskCategory] = useState<string>('General');
-  const [isCustomCategory, setIsCustomCategory] = useState(false);
-  const [customCategoryInput, setCustomCategoryInput] = useState('');
+  const [taskSearch, setTaskSearch] = useState('');
+  const [taskPriorityFilter, setTaskPriorityFilter] = useState('all');
+  const [taskCategoryFilter, setTaskCategoryFilter] = useState('all');
+  const [habitSearch, setHabitSearch] = useState('');
+  const [habitListHeight, setHabitListHeight] = useState(0);
+  const [taskListHeight, setTaskListHeight] = useState(0);
+  const [habitCategoryFilter, setHabitCategoryFilter] = useState('all');
+  const [habitStatusFilter, setHabitStatusFilter] = useState('all');
 
   const todayIso = formatDate(new Date());
   const isToday = selectedDate === todayIso;
+  const accountBalances = (['expense', 'cash', 'savings'] as const).map(account => ({ account, balance: getAccountBalance(expenses, account, todayIso) }));
+  const totalAccountBalance = accountBalances.reduce((total, item) => total + item.balance, 0);
+  const latestTransaction = expenses.filter(item => item.date <= todayIso).reduce<Expense | undefined>((latest, item) =>
+    !latest || item.date > latest.date || (item.date === latest.date && item.createdAt > latest.createdAt) ? item : latest, undefined);
+  const negativeAccountCount = accountBalances.filter(({ balance }) => balance < 0).length;
 
   const availableTaskCategories = React.useMemo(() => {
     const defaults = ['General', 'Work', 'Personal', 'Health', 'Finance', 'Errands', 'Learning'];
@@ -132,6 +172,7 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
   const dailyTargetBalance = Math.round(((budget.dailyBudget || budget.monthlyBudget / 30) - dayOutflow) * 100) / 100;
 
   const dayTasks = (taskOrder?.length ? orderTasks(tasks, taskOrder) : tasks).filter(t => t.date === selectedDate);
+  const filteredDayTasks = dayTasks.filter(task => task.title.toLowerCase().includes(taskSearch.trim().toLowerCase()) && (taskPriorityFilter === 'all' || task.priority === taskPriorityFilter) && (taskCategoryFilter === 'all' || (task.category || 'General') === taskCategoryFilter));
   const completedTasksCount = dayTasks.filter(t => t.completed).length;
 
   const selectedWeekday = new Date(`${selectedDate}T00:00:00`).getDay();
@@ -140,6 +181,9 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
   ).sort((a, b) =>
     Number(a.completedDates.includes(selectedDate)) - Number(b.completedDates.includes(selectedDate))
   );
+  const habitCategories = Array.from(new Set(habits.map(habit => habit.category).filter(Boolean))).sort();
+  const filteredHabits = habitsForSelectedDay.filter(habit => habit.title.toLowerCase().includes(habitSearch.trim().toLowerCase()) && (habitCategoryFilter === 'all' || habit.category === habitCategoryFilter) && (habitStatusFilter === 'all' || (habitStatusFilter === 'completed') === habit.completedDates.includes(selectedDate)));
+  const sharedListHeight = filteredHabits.length > 15 && filteredDayTasks.length > 15 && habitListHeight && taskListHeight ? Math.max(habitListHeight, taskListHeight) : undefined;
   const completedHabitsCount = habitsForSelectedDay.filter(habit => habit.completedDates.includes(selectedDate)).length;
   const nextHabit = habitsForSelectedDay.find(habit => !habit.completedDates.includes(selectedDate));
   const nextTask = dayTasks.find(task => !task.completed);
@@ -160,26 +204,6 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
   useEffect(() => {
     setWaterGlassesDraft(wellness[selectedDate]?.waterGlasses ?? 0);
   }, [selectedDate, wellness[selectedDate]?.waterGlasses]);
-
-  // Submit new task
-  const handleCreateTask = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newTaskTitle.trim()) return;
-    const finalCategory = isCustomCategory && customCategoryInput.trim()
-      ? customCategoryInput.trim()
-      : newTaskCategory;
-
-    onAddTask({
-      date: selectedDate,
-      title: newTaskTitle.trim(),
-      priority: newTaskPriority,
-      timeEstimateMin: parseInt(newTaskTime) || 30,
-      category: finalCategory || 'General'
-    });
-    setNewTaskTitle('');
-    setCustomCategoryInput('');
-    setIsCustomCategory(false);
-  };
 
   // Water helper
   const adjustWater = (delta: number) => {
@@ -360,6 +384,33 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
           </div>
         </div>
 
+        {/* Current account balances */}
+        <div className="grid min-w-0 row-span-5 grid-rows-subgrid gap-y-2 px-4 py-3 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs hover:border-slate-300 dark:hover:border-slate-700 transition-colors">
+          <div className="min-w-0">
+            <span className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-200"><Wallet className="h-3.5 w-3.5 text-blue-500" />Total Balance</span>
+            <div className="mt-2 flex min-w-0 items-center gap-2.5">
+              <span aria-hidden="true" className={`h-8 w-1 shrink-0 rounded-full ${totalAccountBalance < 0 ? 'bg-rose-500' : 'bg-blue-500'}`} />
+              <span className={`min-w-0 break-words text-3xl font-bold leading-none tracking-tight tabular-nums ${totalAccountBalance < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-white'}`}>{formatCurrency(totalAccountBalance, budget.currency)}</span>
+            </div>
+            <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">Across all accounts as of today</p>
+          </div>
+          <div className="h-1.5 rounded-full bg-slate-100 dark:bg-slate-800" />
+          <div className="flex min-w-0 row-span-3 flex-col gap-2">
+            {accountBalances.map(({ account, balance }) => <div key={account} className="flex min-w-0 items-center justify-between gap-2 text-[11px]"><span className="inline-flex min-w-0 items-center gap-2 text-slate-600 dark:text-slate-300"><span aria-hidden="true" className={`h-1.5 w-1.5 shrink-0 rounded-full ${account === 'expense' ? 'bg-blue-500' : account === 'cash' ? 'bg-amber-500' : 'bg-emerald-500'}`} />{account === 'cash' ? 'Cash in hand' : account === 'savings' ? 'Savings account' : 'Expense account'}</span><span className={`break-all text-right font-semibold tabular-nums ${balance < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-800 dark:text-slate-100'}`}>{formatCurrency(balance, budget.currency)}</span></div>)}
+            <div className="mt-auto border-t border-slate-100 pt-2 text-[10px] dark:border-slate-800/80">
+              {latestTransaction ? (
+                <div className="flex min-w-0 items-center justify-between gap-2">
+                  <span className="min-w-0 truncate text-slate-500 dark:text-slate-400" title={latestTransaction.title}>Latest · {latestTransaction.title}</span>
+                  <span className={`shrink-0 font-semibold tabular-nums ${latestTransaction.isTransfer || latestTransaction.category.toLowerCase().includes('transfer') ? 'text-slate-600 dark:text-slate-300' : latestTransaction.type === 'income' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                    {latestTransaction.isTransfer || latestTransaction.category.toLowerCase().includes('transfer') ? '' : latestTransaction.type === 'income' ? '+' : '−'}{formatCurrency(latestTransaction.amount, budget.currency)}
+                  </span>
+                </div>
+              ) : <span className="text-slate-500 dark:text-slate-400">No transactions yet</span>}
+              {negativeAccountCount > 0 && <p className="mt-1 font-medium text-rose-600 dark:text-rose-400">{negativeAccountCount} {negativeAccountCount === 1 ? 'account is' : 'accounts are'} negative</p>}
+            </div>
+          </div>
+        </div>
+
         {/* 2. Habit Completion */}
         <div className="grid min-w-0 row-span-5 grid-rows-subgrid gap-y-2 px-4 py-3 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs hover:border-slate-300 dark:hover:border-slate-700 transition-colors">
           <div className="min-w-0">
@@ -432,67 +483,359 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
           </div>
         </div>
 
-        {/* 4. Wellness & Water */}
-        <div className="grid min-w-0 row-span-5 grid-rows-subgrid gap-y-2 px-4 py-3 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs hover:border-slate-300 dark:hover:border-slate-700 transition-colors">
-          <div className="min-w-0">
-            <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 mb-1">
-              <span className="flex items-center gap-2 font-semibold text-slate-700 dark:text-slate-200"><Droplet className="h-3.5 w-3.5 text-blue-500" />Hydration</span>
-              <span className="font-mono text-[11px] font-semibold text-blue-500">
-                {Math.min(100, Math.round((waterGlasses * 250 / goals.waterMl) * 100))}%
-              </span>
+      </div>
+
+      {/* Main Grid: Habits, Tasks & Wellness */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <div className="lg:col-span-12 lg:min-w-0">
+          {/* Card: Daily Wellness & Mood */}
+          <div className="p-4 sm:p-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs">
+            <div className="mb-3 sm:mb-4">
+              <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
+                Daily Wellness Log
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                Physical and mental state check-in
+              </p>
             </div>
-            <div className="mt-2 text-3xl font-semibold tracking-tight text-slate-900 dark:text-slate-100 tabular-nums">
-              {(waterGlasses * 250).toLocaleString()} <span className="text-sm text-slate-400 font-normal">/ {goals.waterMl.toLocaleString()} ml target</span>
-            </div>
-            <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">Water logged</p>
-          </div>
-          <div className="relative w-full shrink-0 h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
-            <div
-              className="h-full bg-blue-500 rounded-full transition-all duration-300"
-              style={{
-                width: `${Math.min(100, (waterGlasses * 250 / goals.waterMl) * 100)}%`
-              }}
-            />
-          </div>
-          <div className="grid min-w-0 row-span-3 grid-rows-subgrid gap-y-1">
-            <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-2">
-              <div className="grid grid-cols-[2.25rem_2.25rem_4rem] gap-1.5">
-                <button
-                  onClick={() => adjustWater(-1)}
-                  disabled={waterGlasses <= 0}
-                  aria-label="Remove one glass of water"
-                  className="flex h-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-300 dark:hover:bg-slate-800"
-                  title="Subtract 250ml"
-                >
-                  -
-                </button>
-                <button
-                  onClick={() => adjustWater(1)}
-                  disabled={waterGlasses >= 20}
-                  aria-label="Add one glass of water"
-                  className="flex h-9 items-center justify-center rounded-lg border border-blue-200 bg-blue-50 text-sm font-semibold text-blue-600 transition-colors hover:bg-blue-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-40 dark:border-blue-500/20 dark:bg-blue-500/10 dark:text-blue-400 dark:hover:bg-blue-500/20"
-                  title="Add 250ml (1 glass)"
-                >
-                  +
-                </button>
-                <button
-                  onClick={() => adjustWater(2)}
-                  disabled={waterGlasses >= 20}
-                  aria-label="Add two glasses of water"
-                  className="flex h-9 items-center justify-center rounded-lg border border-slate-200 px-2 text-[11px] font-semibold text-slate-600 transition-colors hover:border-blue-300 hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:text-slate-300 dark:hover:border-blue-500/40 dark:hover:bg-blue-500/10"
-                  title="Add 500ml (2 glasses)"
-                >
-                  +500
-                </button>
+
+            <div className="grid gap-3 sm:gap-4 lg:grid-cols-2 lg:gap-6">
+            <div className="flex min-w-0 flex-col gap-2 sm:gap-3">
+            {/* Mood selector buttons */}
+            <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-2 sm:p-3 dark:border-slate-800 dark:bg-slate-800/40">
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1 sm:mb-2">
+                Today&apos;s Mood
+              </label>
+              <div className="grid grid-cols-5 gap-1 sm:gap-1.5">
+                {MOODS.map(m => (
+                  <button
+                    key={m.type}
+                    onClick={() => onUpdateWellness(selectedDate, { mood: dayWellness.mood === m.type ? undefined : m.type })}
+                    aria-pressed={dayWellness.mood === m.type}
+                    aria-label={m.label}
+                    className={`min-w-0 min-h-11 sm:min-h-14 py-1 sm:py-2 px-1 rounded-lg border flex flex-col items-center justify-center transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
+                      dayWellness.mood === m.type
+                        ? 'border-blue-500 bg-blue-50/70 dark:bg-blue-950/50 ring-1 ring-blue-500'
+                        : 'border-slate-200 bg-white hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900/50 dark:hover:bg-slate-800'
+                    }`}
+                  >
+                    <span className="text-lg leading-none">{m.icon}</span>
+                    <span className="text-[10px] font-medium text-slate-600 dark:text-slate-300 mt-1">
+                      {m.label}
+                    </span>
+                  </button>
+                ))}
               </div>
             </div>
-            <p className="text-[10px] text-slate-500 dark:text-slate-400">250 ml per glass</p>
-            <div className="flex min-h-8 flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-2 dark:border-slate-800/80 text-[10px] text-slate-500 dark:text-slate-400"><span>{waterGlasses} glasses logged</span><span className="text-[10px] font-medium text-blue-600 dark:text-blue-400">{waterGlasses * 250 >= goals.waterMl ? 'Target reached' : `${Math.max(0, goals.waterMl - waterGlasses * 250).toLocaleString()} ml to go`}</span></div>
+
+
+            <div className="grid grid-cols-2 gap-2 sm:gap-3">
+              <div className="col-span-2 p-2 sm:p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40">
+                <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
+                  <span className="flex items-center gap-1.5 font-semibold text-slate-700 dark:text-slate-200">
+                    <Zap className="w-3.5 h-3.5 text-amber-500" />
+                    <span>Energy</span>
+                  </span>
+                  <span className="font-mono text-slate-900 dark:text-slate-100 font-bold tabular-nums">
+                    {dayWellness.energyScore || '—'} / 5
+                  </span>
+                </div>
+                <div className="flex items-center gap-1 mt-2">
+                  {[1, 2, 3, 4, 5].map(score => (
+                    <button
+                      key={score}
+                      onClick={() => onUpdateWellness(selectedDate, { energyScore: dayWellness.energyScore === score ? 0 : score })}
+                      aria-label={`Energy level ${score}`}
+                      aria-pressed={dayWellness.energyScore === score}
+                      className={`flex-1 py-1 rounded text-xs font-mono transition-colors cursor-pointer ${
+                        dayWellness.energyScore === score
+                          ? 'bg-amber-500 text-white font-bold'
+                          : 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400'
+                      }`}
+                    >
+                      {score}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="min-w-0 p-2 sm:p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40">
+                <div className="flex items-center justify-between gap-2 text-xs text-slate-500 mb-1">
+                  <span className="flex items-center gap-1.5 font-semibold text-slate-700 dark:text-slate-200">
+                    <Moon className="w-3.5 h-3.5 text-indigo-500" />
+                    <span>Sleep</span>
+                  </span>
+                  <span className="font-mono text-slate-900 dark:text-slate-100 font-bold tabular-nums">
+                    {dayWellness.sleepHours ?? 3}h
+                  </span>
+                </div>
+                <p className="text-[10px] text-slate-500 dark:text-slate-400">Target: {goals.sleepHours} hrs</p>
+                <div role="progressbar" aria-label="Sleep target" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.min(100, Math.round((dayWellness.sleepHours ?? 3) / goals.sleepHours * 100))} className="mt-1 h-1 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
+                  <div className="h-full rounded-full bg-indigo-500 transition-all" style={{ width: `${Math.min(100, (dayWellness.sleepHours ?? 3) / goals.sleepHours * 100)}%` }} />
+                </div>
+                <div className="flex items-center gap-1 mt-2">
+                  <button
+                    onClick={() =>
+                      onUpdateWellness(selectedDate, {
+                        sleepHours: Math.max(0, (dayWellness.sleepHours ?? 3) - 0.5)
+                      })
+                    }
+                    className="flex-1 py-1 rounded bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-mono text-slate-700 dark:text-slate-300 cursor-pointer"
+                  >
+                    -0.5
+                  </button>
+                  <button
+                    onClick={() =>
+                      onUpdateWellness(selectedDate, {
+                        sleepHours: Math.min(16, (dayWellness.sleepHours ?? 3) + 0.5)
+                      })
+                    }
+                    className="flex-1 py-1 rounded bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-mono text-slate-700 dark:text-slate-300 cursor-pointer"
+                  >
+                    +0.5
+                  </button>
+                </div>
+              </div>
+
+              <div className="min-w-0 rounded-xl border border-slate-200 bg-slate-50/50 p-2 sm:p-3 dark:border-slate-800 dark:bg-slate-800/40">
+                <div className="flex items-center justify-between gap-1 text-xs text-slate-500 dark:text-slate-400">
+                  <span className="flex items-center gap-1.5 font-semibold text-slate-700 dark:text-slate-200"><Droplet className="h-3.5 w-3.5 text-blue-500" />Hydration</span>
+                  <span className="whitespace-nowrap font-mono font-bold tabular-nums text-slate-900 dark:text-slate-100">{(waterGlasses * 250).toLocaleString()} ml</span>
+                </div>
+                <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">Target: {goals.waterMl.toLocaleString()} ml</p>
+                <div role="progressbar" aria-label="Hydration target" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.min(100, Math.round(waterGlasses * 250 / goals.waterMl * 100))} className="mt-1 h-1 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
+                  <div className="h-full rounded-full bg-blue-500 transition-all" style={{ width: `${Math.min(100, waterGlasses * 250 / goals.waterMl * 100)}%` }} />
+                </div>
+                <div className="mt-2 flex gap-1">
+                  <button type="button" onClick={() => adjustWater(-1)} disabled={waterGlasses <= 0} aria-label="Remove one glass of water" className="flex-1 rounded border border-slate-200 bg-white py-1 text-xs text-slate-700 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">-</button>
+                  <button type="button" onClick={() => adjustWater(1)} disabled={waterGlasses >= 20} aria-label="Add one glass of water" className="flex-1 rounded border border-blue-200 bg-blue-50 py-1 text-xs font-semibold text-blue-600 disabled:opacity-40 dark:border-blue-500/20 dark:bg-blue-500/10 dark:text-blue-400">+250</button>
+                  <button type="button" onClick={() => adjustWater(2)} disabled={waterGlasses >= 20} aria-label="Add two glasses of water" className="flex-1 rounded border border-slate-200 bg-white py-1 text-xs text-slate-700 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">+500</button>
+                </div>
+              </div>
+            </div>
+
+            </div>
+            <div className="min-w-0">
+            {/* Gratitude & Journal notes */}
+            <WellnessNotes key={selectedDate}
+              accent="blue"
+              fillHeight
+              footerText="Take a moment for yourself."
+              gratitude={dayWellness.gratitude ?? ''}
+              journalNotes={dayWellness.journalNotes ?? ''}
+              onSave={notes => onUpdateWellness(selectedDate, notes)}
+            />
+            </div>
+            </div>
+          </div>
+        </div>
+        {/* Left Column (Habits) */}
+        <div className="lg:col-span-7 space-y-6 lg:flex lg:min-w-0 lg:flex-col lg:space-y-0 lg:gap-6">
+          {/* Card: Daily Habits Checklist */}
+          <div className={`p-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs ${sharedListHeight ? 'lg:flex-1' : ''}`}>
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
+                  Daily Habits Checklist
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  Consistent actions that compound daily
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2 mb-4">
+              <input type="search" aria-label="Search habits" placeholder="Search habits..." value={habitSearch} onChange={e => setHabitSearch(e.target.value)} className="min-w-0 flex-1 basis-40 px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100" />
+              <select aria-label="Filter habits by status" value={habitStatusFilter} onChange={e => setHabitStatusFilter(e.target.value)} className="px-2.5 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-200"><option value="all">All statuses</option><option value="pending">Pending</option><option value="completed">Completed</option></select>
+              <select aria-label="Filter habits by category" value={habitCategoryFilter} onChange={e => setHabitCategoryFilter(e.target.value)} className="min-w-0 max-w-40 px-2.5 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-200"><option value="all">All categories</option>{habitCategories.map(category => <option key={category} value={category}>{category}</option>)}</select>
+              <button type="button" onClick={onOpenAddHabit} className="inline-flex items-center justify-center gap-1 px-4 py-2 text-xs font-semibold text-white bg-slate-900 dark:bg-slate-100 dark:text-slate-950 rounded-lg hover:bg-slate-800 dark:hover:bg-white whitespace-nowrap cursor-pointer"><Plus className="h-3.5 w-3.5" aria-hidden="true" />Add Habit</button>
+            </div>
+
+            <div className="space-y-2.5">
+              {filteredHabits.length === 0 ? (
+                <div className="text-center py-8 text-xs text-slate-400">
+                  {habits.length === 0
+                    ? 'No habits added yet. Click "Add Habit" to establish your routine.'
+                    : habitsForSelectedDay.length === 0 ? 'No habits are scheduled for this day.' : 'No habits match these filters.'}
+                </div>
+              ) : (
+                <OverviewItemList count={filteredHabits.length} label="Habits list" sharedHeight={sharedListHeight} onMeasure={setHabitListHeight}>
+                {filteredHabits.map(habit => {
+                  const isChecked = habit.completedDates.includes(selectedDate);
+                  const isSavingHabit = savingKeys?.has(`habit:${habit.id}:${selectedDate}`);
+                  return (
+                    <button
+                      key={habit.id}
+                      type="button"
+                      onClick={() => onToggleHabit(habit.id, selectedDate)}
+                      disabled={Boolean(isSavingHabit)}
+                      aria-label={isSavingHabit ? `Saving ${habit.title}` : `${isChecked ? 'Mark incomplete' : 'Mark complete'}: ${habit.title}`}
+                      aria-pressed={isChecked}
+                      className={`w-full p-3 rounded-xl border transition-all cursor-pointer disabled:cursor-wait flex items-center justify-between text-left ${
+                        isChecked
+                          ? 'border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/40 dark:bg-emerald-950/20'
+                          : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span className="shrink-0 text-slate-400 transition-colors">
+                          {isSavingHabit ? (
+                            <LoaderCircle className="w-5 h-5 animate-spin text-emerald-500" />
+                          ) : isChecked ? (
+                            <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+                          ) : (
+                            <Circle className="w-5 h-5 text-slate-300 dark:text-slate-600" />
+                          )}
+                        </span>
+                        <div className="min-w-0">
+                          <span
+                            className={`text-xs font-medium block truncate ${
+                              isChecked
+                                ? 'line-through text-slate-500 dark:text-slate-400'
+                                : 'text-slate-900 dark:text-slate-100'
+                            }`}
+                          >
+                            {habit.title}
+                          </span>
+                          <span className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px]">
+                            <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-[10px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300"><span className="h-1.5 w-1.5 rounded-full bg-violet-400" aria-hidden="true" />{habit.category}</span>
+                            <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-[10px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden="true" />Target {habit.targetDaysPerWeek}d/wk</span>
+                            {habit.startTime && habit.endTime && (
+                              <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-[10px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                                <Clock className="h-3 w-3 text-blue-500" aria-hidden="true" />
+                                {formatHabitTime(habit.startTime, habit.endTime)}
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0 font-mono text-xs">
+                        <span className="text-amber-600 dark:text-amber-400 font-semibold tabular-nums">
+                          🔥 {habit.streak}d streak
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
+                </OverviewItemList>
+              )}
+            </div>
+          </div>
+
+        </div>
+
+        {/* Right Column (Priority Tasks) */}
+        <div className="lg:col-span-5 space-y-6 lg:min-w-0">
+          {/* Card: Daily Tasks & Priorities */}
+          <div className={`p-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs lg:flex lg:min-w-0 lg:flex-1 lg:flex-col ${sharedListHeight ? 'lg:h-full' : ''}`}>
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
+                  Priorities & Action Items
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  Focus on high-leverage outcomes for {formattedHeaderDate}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2 mb-4">
+              <input type="search" aria-label="Search tasks" placeholder="Search tasks..." value={taskSearch} onChange={e => setTaskSearch(e.target.value)} className="min-w-0 w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100" />
+              <select aria-label="Filter by priority" value={taskPriorityFilter} onChange={e => setTaskPriorityFilter(e.target.value)} className="min-w-0 flex-1 px-2.5 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-200">
+                <option value="all">All priorities</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option>
+              </select>
+              <select aria-label="Filter by category" value={taskCategoryFilter} onChange={e => setTaskCategoryFilter(e.target.value)} className="min-w-0 flex-1 px-2.5 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-200">
+                <option value="all">All categories</option>{availableTaskCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+              </select>
+              <button type="button" onClick={onOpenAddTask} className="inline-flex items-center justify-center gap-1 px-4 py-2 text-xs font-semibold text-white bg-slate-900 dark:bg-slate-100 dark:text-slate-950 rounded-lg hover:bg-slate-800 dark:hover:bg-white whitespace-nowrap cursor-pointer"><Plus className="h-3.5 w-3.5" aria-hidden="true" />Add Task</button>
+            </div>
+
+            {/* Task list */}
+            <div className="space-y-2 lg:flex lg:flex-1 lg:flex-col">
+              {filteredDayTasks.length === 0 ? (
+                <div className="text-center py-6 text-xs text-slate-400 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl lg:flex lg:min-h-28 lg:flex-1 lg:items-center lg:justify-center lg:px-4">
+                  No tasks match these filters for this date.
+                </div>
+              ) : (
+                <OverviewItemList count={filteredDayTasks.length} label="Tasks list" sharedHeight={sharedListHeight} onMeasure={setTaskListHeight}>
+                {filteredDayTasks.map(task => {
+                  const isSavingTask = savingKeys?.has(`task:${task.id}`);
+                  return (
+                  <div
+                    key={task.id}
+                    className={`px-3 py-2 rounded-xl border grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 transition-colors ${
+                      task.completed
+                        ? 'border-slate-200/60 dark:border-slate-800/60 bg-slate-50/40 dark:bg-slate-900/40'
+                        : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs hover:border-slate-300 dark:hover:border-slate-700'
+                    }`}
+                  >
+                      <button
+                        type="button"
+                        onClick={() => onToggleTask(task.id)}
+                        disabled={Boolean(isSavingTask)}
+                        aria-label={isSavingTask ? 'Saving task status' : task.completed ? 'Mark task incomplete' : 'Mark task complete'}
+                        className="row-span-2 shrink-0 self-center text-slate-400 hover:scale-110 active:scale-95 transition-all cursor-pointer disabled:cursor-wait"
+                      >
+                        {isSavingTask ? <LoaderCircle className="h-4.5 w-4.5 animate-spin text-sky-500" /> : task.completed ? (
+                          <CheckCircle2 className="w-4.5 h-4.5 text-sky-600 dark:text-sky-400" />
+                        ) : (
+                          <Circle className="w-4.5 h-4.5 text-slate-300 dark:text-slate-600 hover:text-slate-400" />
+                        )}
+                      </button>
+                      <span
+                        className={`min-w-0 break-words text-xs font-medium ${
+                          task.completed
+                            ? 'line-through text-slate-400 dark:text-slate-500'
+                            : 'text-slate-800 dark:text-slate-200'
+                        }`}
+                      >
+                        {task.title}
+                      </span>
+                    <div className="col-start-2 row-start-2 flex min-w-0 flex-wrap items-center gap-1.5">
+                      <span className="max-w-full truncate rounded-md bg-slate-100 px-1.5 py-0.5 sm:px-2 sm:py-1 text-[10px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300" title={task.category || 'General'}>
+                        {task.category || 'General'}
+                      </span>
+                      <span
+                        className={`shrink-0 text-[10px] capitalize px-1.5 py-0.5 sm:px-2 sm:py-1 rounded-md font-semibold flex items-center gap-1 ${
+                          task.priority === 'high'
+                            ? 'bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 border border-rose-200/60 dark:border-rose-900/40'
+                            : task.priority === 'medium'
+                            ? 'bg-amber-50 dark:bg-amber-950/50 text-amber-600 dark:text-amber-400 border border-amber-200/60 dark:border-amber-900/40'
+                            : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200/60 dark:border-slate-700/60'
+                        }`}
+                      >
+                        <span className={`w-1.5 h-1.5 rounded-full ${
+                          task.priority === 'high' ? 'bg-rose-500' : task.priority === 'medium' ? 'bg-amber-500' : 'bg-slate-400'
+                        }`} />
+                        <span>{task.priority}</span>
+                      </span>
+                      {(task.startTime && task.endTime || task.timeEstimateMin) && (
+                        <span className="inline-flex max-w-full flex-wrap items-center gap-1 rounded-md bg-slate-100/80 px-2 py-1 text-[11px] text-slate-600 dark:bg-slate-800/70 dark:text-slate-300">
+                          <Clock className="h-3 w-3 text-slate-500 dark:text-slate-400" aria-hidden="true" />
+                          {task.startTime && task.endTime && <span className="font-medium">{formatHabitTime(task.startTime, task.endTime)}</span>}
+                          {task.timeEstimateMin && <span className="text-slate-500 dark:text-slate-400"><span aria-hidden="true">{task.startTime && task.endTime ? '· ' : ''}</span><span className="sr-only">Duration: </span>{task.timeEstimateMin} min</span>}
+                        </span>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => onDeleteTask(task.id)}
+                      className="col-start-3 row-span-2 row-start-1 self-center shrink-0 rounded-md p-1.5 text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-500 dark:hover:bg-rose-950/40 dark:hover:text-rose-400 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400"
+                      aria-label={`Delete ${task.title}`}
+                      title="Delete task"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  );
+                })}
+                </OverviewItemList>
+              )}
+            </div>
           </div>
         </div>
       </div>
-
-      {/* Main Section: Financial Ledger Full-Width Bar at Top */}
+      {/* Main Section: Financial Ledger */}
       <div className="p-4 sm:p-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4 mb-4 pb-3 border-b border-slate-100 dark:border-slate-800">
           <div className="min-w-0">
@@ -588,371 +931,6 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
         </div>
       </div>
 
-      {/* Main Grid: Left Column (Habits & Tasks) + Right Column (Wellness Log) */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left Column (Habits & Priority Tasks) */}
-        <div className="lg:col-span-7 space-y-6 lg:flex lg:min-w-0 lg:flex-col lg:space-y-0 lg:gap-6">
-          {/* Card: Daily Habits Checklist */}
-          <div className="p-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
-                  Daily Habits Checklist
-                </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  Consistent actions that compound daily
-                </p>
-              </div>
-              <button
-                onClick={onOpenAddHabit}
-                className="flex items-center gap-1 text-xs font-medium text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 cursor-pointer"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Add Habit</span>
-              </button>
-            </div>
-
-            <div className="space-y-2.5">
-              {habitsForSelectedDay.length === 0 ? (
-                <div className="text-center py-8 text-xs text-slate-400">
-                  {habits.length === 0
-                    ? 'No habits added yet. Click "Add Habit" to establish your routine.'
-                    : 'No habits are scheduled for this day.'}
-                </div>
-              ) : (
-                habitsForSelectedDay.map(habit => {
-                  const isChecked = habit.completedDates.includes(selectedDate);
-                  return (
-                    <div
-                      key={habit.id}
-                      onClick={() => onToggleHabit(habit.id, selectedDate)}
-                      className={`p-3 rounded-xl border transition-all cursor-pointer flex items-center justify-between ${
-                        isChecked
-                          ? 'border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/40 dark:bg-emerald-950/20'
-                          : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50'
-                      }`}
-                    >
-                      <div className="flex items-center gap-3 min-w-0">
-                        <button
-                          type="button"
-                          className="shrink-0 text-slate-400 transition-colors"
-                        >
-                          {isChecked ? (
-                            <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
-                          ) : (
-                            <Circle className="w-5 h-5 text-slate-300 dark:text-slate-600" />
-                          )}
-                        </button>
-                        <div className="min-w-0">
-                          <span
-                            className={`text-xs font-medium block truncate ${
-                              isChecked
-                                ? 'line-through text-slate-500 dark:text-slate-400'
-                                : 'text-slate-900 dark:text-slate-100'
-                            }`}
-                          >
-                            {habit.title}
-                          </span>
-                          <span className="text-[11px] text-slate-400 dark:text-slate-500">
-                            {habit.category} · Target {habit.targetDaysPerWeek}d/wk{habit.startTime && habit.endTime ? ` · ${formatHabitTime(habit.startTime, habit.endTime)}` : ''}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2 shrink-0 font-mono text-xs">
-                        <span className="text-amber-600 dark:text-amber-400 font-semibold tabular-nums">
-                          🔥 {habit.streak}d streak
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
-
-          {/* Card: Daily Tasks & Priorities */}
-          <div className="p-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs lg:flex lg:min-w-0 lg:flex-1 lg:flex-col">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
-                  Priorities & Action Items
-                </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  Focus on high-leverage outcomes for {formattedHeaderDate}
-                </p>
-              </div>
-            </div>
-
-            {/* Quick add task input */}
-            <form onSubmit={handleCreateTask} className="flex flex-col sm:flex-row gap-2 mb-4 lg:grid lg:grid-cols-1 2xl:grid-cols-[minmax(0,1fr)_auto]">
-              <input
-                type="text"
-                value={newTaskTitle}
-                onChange={e => setNewTaskTitle(e.target.value)}
-                placeholder="What needs to get done today?..."
-                className="flex-1 px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-slate-400 placeholder:text-slate-400 lg:min-w-0 lg:w-full lg:h-9"
-              />
-              <div className="flex items-center gap-1.5 flex-wrap sm:flex-nowrap lg:flex-wrap lg:[&>select]:h-9 lg:[&>input]:h-9 lg:[&>button]:h-9 2xl:flex-nowrap">
-                <select
-                  value={newTaskPriority}
-                  onChange={e => setNewTaskPriority(e.target.value as any)}
-                  className="px-2.5 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer"
-                >
-                  <option value="high">🔴 High</option>
-                  <option value="medium">🟡 Medium</option>
-                  <option value="low">⚪ Low</option>
-                </select>
-
-                <select
-                  value={newTaskTime}
-                  onChange={e => setNewTaskTime(e.target.value)}
-                  className="px-2.5 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer"
-                >
-                  <option value="15">15m</option>
-                  <option value="30">30m</option>
-                  <option value="45">45m</option>
-                  <option value="60">60m</option>
-                </select>
-
-                {isCustomCategory ? (
-                  <input
-                    type="text"
-                    value={customCategoryInput}
-                    onChange={e => setCustomCategoryInput(e.target.value)}
-                    placeholder="Category"
-                    className="w-24 px-2 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-blue-400 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none"
-                  />
-                ) : (
-                  <select
-                    value={newTaskCategory}
-                    onChange={e => {
-                      if (e.target.value === '__NEW__') {
-                        setIsCustomCategory(true);
-                      } else {
-                        setNewTaskCategory(e.target.value);
-                      }
-                    }}
-                    className="px-2.5 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer"
-                  >
-                    {availableTaskCategories.map(cat => (
-                      <option key={cat} value={cat}>
-                        {cat}
-                      </option>
-                    ))}
-                    <option value="__NEW__">+ New...</option>
-                  </select>
-                )}
-
-                <button
-                  type="submit"
-                  className="px-4 py-2 text-xs font-semibold text-white bg-slate-900 dark:bg-slate-100 dark:text-slate-950 rounded-lg hover:bg-slate-800 dark:hover:bg-white transition-all shadow-xs whitespace-nowrap cursor-pointer"
-                >
-                  Add Task
-                </button>
-              </div>
-            </form>
-
-            {/* Task list */}
-            <div className="space-y-2 lg:flex lg:flex-1 lg:flex-col">
-              {dayTasks.length === 0 ? (
-                <div className="text-center py-6 text-xs text-slate-400 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl lg:flex lg:min-h-28 lg:flex-1 lg:items-center lg:justify-center lg:px-4">
-                  No priority tasks scheduled for this date.
-                </div>
-              ) : (
-                dayTasks.map(task => {
-                  const isSavingTask = savingKeys?.has(`task:${task.id}`);
-                  return (
-                  <div
-                    key={task.id}
-                    className={`p-3 rounded-xl border flex items-center justify-between gap-3 transition-colors ${
-                      task.completed
-                        ? 'border-slate-200/60 dark:border-slate-800/60 bg-slate-50/40 dark:bg-slate-900/40'
-                        : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3 min-w-0 flex-1">
-                      <button
-                        type="button"
-                        onClick={() => onToggleTask(task.id)}
-                        disabled={Boolean(isSavingTask)}
-                        aria-label={isSavingTask ? 'Saving task status' : task.completed ? 'Mark task incomplete' : 'Mark task complete'}
-                        className="shrink-0 text-slate-400 hover:scale-110 active:scale-95 transition-all cursor-pointer disabled:cursor-wait"
-                      >
-                        {isSavingTask ? <LoaderCircle className="h-4.5 w-4.5 animate-spin text-sky-500" /> : task.completed ? (
-                          <CheckCircle2 className="w-4.5 h-4.5 text-sky-600 dark:text-sky-400" />
-                        ) : (
-                          <Circle className="w-4.5 h-4.5 text-slate-300 dark:text-slate-600 hover:text-slate-400" />
-                        )}
-                      </button>
-                      <span
-                        className={`text-xs truncate font-medium ${
-                          task.completed
-                            ? 'line-through text-slate-400 dark:text-slate-500'
-                            : 'text-slate-800 dark:text-slate-200'
-                        }`}
-                      >
-                        {task.title}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-2 shrink-0">
-                      <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-sm bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
-                        {task.category || 'General'}
-                      </span>
-                      <span
-                        className={`text-[10px] font-mono px-2 py-0.5 rounded-md font-semibold flex items-center gap-1 ${
-                          task.priority === 'high'
-                            ? 'bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 border border-rose-200/60 dark:border-rose-900/40'
-                            : task.priority === 'medium'
-                            ? 'bg-amber-50 dark:bg-amber-950/50 text-amber-600 dark:text-amber-400 border border-amber-200/60 dark:border-amber-900/40'
-                            : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200/60 dark:border-slate-700/60'
-                        }`}
-                      >
-                        <span className={`w-1.5 h-1.5 rounded-full ${
-                          task.priority === 'high' ? 'bg-rose-500' : task.priority === 'medium' ? 'bg-amber-500' : 'bg-slate-400'
-                        }`} />
-                        <span>{task.priority}</span>
-                      </span>
-                      {task.timeEstimateMin && (
-                        <span className="text-[11px] font-mono text-slate-400 flex items-center gap-0.5">
-                          {task.timeEstimateMin}m
-                        </span>
-                      )}
-                      <button
-                        onClick={() => onDeleteTask(task.id)}
-                        className="text-slate-300 hover:text-rose-500 dark:hover:text-rose-400 transition-colors p-1 cursor-pointer"
-                        title="Delete task"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Right Column (Wellness Log) */}
-        <div className="lg:col-span-5 space-y-6 lg:min-w-0">
-          {/* Card: Daily Wellness & Mood */}
-          <div className="p-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs lg:h-full">
-            <div className="mb-4">
-              <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
-                Daily Wellness Log
-              </h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                Physical and mental state check-in
-              </p>
-            </div>
-
-            {/* Mood selector buttons */}
-            <div className="mb-4">
-              <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-2">
-                Today&apos;s Mood
-              </label>
-              <div className="grid grid-cols-5 gap-1.5">
-                {MOODS.map(m => (
-                  <button
-                    key={m.type}
-                    onClick={() => onUpdateWellness(selectedDate, { mood: dayWellness.mood === m.type ? undefined : m.type })}
-                    aria-pressed={dayWellness.mood === m.type}
-                    aria-label={m.label}
-                    className={`py-2 px-1 rounded-xl border flex flex-col items-center justify-center transition-all cursor-pointer ${
-                      dayWellness.mood === m.type
-                        ? 'border-blue-500 bg-blue-50/70 dark:bg-blue-950/50 ring-1 ring-blue-500'
-                        : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800'
-                    }`}
-                  >
-                    <span className="text-lg leading-none">{m.icon}</span>
-                    <span className="text-[10px] font-medium text-slate-600 dark:text-slate-300 mt-1">
-                      {m.label}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Sleep & Energy Steppers */}
-            <div className="grid grid-cols-2 gap-3 mb-4">
-              <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40">
-                <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
-                  <span className="flex items-center gap-1">
-                    <Moon className="w-3.5 h-3.5 text-indigo-500" />
-                    <span>Sleep</span>
-                  </span>
-                  <span className="font-mono text-slate-900 dark:text-slate-100 font-bold tabular-nums">
-                    {dayWellness.sleepHours ?? 3}h
-                  </span>
-                </div>
-                <p className="text-[10px] text-slate-500 dark:text-slate-400">Target: {goals.sleepHours} hrs</p>
-                <div className="flex items-center gap-1 mt-2">
-                  <button
-                    onClick={() =>
-                      onUpdateWellness(selectedDate, {
-                        sleepHours: Math.max(0, (dayWellness.sleepHours ?? 3) - 0.5)
-                      })
-                    }
-                    className="flex-1 py-1 rounded bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-mono text-slate-700 dark:text-slate-300 cursor-pointer"
-                  >
-                    -0.5
-                  </button>
-                  <button
-                    onClick={() =>
-                      onUpdateWellness(selectedDate, {
-                        sleepHours: Math.min(16, (dayWellness.sleepHours ?? 3) + 0.5)
-                      })
-                    }
-                    className="flex-1 py-1 rounded bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-mono text-slate-700 dark:text-slate-300 cursor-pointer"
-                  >
-                    +0.5
-                  </button>
-                </div>
-              </div>
-
-              <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40">
-                <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
-                  <span className="flex items-center gap-1">
-                    <Zap className="w-3.5 h-3.5 text-amber-500" />
-                    <span>Energy</span>
-                  </span>
-                  <span className="font-mono text-slate-900 dark:text-slate-100 font-bold tabular-nums">
-                    {dayWellness.energyScore || '—'} / 5
-                  </span>
-                </div>
-                <div className="flex items-center gap-1 mt-2">
-                  {[1, 2, 3, 4, 5].map(score => (
-                    <button
-                      key={score}
-                      onClick={() => onUpdateWellness(selectedDate, { energyScore: dayWellness.energyScore === score ? 0 : score })}
-                      aria-label={`Energy level ${score}`}
-                      aria-pressed={dayWellness.energyScore === score}
-                      className={`flex-1 py-1 rounded text-xs font-mono transition-colors cursor-pointer ${
-                        dayWellness.energyScore === score
-                          ? 'bg-amber-500 text-white font-bold'
-                          : 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400'
-                      }`}
-                    >
-                      {score}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Gratitude & Journal notes */}
-            <WellnessNotes key={selectedDate}
-              accent="blue"
-              footerText="Take a moment for yourself."
-              gratitude={dayWellness.gratitude ?? ''}
-              journalNotes={dayWellness.journalNotes ?? ''}
-              onSave={notes => onUpdateWellness(selectedDate, notes)}
-            />
-          </div>
-        </div>
-      </div>
     </div>
   );
 };

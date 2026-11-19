@@ -63,6 +63,8 @@ interface TasksViewProps {
   taskOrder?: string[];
   onSaveTaskOrder?: (taskOrder: string[]) => void | Promise<boolean>;
   selectedDate?: string;
+  openAddOnMount?: boolean;
+  onAddOpened?: () => void;
 }
 
 export type TaskTimeGrain = 'day' | 'week' | 'month' | 'year' | 'custom';
@@ -111,7 +113,9 @@ export const TasksView: React.FC<TasksViewProps> = ({
   onSaveCustomCategories,
   taskOrder,
   onSaveTaskOrder,
-  selectedDate
+  selectedDate,
+  openAddOnMount,
+  onAddOpened
 }) => {
   const [viewMode, setViewMode] = useState<'list' | 'analytics'>('list');
   const [isEditingOrder, setIsEditingOrder] = useState(false);
@@ -123,7 +127,8 @@ export const TasksView: React.FC<TasksViewProps> = ({
   const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'completed'>('active');
   const [filterCategory, setFilterCategory] = useState<string>('all');
   const [analyticsCategory, setAnalyticsCategory] = useState<string>('all');
-  const [isAddOpen, setIsAddOpen] = useState(false);
+  const [isAddOpen, setIsAddOpen] = useState(Boolean(openAddOnMount));
+  useEffect(() => { if (openAddOnMount) onAddOpened?.(); }, [openAddOnMount, onAddOpened]);
   const [editingTask, setEditingTask] = useState<DailyTask | null>(null);
   const [taskToDelete, setTaskToDelete] = useState<DailyTask | null>(null);
   const [isDeletingTask, setIsDeletingTask] = useState(false);

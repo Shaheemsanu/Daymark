@@ -68,6 +68,8 @@ interface HabitsViewProps {
   wellness?: Record<string, DailyWellness>;
   onUpdateWellness?: (date: string, data: Partial<DailyWellness>) => void;
   selectedDate?: string;
+  openAddOnMount?: boolean;
+  onAddOpened?: () => void;
   customCategories: string[];
   savingKeys?: Set<string>;
   habitOrder?: string[];
@@ -131,6 +133,8 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
   wellness,
   onUpdateWellness,
   selectedDate,
+  openAddOnMount,
+  onAddOpened,
   customCategories,
   savingKeys,
   habitOrder,
@@ -143,7 +147,8 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedAnalyticsHabitId, setSelectedAnalyticsHabitId] = useState('all');
   const [isMobileCategoryMenuOpen, setIsMobileCategoryMenuOpen] = useState(false);
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isAddModalOpen, setIsAddModalOpen] = useState(Boolean(openAddOnMount));
+  useEffect(() => { if (openAddOnMount) setIsAddModalOpen(true); }, [openAddOnMount]);
   const [editingHabit, setEditingHabit] = useState<Habit | null>(null);
   const [habitToDelete, setHabitToDelete] = useState<Habit | null>(null);
   const [isCategoryManagerOpen, setIsCategoryManagerOpen] = useState(false);
@@ -589,6 +594,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
     setNewCatInput('');
     setEditingHabit(null);
     setIsAddModalOpen(false);
+    onAddOpened?.();
   };
 
   const openCreateHabit = () => {
@@ -1690,6 +1696,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
               <button
                 onClick={() => {
                   setIsAddModalOpen(false);
+                  onAddOpened?.();
                     setEditingHabit(null);
                   setIsCreatingNewCat(false);
                 }}
@@ -1886,6 +1893,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
                   type="button"
                   onClick={() => {
                     setIsAddModalOpen(false);
+                    onAddOpened?.();
                     setIsCreatingNewCat(false);
                   }}
                   className="px-4 py-2 text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 cursor-pointer"
