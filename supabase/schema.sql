@@ -475,3 +475,46 @@ DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- Administrators control can_select_accounts; users may update only the two
+-- account switches, and only while account selection is allowed.
+CREATE TABLE IF NOT EXISTS public.account_permissions (
+  user_id uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  can_select_accounts boolean NOT NULL DEFAULT false,
+  cash_enabled boolean NOT NULL DEFAULT false,
+  savings_enabled boolean NOT NULL DEFAULT false
+);
+
+ALTER TABLE public.account_permissions ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.account_permissions FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.account_permissions TO authenticated;
+GRANT UPDATE (cash_enabled, savings_enabled) ON public.account_permissions TO authenticated;
+DROP POLICY IF EXISTS account_permissions_read_own ON public.account_permissions;
+CREATE POLICY account_permissions_read_own ON public.account_permissions FOR SELECT TO authenticated USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS account_permissions_update_own ON public.account_permissions;
+CREATE POLICY account_permissions_update_own ON public.account_permissions FOR UPDATE TO authenticated
+  USING (auth.uid() = user_id AND can_select_accounts)
+  WITH CHECK (auth.uid() = user_id AND can_select_accounts);
+
+INSERT INTO public.account_permissions (user_id)
+SELECT id FROM auth.users ON CONFLICT (user_id) DO NOTHING;
+
+CREATE OR REPLACE FUNCTION public.create_account_permissions()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+  INSERT INTO public.account_permissions (user_id) VALUES (NEW.id) ON CONFLICT (user_id) DO NOTHING;
+  RETURN NEW;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.create_account_permissions() FROM PUBLIC;
+DROP TRIGGER IF EXISTS create_account_permissions_for_user ON auth.users;
+CREATE TRIGGER create_account_permissions_for_user AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.create_account_permissions();
+
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime')
+     AND NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'account_permissions') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.account_permissions;
+  END IF;
+END $$;

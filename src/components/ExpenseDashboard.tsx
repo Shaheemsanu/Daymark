@@ -29,7 +29,7 @@ import {
 } from 'lucide-react';
 import { Expense, ExpenseCategory, BudgetConfig, PaymentMethod, SpendType, CategoryInfo } from '../types';
 import { formatDisplayDate } from '../utils/dateFormatting';
-import { getAccountBalance, getBalanceAdjustmentNote } from '../utils/accounts';
+import { getAccountBalance, getBalanceAdjustmentNote, isAccountTransactionVisible } from '../utils/accounts';
 import { copyText } from '../utils/clipboard';
 import {
   CATEGORIES,
@@ -52,6 +52,7 @@ interface ExpenseDashboardProps {
   customCategories: Record<string, CategoryInfo>;
   onSaveCustomCategories: (categories: Record<string, CategoryInfo>) => void | Promise<boolean>;
   openAddModal?: boolean;
+  accountVisibility?: { cash: boolean; savings: boolean };
   openTransactionHistory?: boolean;
   initialDate?: string;
   onAddModalOpened?: () => void;
@@ -112,6 +113,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
   customCategories,
   onSaveCustomCategories,
   openAddModal = false,
+  accountVisibility = { cash: true, savings: true },
   openTransactionHistory = false,
   initialDate,
   onAddModalOpened,
@@ -129,6 +131,9 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
 
   // Tab switcher state for Analytics & Ledger (default to Transaction Ledger as first tab)
   const [activeTab, setActiveTab] = useState<'ledger' | 'classification' | 'category' | 'velocity' | 'account_report'>('ledger');
+  useEffect(() => {
+    if (activeTab === 'account_report' && (!accountVisibility.cash || !accountVisibility.savings)) setActiveTab('ledger');
+  }, [activeTab, accountVisibility.cash, accountVisibility.savings]);
 
   // Modals state
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -203,6 +208,17 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
   const [formTransactionType, setFormTransactionType] = useState<'expense' | 'income' | 'transfer'>('expense');
   const [isSelfTransfer, setIsSelfTransfer] = useState(false);
   const [transferToAccount, setTransferToAccount] = useState<'expense' | 'savings' | 'cash'>('savings');
+  useEffect(() => {
+    if ((formAccount === 'cash' && !accountVisibility.cash) || (formAccount === 'savings' && !accountVisibility.savings)) {
+      setFormAccount('expense');
+      setFormTransactionType('expense');
+      setIsSelfTransfer(false);
+    }
+    if ((transferToAccount === 'cash' && !accountVisibility.cash) || (transferToAccount === 'savings' && !accountVisibility.savings)) {
+      setTransferToAccount(formAccount !== 'expense' ? 'expense' : accountVisibility.savings ? 'savings' : 'cash');
+    }
+    if (!accountVisibility.cash && !accountVisibility.savings) setIsSelfTransfer(false);
+  }, [accountVisibility.cash, accountVisibility.savings, formAccount, transferToAccount]);
   const [formTitle, setFormTitle] = useState('');
   const [formAmount, setFormAmount] = useState('');
   const [formCategory, setFormCategory] = useState<string>('Food & Dining');
@@ -491,7 +507,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
 
   // Filtered History for Table
   const filteredHistory = useMemo(() => {
-    const ledgerEntries: LedgerExpense[] = expenses.flatMap(expense => {
+    const ledgerEntries: LedgerExpense[] = expenses.filter(expense => isAccountTransactionVisible(expense, accountVisibility)).flatMap(expense => {
       const isTransfer = expense.isTransfer || expense.category.toLowerCase().includes('transfer');
       const source = expense.account || 'expense';
       const sent: LedgerExpense = { ...expense, isTransfer, ledgerKey: `${expense.id}-sent`, originalId: isTransfer ? expense.id : undefined, transferDirection: isTransfer ? 'sent' : undefined };
@@ -591,6 +607,8 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
     });
   }, [
     expenses,
+    accountVisibility.cash,
+    accountVisibility.savings,
     historyAccountFilter,
     historyTypeFilter,
     historyTimeframe,
@@ -635,6 +653,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
   ]);
 
   const classificationAnalyticsExpenses = useMemo(() => expenses.filter(expense => {
+    if (!isAccountTransactionVisible(expense, accountVisibility)) return false;
     const date = new Date(`${expense.date}T00:00:00`);
     if (analyticsAccount !== 'all' && (expense.account || 'expense') !== analyticsAccount) return false;
     if (classificationPeriod !== 'custom' && expense.date > referenceDateIso) return false;
@@ -646,9 +665,10 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
     }
     if (classificationPeriod === 'custom' && ((analyticsStartDate && expense.date < analyticsStartDate) || (analyticsEndDate && expense.date > analyticsEndDate))) return false;
     return true;
-  }), [expenses, analyticsAccount, classificationPeriod, analyticsStartDate, analyticsEndDate, currentYear, currentMonth, referenceDateIso]);
+  }), [expenses, accountVisibility.cash, accountVisibility.savings, analyticsAccount, classificationPeriod, analyticsStartDate, analyticsEndDate, currentYear, currentMonth, referenceDateIso]);
 
   const categoryAnalyticsExpenses = useMemo(() => expenses.filter(expense => {
+    if (!isAccountTransactionVisible(expense, accountVisibility)) return false;
     const date = new Date(`${expense.date}T00:00:00`);
     if (analyticsAccount !== 'all' && (expense.account || 'expense') !== analyticsAccount) return false;
     if (categoryPeriod !== 'custom' && categoryPeriod !== 'all' && expense.date > referenceDateIso) return false;
@@ -661,7 +681,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
     if (categoryPeriod === 'custom' && ((analyticsStartDate && expense.date < analyticsStartDate) || (analyticsEndDate && expense.date > analyticsEndDate))) return false;
     return expense.type !== 'income' && !expense.isTransfer &&
       (analyticsPayment === 'all' || expense.paymentMethod === analyticsPayment);
-  }), [expenses, analyticsAccount, categoryPeriod, analyticsStartDate, analyticsEndDate, analyticsPayment, currentYear, currentMonth, referenceDateIso]);
+  }), [expenses, accountVisibility.cash, accountVisibility.savings, analyticsAccount, categoryPeriod, analyticsStartDate, analyticsEndDate, analyticsPayment, currentYear, currentMonth, referenceDateIso]);
 
   const velocityStartIso = velocityDays === 'custom' && analyticsStartDate ? analyticsStartDate : formatDate(new Date(new Date(`${referenceDateIso}T00:00:00`).getTime() - ((velocityDays === 'custom' ? 30 : velocityDays) - 1) * 86400000));
   const velocityEndIso = velocityDays === 'custom' && analyticsEndDate ? analyticsEndDate : referenceDateIso;
@@ -673,12 +693,13 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
 
   const velocityAnalyticsExpenses = useMemo(() => {
     return expenses.filter(expense =>
+      isAccountTransactionVisible(expense, accountVisibility) &&
       expense.date >= velocityStartIso && expense.date <= velocityEndIso && expense.type !== 'income' && !expense.isTransfer &&
       (analyticsAccount === 'all' || (expense.account || 'expense') === analyticsAccount) &&
       (velocityCategory === 'all' || expense.category === velocityCategory) &&
       (analyticsPayment === 'all' || expense.paymentMethod === analyticsPayment)
     );
-  }, [expenses, velocityStartIso, velocityEndIso, analyticsAccount, velocityCategory, analyticsPayment]);
+  }, [expenses, accountVisibility.cash, accountVisibility.savings, velocityStartIso, velocityEndIso, analyticsAccount, velocityCategory, analyticsPayment]);
 
   // Compact modal view toggles
   const [showAllCategories, setShowAllCategories] = useState(false);
@@ -819,7 +840,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
     setIsSelfTransfer(false);
     setFormAccount('expense');
     setFormTransactionType('expense');
-    setTransferToAccount('savings');
+    setTransferToAccount(accountVisibility.savings ? 'savings' : 'cash');
     setFormTitle('');
     setFormAmount('');
     setFormCategory('');
@@ -1092,10 +1113,10 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
           <div className="flex items-center gap-3">
             <div>
               <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                <span>Dual Account Workspace</span>
+                <span>Finance Workspace</span>
               </h1>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                Savings Reserve &amp; Expense Spending Account Architecture
+                Manage your accounts and transactions
               </p>
             </div>
           </div>
@@ -1218,7 +1239,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
             </div>
 
             <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500">
-              <span>Transfers Received from Savings: <strong className="font-mono text-slate-800 dark:text-slate-200">+{formatCurrency(savingsTransferredOutTotal, currencySymbol)}</strong></span>
+              {accountVisibility.savings && <span>Transfers Received from Savings: <strong className="font-mono text-slate-800 dark:text-slate-200">+{formatCurrency(savingsTransferredOutTotal, currencySymbol)}</strong></span>}
               <button
                 onClick={(e) => { e.stopPropagation(); handleOpenAdd(); }}
                 className="hidden sm:inline-block text-rose-600 dark:text-rose-400 font-semibold hover:underline cursor-pointer"
@@ -1229,9 +1250,9 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
           </div>
 
           {/* Cards 2 & 3: Savings Account & Cash in Hand */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {(accountVisibility.savings || accountVisibility.cash) && <div className={`grid grid-cols-1 ${accountVisibility.savings && accountVisibility.cash ? 'md:grid-cols-2' : ''} gap-6`}>
             {/* Card 2: Savings Account Focus */}
-            <div 
+            {accountVisibility.savings && <div 
               onClick={handleFilterSavingsAccount}
               className="p-6 rounded-2xl bg-white/90 dark:bg-slate-900/90 border border-slate-200/80 dark:border-slate-800 shadow-xs flex flex-col justify-between cursor-pointer hover:border-emerald-500 dark:hover:border-emerald-500 transition-all"
               title="Click to view Savings Account transactions"
@@ -1273,10 +1294,10 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                   </strong>
                 </div>
               </div>
-            </div>
+            </div>}
 
             {/* Card 3: Cash in Hand Focus */}
-            <div 
+            {accountVisibility.cash && <div 
               onClick={handleFilterCashAccount}
               className="p-6 rounded-2xl bg-white/90 dark:bg-slate-900/90 border border-slate-200/80 dark:border-slate-800 shadow-xs flex flex-col justify-between cursor-pointer hover:border-amber-500 dark:hover:border-amber-500 transition-all"
               title="Click to view Cash in Hand transactions"
@@ -1318,8 +1339,8 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                   </strong>
                 </div>
               </div>
-            </div>
-          </div>
+            </div>}
+          </div>}
         </div>
       </div>
 
@@ -1377,7 +1398,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
             >
               <span className="sm:hidden">📈 Velocity</span><span className="hidden sm:inline">📈 Daily Velocity</span>
             </button>
-            <button
+            {(accountVisibility.cash && accountVisibility.savings) && <button
               type="button"
               aria-pressed={activeTab === 'account_report'}
               onClick={() => setActiveTab('account_report')}
@@ -1388,7 +1409,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
               }`}
             >
               <span className="sm:hidden">💳 Accounts</span><span className="hidden sm:inline">💳 Account Spends &amp; Intelligence</span>
-            </button>
+            </button>}
           </div>
         </div>
 
@@ -1424,7 +1445,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
               {activeTab !== 'velocity' && (
                 <select aria-label="Analytics account" value={analyticsAccount} onChange={e => setAnalyticsAccount(e.target.value as typeof analyticsAccount)} className="w-full min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2.5 text-xs text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
-                  <option value="all">All Accounts</option><option value="expense">Expense Account</option><option value="cash">Cash in Hand</option><option value="savings">Savings Account</option>
+                  <option value="all">All Accounts</option><option value="expense">Expense Account</option>{accountVisibility.cash && <option value="cash">Cash in Hand</option>}{accountVisibility.savings && <option value="savings">Savings Account</option>}
                 </select>
               )}
               {activeTab === 'classification' && (
@@ -1458,7 +1479,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
               )}
               {activeTab === 'velocity' && <>
                 <select aria-label="Velocity account" value={analyticsAccount} onChange={e => setAnalyticsAccount(e.target.value as typeof analyticsAccount)} className="w-full min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2.5 text-xs text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
-                  <option value="all">All Accounts</option><option value="expense">Expense Account</option><option value="cash">Cash in Hand</option><option value="savings">Savings Account</option>
+                  <option value="all">All Accounts</option><option value="expense">Expense Account</option>{accountVisibility.cash && <option value="cash">Cash in Hand</option>}{accountVisibility.savings && <option value="savings">Savings Account</option>}
                 </select>
                 <select aria-label="Velocity category" value={velocityCategory} onChange={e => setVelocityCategory(e.target.value)} className="w-full min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2.5 text-xs text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
                   <option value="all">All Categories</option>{Object.keys(categoriesMap).map(category => <option key={category} value={category}>{category}</option>)}
@@ -1566,7 +1587,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
         )}
 
         {/* Tab: Account Intelligence Report */}
-        {activeTab === 'account_report' && (
+        {activeTab === 'account_report' && accountVisibility.cash && accountVisibility.savings && (
           <div className="p-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs animate-in fade-in duration-150">
             <div className="flex items-center gap-2 mb-4 pb-3 border-b border-slate-100 dark:border-slate-800">
               <span className="p-1.5 rounded-lg bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 font-bold text-xs">
@@ -1624,8 +1645,8 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                 >
                   <option value="all">All Accounts</option>
                   <option value="expense">💳 Expense Account</option>
-                  <option value="savings">🏦 Savings Account</option>
-                  <option value="cash">💵 Cash in Hand</option>
+                  {accountVisibility.savings && <option value="savings">🏦 Savings Account</option>}
+                  {accountVisibility.cash && <option value="cash">💵 Cash in Hand</option>}
                 </select>
 
                 {/* Inflow / Outflow Flow Type Filter */}
@@ -2051,7 +2072,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                   <span>{isSelfTransfer ? 'From Account' : 'Target Account'}</span>
                   <span className="text-[10px] text-slate-400 font-mono">Select account</span>
                 </label>
-                <div className="grid grid-cols-4 gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
+                <div className="flex flex-wrap gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl [&>button]:flex-1">
                   <button
                     type="button"
                     onClick={() => handleFormAccountChange('expense')}
@@ -2063,7 +2084,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                   >
                     💳 Expense
                   </button>
-                  <button
+                  {accountVisibility.cash && <button
                     type="button"
                     onClick={() => handleFormAccountChange('cash')}
                     className={`py-1.5 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
@@ -2073,8 +2094,8 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                     }`}
                   >
                     💵 Cash
-                  </button>
-                  <button
+                  </button>}
+                  {accountVisibility.savings && <button
                     type="button"
                     onClick={() => handleFormAccountChange('savings')}
                     className={`py-1.5 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
@@ -2084,16 +2105,16 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                     }`}
                   >
                     🏦 Savings
-                  </button>
-                  <button type="button" onClick={() => { const next = !isSelfTransfer; setIsSelfTransfer(next); setFormTransactionType(next ? 'transfer' : (formAccount === 'savings' ? 'income' : 'expense')); setFormCategoryError(''); setTransactionSaveError(null); setTransactionUpdateError(null); }} className={`py-1.5 px-1 rounded-lg text-[11px] sm:text-xs font-bold transition-all cursor-pointer ${isSelfTransfer ? 'bg-amber-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'}`}>
+                  </button>}
+                  {(accountVisibility.cash || accountVisibility.savings) && <button type="button" onClick={() => { const next = !isSelfTransfer; setIsSelfTransfer(next); setFormTransactionType(next ? 'transfer' : (formAccount === 'savings' ? 'income' : 'expense')); setFormCategoryError(''); setTransactionSaveError(null); setTransactionUpdateError(null); }} className={`py-1.5 px-1 rounded-lg text-[11px] sm:text-xs font-bold transition-all cursor-pointer ${isSelfTransfer ? 'bg-amber-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'}`}>
                     ↔ Transfer
-                  </button>
+                  </button>}
                 </div>
                 {isSelfTransfer && (
                   <div className="mt-2">
                     <label className="mb-1 block text-xs font-semibold text-slate-800 dark:text-slate-200">To Account</label>
                     <select value={transferToAccount} onChange={event => setTransferToAccount(event.target.value as 'expense' | 'savings' | 'cash')} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-900 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100">
-                      {(['expense', 'cash', 'savings'] as const).filter(account => account !== formAccount).map(account => <option key={account} value={account}>{account === 'expense' ? '💳 Expense' : account === 'cash' ? '💵 Cash' : '🏦 Savings'}</option>)}
+                      {(['expense', 'cash', 'savings'] as const).filter(account => account !== formAccount && (account === 'expense' || accountVisibility[account])).map(account => <option key={account} value={account}>{account === 'expense' ? '💳 Expense' : account === 'cash' ? '💵 Cash' : '🏦 Savings'}</option>)}
                     </select>
                   </div>
                 )}

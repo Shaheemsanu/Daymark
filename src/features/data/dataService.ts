@@ -15,6 +15,8 @@ export type CategorySettings = {
   wellnessGoals?: WellnessGoals;
 };
 
+export type AccountPermissions = { canSelectAccounts: boolean; cash: boolean; savings: boolean };
+
 export type WorkspaceData = {
   expenses: Expense[];
   budget: BudgetConfig;
@@ -176,6 +178,16 @@ function wellnessRow(userId: string, item: DailyWellness) {
 }
 
 export const dataService = {
+  async loadAccountPermissions(userId: string): Promise<AccountPermissions> {
+    const { data, error } = await client().from('account_permissions').select('can_select_accounts,cash_enabled,savings_enabled').eq('user_id', userId).maybeSingle();
+    if (error) throw error;
+    return { canSelectAccounts: data?.can_select_accounts === true, cash: data?.cash_enabled === true, savings: data?.savings_enabled === true };
+  },
+  async saveAccountVisibility(userId: string, visibility: { cash: boolean; savings: boolean }): Promise<AccountPermissions> {
+    const { data, error } = await client().from('account_permissions').update({ cash_enabled: visibility.cash, savings_enabled: visibility.savings }).eq('user_id', userId).select('can_select_accounts,cash_enabled,savings_enabled').single();
+    if (error) throw error;
+    return { canSelectAccounts: data.can_select_accounts === true, cash: data.cash_enabled === true, savings: data.savings_enabled === true };
+  },
   async loadWorkspace(userId: string): Promise<WorkspaceData> {
     const db = client();
     let timeout: ReturnType<typeof setTimeout> | undefined;

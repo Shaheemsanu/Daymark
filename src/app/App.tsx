@@ -26,12 +26,13 @@ import { ReportsPage } from '../features/reports/ReportsPage';
 import { HistoryReportsView } from '../components/HistoryReportsView';
 import { QuickLogModal } from '../components/QuickLogModal';
 import { NotesView } from '../components/NotesView';
-import { CategorySettings, WorkspaceData, dataService } from '../features/data/dataService';
+import { AccountPermissions, CategorySettings, WorkspaceData, dataService } from '../features/data/dataService';
+import { supabase } from '../lib/supabase';
 import { notesService } from '../features/notes/notesService';
 import { createUuid } from '../utils/uuid';
 import { WellnessGoals } from '../types';
 import { CompactDateNavigator } from '../components/CompactDateNavigator';
-import { Account, createBalanceEntry } from '../utils/accounts';
+import { Account, createBalanceEntry, isAccountTransactionVisible } from '../utils/accounts';
 import { isDialogBackPending, useDialogBack } from '../hooks/useDialogBack';
 const GeneralChatScreen = lazy(() => import('../features/ai/GeneralChatScreen'));
 const isNotificationView = (value: unknown): value is NavView => typeof value === 'string' && ['daily', 'expenses', 'habits', 'tasks', 'notes', 'reports', 'history', 'ai'].includes(value);
@@ -124,6 +125,8 @@ export default function App() {
   const [dataError, setDataError] = useState<string | null>(null);
   const [cloudPendingCount, setCloudPendingCount] = useState(0);
   const [savingKeys, setSavingKeys] = useState<Set<string>>(() => new Set());
+  const [accountPermissions, setAccountPermissions] = useState<AccountPermissions>({ canSelectAccounts: false, cash: false, savings: false });
+  const permissionsVersion = useRef(0);
 
   // Quick Log Drawer
   const [isQuickLogOpen, setIsQuickLogOpen] = useState(false);
@@ -190,6 +193,43 @@ export default function App() {
     });
     return () => { cancelled = true; };
   }, [userId]);
+
+  useEffect(() => {
+    setAccountPermissions({ canSelectAccounts: false, cash: false, savings: false });
+    if (!userId) return;
+    let disposed = false;
+    const refresh = async () => {
+      const version = permissionsVersion.current;
+      try {
+        const next = await dataService.loadAccountPermissions(userId);
+        if (!disposed && version === permissionsVersion.current) setAccountPermissions(next);
+      } catch (error) {
+        if (!disposed) setDataError(`Could not load account permissions: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    };
+    void refresh();
+    const channel = supabase?.channel(`account-permissions:${userId}`).on('postgres_changes', { event: '*', schema: 'public', table: 'account_permissions', filter: `user_id=eq.${userId}` }, () => { void refresh(); }).subscribe();
+    const timer = window.setInterval(() => { if (document.visibilityState === 'visible') void refresh(); }, 15000);
+    window.addEventListener('focus', refresh);
+    return () => { disposed = true; window.clearInterval(timer); window.removeEventListener('focus', refresh); if (channel && supabase) void supabase.removeChannel(channel); };
+  }, [userId]);
+
+  const saveAccountVisibility = async (visibility: { cash: boolean; savings: boolean }): Promise<boolean> => {
+    if (!userId || !accountPermissions.canSelectAccounts) return false;
+    permissionsVersion.current++;
+    setCloudPendingCount(count => count + 1);
+    try {
+      const next = await dataService.saveAccountVisibility(userId, visibility);
+      setAccountPermissions(next);
+      return true;
+    } catch (error) {
+      reportSaveError(error);
+      return false;
+    } finally {
+      permissionsVersion.current++;
+      setCloudPendingCount(count => Math.max(0, count - 1));
+    }
+  };
 
   // Refresh from Supabase when returning to the browser tab.
   useEffect(() => {
@@ -486,6 +526,7 @@ export default function App() {
       id: createUuid(),
       createdAt: Date.now()
     };
+    if (!isAccountTransactionVisible(created, accountPermissions)) return 'This account is currently disabled in Settings.';
     if (!user) return 'You must be signed in to save a transaction.';
     setCloudPendingCount(count => count + 1);
     try {
@@ -521,6 +562,7 @@ export default function App() {
     if (!existing) return 'Transaction could not be found.';
     if (!user) return 'You must be signed in to update a transaction.';
     const updated = { ...existing, ...partial };
+    if (!isAccountTransactionVisible(updated, accountPermissions)) return 'This account is currently disabled in Settings.';
     setCloudPendingCount(count => count + 1);
     try {
       await dataService.saveExpense(user.id, updated);
@@ -705,6 +747,7 @@ export default function App() {
           onDeleteTask={handleDeleteTask}
           onUpdateWellness={handleUpdateWellness}
           onQuickLogExpense={openExpenseAddFromOverview}
+          accountVisibility={accountPermissions}
           onViewTransactions={() => { setOpenTransactionHistory(true); navigateTo('expenses'); }}
           onOpenAddHabit={() => { setOpenHabitAddOnMount(true); navigateTo('habits'); }}
           onOpenAddTask={() => { setOpenTaskAddOnMount(true); navigateTo('tasks'); }}
@@ -777,6 +820,7 @@ export default function App() {
           customCategories={categories.expenses}
           onSaveCustomCategories={saveExpenseCategories}
           openAddModal={openExpenseAddOnMount}
+          accountVisibility={accountPermissions}
           openTransactionHistory={openTransactionHistory}
           initialDate={selectedDate}
           onAddModalOpened={() => setOpenExpenseAddOnMount(false)}
@@ -789,7 +833,7 @@ export default function App() {
         <ReportsPage
           habits={habits}
           tasks={tasks}
-          expenses={expenses}
+          expenses={expenses.filter(item => isAccountTransactionVisible(item, accountPermissions))}
           wellness={wellness}
           budget={budget}
         />
@@ -807,6 +851,9 @@ export default function App() {
           onImportJSON={handleImportJSON}
           onResetData={handleResetData}
           onSaveOpeningBalance={handleSaveOpeningBalance}
+          accountVisibility={accountPermissions}
+          canSelectAccounts={accountPermissions.canSelectAccounts}
+          onSaveAccountVisibility={saveAccountVisibility}
           isCloudSyncing={cloudPendingCount > 0}
         />
       )}
@@ -814,6 +861,7 @@ export default function App() {
       {/* Global Quick Log Modal */}
       <QuickLogModal
         isOpen={isQuickLogOpen}
+        accountVisibility={accountPermissions}
         onClose={() => setIsQuickLogOpen(false)}
         onAddExpense={exp => {
           handleAddExpense({

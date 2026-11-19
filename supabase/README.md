@@ -1,5 +1,19 @@
 # Supabase Database Configuration for Daymark
 
+### Optional account permissions
+
+Run `migrations/20261119000001_account_permissions.sql` in the Supabase SQL Editor (or apply it with your migration workflow). It creates one `public.account_permissions` row per user, including users created later. New rows default to `can_select_accounts = false`, `cash_enabled = false`, and `savings_enabled = false`. Run `migrations/20261119000002_disable_optional_accounts_by_default.sql` once to apply the disabled state to existing users as well.
+
+An administrator can change a user's row in the Supabase Table Editor or SQL Editor. For example:
+
+```sql
+UPDATE public.account_permissions
+SET can_select_accounts = true, cash_enabled = true, savings_enabled = false
+WHERE user_id = '<user UUID>';
+```
+
+When `can_select_accounts` is true, the user can change the two account switches in Settings. When false, the switches are hidden and the administrator's `cash_enabled` and `savings_enabled` values determine what the app shows. Authenticated users can read only their own row and cannot change `can_select_accounts`; they may update the two enabled flags only while selection is allowed. Disabling an account hides its controls and transactions in supported views without deleting data. These flags control app features and are not transaction-data access policies.
+
 This directory contains the database schema and initialization instructions for **Daymark — Daily Todo & Habit Tracker**.
 
 ---

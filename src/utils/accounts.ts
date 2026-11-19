@@ -1,6 +1,17 @@
 import { Expense } from '../types';
 
 export type Account = NonNullable<Expense['account']>;
+export type AccountVisibility = { cash: boolean; savings: boolean };
+
+export function isAccountTransactionVisible(expense: Expense, visibility: AccountVisibility): boolean {
+  const enabled = (account: Account) => account === 'expense' || visibility[account];
+  const transfer = expense.isTransfer || expense.category.toLowerCase().includes('transfer');
+  const source = expense.account || (transfer ? 'savings' : 'expense');
+  if (!enabled(source)) return false;
+  if (!transfer) return true;
+  const target = expense.transferToAccount || (/transfer to (expense|cash|savings)/i.exec(expense.category)?.[1]?.toLowerCase() as Account | undefined) || 'expense';
+  return enabled(target);
+}
 
 function balanceCalculation(current: number, target: number): string {
   const difference = Math.round(target * 100) - Math.round(current * 100);

@@ -17,6 +17,7 @@ interface QuickLogModalProps {
   currencySymbol: string;
   initialTab?: 'expense' | 'task' | 'habit';
   customCategories?: Record<string, CategoryInfo>;
+  accountVisibility?: { cash: boolean; savings: boolean };
 }
 
 const PAYMENT_METHODS: PaymentMethod[] = [
@@ -53,7 +54,8 @@ export const QuickLogModal: React.FC<QuickLogModalProps> = ({
   selectedDate,
   currencySymbol,
   initialTab = 'expense',
-  customCategories = {}
+  customCategories = {},
+  accountVisibility = { cash: true, savings: true }
 }) => {
   const [activeTab, setActiveTab] = useState<'expense' | 'task' | 'habit'>(initialTab);
 
@@ -74,8 +76,17 @@ export const QuickLogModal: React.FC<QuickLogModalProps> = ({
   const [showAllCategories, setShowAllCategories] = useState(false);
 
   React.useEffect(() => {
+    if ((expAccount === 'cash' && !accountVisibility.cash) || (expAccount === 'savings' && !accountVisibility.savings)) {
+      setExpAccount('expense');
+      setExpType('expense');
+    }
+  }, [expAccount, accountVisibility.cash, accountVisibility.savings]);
+
+  React.useEffect(() => {
     if (isOpen) {
       setExpDate(selectedDate);
+      setExpAccount('expense');
+      setExpType('expense');
       setExpCategory(''); // Start with unselected category on open
       setShowAllCategories(false);
     }
@@ -230,7 +241,7 @@ export const QuickLogModal: React.FC<QuickLogModalProps> = ({
                 <span>Account</span>
                 <span className="text-[10px] text-slate-400 font-mono">Select target account</span>
               </label>
-               <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
+               <div className="flex gap-1.5 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl [&>button]:flex-1">
                 <button
                   type="button"
                   onClick={() => handleAccountChange('expense')}
@@ -242,7 +253,7 @@ export const QuickLogModal: React.FC<QuickLogModalProps> = ({
                 >
                   <span>💳 Expense</span>
                 </button>
-                <button
+                {accountVisibility.cash && <button
                   type="button"
                   onClick={() => handleAccountChange('cash')}
                   className={`py-1.5 px-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1 transition-all cursor-pointer ${
@@ -252,8 +263,8 @@ export const QuickLogModal: React.FC<QuickLogModalProps> = ({
                   }`}
                 >
                   <span>💵 Cash</span>
-                </button>
-                <button
+                </button>}
+                {accountVisibility.savings && <button
                   type="button"
                   onClick={() => handleAccountChange('savings')}
                   className={`py-1.5 px-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1 transition-all cursor-pointer ${
@@ -263,7 +274,7 @@ export const QuickLogModal: React.FC<QuickLogModalProps> = ({
                   }`}
                 >
                   <span>🏦 Savings</span>
-                </button>
+                </button>}
               </div>
             </div>
 

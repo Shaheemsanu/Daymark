@@ -9,6 +9,7 @@ interface OpeningBalancesProps {
   currency: string;
   disabled: boolean;
   onSave: (account: Account, amount: number) => Promise<boolean | string>;
+  accountVisibility?: { cash: boolean; savings: boolean };
 }
 
 const accounts = [
@@ -17,7 +18,7 @@ const accounts = [
   { id: 'savings', label: 'Savings Account', description: 'Money set aside', icon: PiggyBank, accent: 'bg-violet-50 text-violet-600 dark:bg-violet-500/10 dark:text-violet-400' },
 ] as const;
 
-export function OpeningBalances({ expenses, currency, disabled, onSave }: OpeningBalancesProps) {
+export function OpeningBalances({ expenses, currency, disabled, onSave, accountVisibility = { cash: true, savings: true } }: OpeningBalancesProps) {
   const [amounts, setAmounts] = useState<Partial<Record<Account, string>>>({});
   const [saving, setSaving] = useState<Account | null>(null);
   const savingRef = useRef(false);
@@ -37,7 +38,7 @@ export function OpeningBalances({ expenses, currency, disabled, onSave }: Openin
         </div>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-2 p-3 sm:gap-3 sm:p-4">
-        {accounts.map(account => {
+        {accounts.filter(account => account.id === 'expense' || accountVisibility[account.id]).map(account => {
           const alreadyActive = hasAccountTransactions(expenses, account.id);
           const isEditing = editingAccount === account.id;
           const locked = alreadyActive && !isEditing;

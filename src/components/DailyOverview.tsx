@@ -22,7 +22,7 @@ import { Habit, DailyTask, DailyWellness, Expense, MoodType, BudgetConfig, Welln
 import { normalizeWellnessGoals } from '../utils/wellnessGoals';
 import { orderTasks } from '../utils/taskOrder';
 import { orderHabits } from '../utils/habitOrder';
-import { getAccountBalance } from '../utils/accounts';
+import { getAccountBalance, isAccountTransactionVisible } from '../utils/accounts';
 import { formatCurrency, formatDate, CATEGORIES } from '../utils/constants';
 import { WellnessNotes } from './WellnessNotes';
 
@@ -42,6 +42,7 @@ interface DailyOverviewProps {
   onDeleteTask: (taskId: string) => void;
   onUpdateWellness: (date: string, data: Partial<DailyWellness>) => void;
   onQuickLogExpense: () => void;
+  accountVisibility?: { cash: boolean; savings: boolean };
   onViewTransactions?: () => void;
   onOpenAddHabit: () => void;
   wellnessGoals?: WellnessGoals;
@@ -101,6 +102,7 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
   onOpenAddTask,
   onUpdateWellness,
   onQuickLogExpense,
+  accountVisibility = { cash: true, savings: true },
   onViewTransactions,
   onOpenAddHabit,
   wellnessGoals,
@@ -118,9 +120,9 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
 
   const todayIso = formatDate(new Date());
   const isToday = selectedDate === todayIso;
-  const accountBalances = (['expense', 'cash', 'savings'] as const).map(account => ({ account, balance: getAccountBalance(expenses, account, todayIso) }));
+  const accountBalances = (['expense', 'cash', 'savings'] as const).filter(account => account === 'expense' || accountVisibility[account]).map(account => ({ account, balance: getAccountBalance(expenses, account, todayIso) }));
   const positiveAccountTotal = accountBalances.reduce((sum, { balance }) => sum + Math.max(0, balance), 0);
-  const latestTransactions = expenses.filter(item => item.date <= todayIso).sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt).slice(0, 3);
+  const latestTransactions = expenses.filter(item => item.date <= todayIso && isAccountTransactionVisible(item, accountVisibility)).sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt).slice(0, 3);
   const negativeAccountCount = accountBalances.filter(({ balance }) => balance < 0).length;
 
   const availableTaskCategories = React.useMemo(() => {
@@ -162,7 +164,7 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
   };
 
   // Day's specific records
-  const dayExpenses = expenses.filter(e => e.date === selectedDate);
+  const dayExpenses = expenses.filter(e => e.date === selectedDate && isAccountTransactionVisible(e, accountVisibility));
   const isTransferEntry = (expense: Expense) => expense.isTransfer || expense.category.toLowerCase().includes('transfer');
   const dayOutflow = dayExpenses.filter(e => !isTransferEntry(e) && (e.type || 'expense') === 'expense').reduce((sum, e) => sum + e.amount, 0);
   const dayInflow = dayExpenses.filter(e => !isTransferEntry(e) && e.type === 'income').reduce((sum, e) => sum + e.amount, 0);
@@ -278,7 +280,7 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
             );
             const habitsDoneForDay = habitsForDay.filter(habit => habit.completedDates.includes(item.iso)).length;
             const tasksDoneForDay = tasks.filter(t => t.date === item.iso && t.completed).length;
-            const spendForDay = expenses.filter(e => e.date === item.iso).reduce((sum, e) => sum + e.amount, 0);
+            const spendForDay = expenses.filter(e => e.date === item.iso && isAccountTransactionVisible(e, accountVisibility)).reduce((sum, e) => sum + e.amount, 0);
 
             return (
               <button
@@ -387,9 +389,9 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
         <div className="grid min-w-0 row-span-5 grid-rows-subgrid gap-y-2 px-4 pt-3 pb-1 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs hover:border-slate-300 dark:hover:border-slate-700 transition-colors">
           <div className="min-w-0">
             <span className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-200"><Wallet className="h-3.5 w-3.5 text-blue-500" />Account balances</span>
-            <div className="mt-2 grid grid-cols-3 gap-1.5">
+            <div className="mt-2 flex gap-1.5">
               {accountBalances.map(({ account, balance }) => (
-                <div key={account} className="min-w-0 rounded-lg bg-slate-50 px-2 py-1.5 dark:bg-slate-800/60">
+                <div key={account} className="min-w-0 flex-1 rounded-lg bg-slate-50 px-2 py-1.5 dark:bg-slate-800/60">
                   <span className="flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400"><span aria-hidden="true" className={`h-1.5 w-1.5 shrink-0 rounded-full ${account === 'expense' ? 'bg-blue-500' : account === 'cash' ? 'bg-amber-500' : 'bg-emerald-500'}`} />{account === 'cash' ? 'Cash' : account === 'savings' ? 'Savings' : 'Expense'}</span>
                   <span className={`mt-1 block break-words text-xs font-semibold tabular-nums ${balance < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-800 dark:text-slate-100'}`}>{formatCurrency(balance, budget.currency)}</span>
                 </div>

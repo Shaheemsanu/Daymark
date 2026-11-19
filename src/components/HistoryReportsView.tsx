@@ -16,6 +16,9 @@ interface HistoryReportsViewProps {
   onResetData: () => void;
   isCloudSyncing: boolean;
   onSaveOpeningBalance: (account: Account, amount: number) => Promise<boolean | string>;
+  accountVisibility?: { cash: boolean; savings: boolean };
+  canSelectAccounts?: boolean;
+  onSaveAccountVisibility?: (visibility: { cash: boolean; savings: boolean }) => Promise<boolean>;
 }
 
 export const HistoryReportsView: React.FC<HistoryReportsViewProps> = ({
@@ -28,7 +31,10 @@ export const HistoryReportsView: React.FC<HistoryReportsViewProps> = ({
   onImportJSON,
   onResetData,
   isCloudSyncing,
-  onSaveOpeningBalance
+  onSaveOpeningBalance,
+  accountVisibility = { cash: true, savings: true },
+  canSelectAccounts = false,
+  onSaveAccountVisibility
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
@@ -78,7 +84,20 @@ export const HistoryReportsView: React.FC<HistoryReportsViewProps> = ({
         </div>
       </div>
 
-      <OpeningBalances expenses={expenses} currency={budget.currency} disabled={isCloudSyncing} onSave={onSaveOpeningBalance} />
+      {canSelectAccounts && <section className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+        <h3 className="text-base font-semibold">Optional accounts</h3>
+        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Choose which accounts to show. Existing transactions are preserved.</p>
+        <div className="mt-4 grid gap-2 sm:grid-cols-2">
+          {(['cash', 'savings'] as const).map(account => <div key={account} className="flex min-w-0 items-center justify-between gap-4 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 dark:border-slate-700/70 dark:bg-slate-800/40">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">{account === 'cash' ? 'Cash in Hand' : 'Savings Account'}</p>
+              <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{accountVisibility[account] ? 'Visible in your workspace' : 'Hidden from your workspace'}</p>
+            </div>
+            <button type="button" role="switch" aria-label={account === 'cash' ? 'Cash in Hand' : 'Savings Account'} aria-checked={accountVisibility[account]} disabled={isCloudSyncing || !onSaveAccountVisibility} onClick={() => { void onSaveAccountVisibility?.({ ...accountVisibility, [account]: !accountVisibility[account] }); }} className={`inline-flex h-7 w-12 shrink-0 items-center overflow-hidden rounded-full border-0 p-1 cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 disabled:cursor-wait disabled:opacity-50 ${accountVisibility[account] ? 'justify-end bg-blue-600' : 'justify-start bg-slate-300 dark:bg-slate-600'}`}><span aria-hidden="true" className="block h-5 w-5 shrink-0 rounded-full bg-white shadow-sm" /></button>
+          </div>)}
+        </div>
+      </section>}
+      <OpeningBalances expenses={expenses} currency={budget.currency} disabled={isCloudSyncing} onSave={onSaveOpeningBalance} accountVisibility={accountVisibility} />
 
       {/* Aggregate Stats Strip */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
