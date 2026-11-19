@@ -47,13 +47,6 @@ export default function App() {
     if (view) { url.searchParams.delete('notificationView'); window.history.replaceState(window.history.state, '', url.href); }
     return isNotificationView(view) ? view : 'daily';
   });
-  useEffect(() => {
-    const onMessage = (event: MessageEvent) => {
-      if (event.data?.type === 'daymark-notification-navigation' && isNotificationView(event.data.view)) setCurrentView(event.data.view);
-    };
-    navigator.serviceWorker?.addEventListener('message', onMessage);
-    return () => navigator.serviceWorker?.removeEventListener('message', onMessage);
-  }, []);
   const [hasOpenedChat, setHasOpenedChat] = useState(false);
   useEffect(() => { if (currentView === 'ai') setHasOpenedChat(true); }, [currentView]);
   const [selectedDate, setSelectedDate] = useState<string>(formatDate(new Date()));
@@ -61,6 +54,45 @@ export default function App() {
   const [openTaskAddOnMount, setOpenTaskAddOnMount] = useState(false);
   const [openHabitAddOnMount, setOpenHabitAddOnMount] = useState(false);
   const [returnToDailyAfterExpenseAdd, setReturnToDailyAfterExpenseAdd] = useState(false);
+
+  const navigateTo = (view: NavView) => {
+    const currentHistoryView = window.history.state?.daymarkView;
+    if (view === 'daily') {
+      if (isNotificationView(currentHistoryView) && currentHistoryView !== 'daily') window.history.back();
+    } else if (isNotificationView(currentHistoryView) && currentHistoryView !== 'daily') {
+      window.history.replaceState({ ...window.history.state, daymarkView: view }, '');
+    } else {
+      window.history.pushState({ ...window.history.state, daymarkView: view }, '');
+    }
+    if (view !== 'habits') setOpenHabitAddOnMount(false);
+    setCurrentView(view);
+  };
+
+  useEffect(() => {
+    const onBack = (event: PopStateEvent) => {
+      setOpenHabitAddOnMount(false);
+      setOpenTaskAddOnMount(false);
+      setOpenExpenseAddOnMount(false);
+      setReturnToDailyAfterExpenseAdd(false);
+      setCurrentView(isNotificationView(event.state?.daymarkView) ? event.state.daymarkView : 'daily');
+    };
+    window.addEventListener('popstate', onBack);
+    return () => window.removeEventListener('popstate', onBack);
+  }, []);
+
+  useEffect(() => {
+    if (currentView !== 'daily' && !isNotificationView(window.history.state?.daymarkView)) {
+      window.history.pushState({ ...window.history.state, daymarkView: currentView }, '');
+    }
+  }, [currentView]);
+
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'daymark-notification-navigation' && isNotificationView(event.data.view)) navigateTo(event.data.view);
+    };
+    navigator.serviceWorker?.addEventListener('message', onMessage);
+    return () => navigator.serviceWorker?.removeEventListener('message', onMessage);
+  }, []);
 
   // Dark mode
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
@@ -611,13 +643,13 @@ export default function App() {
   const openExpenseAddFromOverview = () => {
     setOpenExpenseAddOnMount(true);
     setReturnToDailyAfterExpenseAdd(true);
-    setCurrentView('expenses');
+    navigateTo('expenses');
   };
 
   const handleExpenseAddModalDismiss = () => {
     if (!returnToDailyAfterExpenseAdd) return;
     setReturnToDailyAfterExpenseAdd(false);
-    setCurrentView('daily');
+    navigateTo('daily');
   };
 
   if (authLoading) {
@@ -635,7 +667,7 @@ export default function App() {
   return (
     <Layout
       currentView={currentView}
-      onSelectView={view => { if (view !== 'habits') setOpenHabitAddOnMount(false); setCurrentView(view); }}
+      onSelectView={navigateTo}
       user={user}
       onSignOut={handleSignOut}
       isDarkMode={isDarkMode}
@@ -667,8 +699,8 @@ export default function App() {
           onDeleteTask={handleDeleteTask}
           onUpdateWellness={handleUpdateWellness}
           onQuickLogExpense={openExpenseAddFromOverview}
-          onOpenAddHabit={() => { setOpenHabitAddOnMount(true); setCurrentView('habits'); }}
-          onOpenAddTask={() => { setOpenTaskAddOnMount(true); setCurrentView('tasks'); }}
+          onOpenAddHabit={() => { setOpenHabitAddOnMount(true); navigateTo('habits'); }}
+          onOpenAddTask={() => { setOpenTaskAddOnMount(true); navigateTo('tasks'); }}
           taskOrder={categories.taskOrder}
           habitOrder={categories.habitOrder}
           wellnessGoals={categories.wellnessGoals}
