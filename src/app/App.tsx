@@ -52,6 +52,7 @@ export default function App() {
   useEffect(() => { if (currentView === 'ai') setHasOpenedChat(true); }, [currentView]);
   const [selectedDate, setSelectedDate] = useState<string>(formatDate(new Date()));
   const [openExpenseAddOnMount, setOpenExpenseAddOnMount] = useState(false);
+  const [openTransactionHistory, setOpenTransactionHistory] = useState(false);
   const [openTaskAddOnMount, setOpenTaskAddOnMount] = useState(false);
   const [openHabitAddOnMount, setOpenHabitAddOnMount] = useState(false);
   const [returnToDailyAfterExpenseAdd, setReturnToDailyAfterExpenseAdd] = useState(false);
@@ -66,6 +67,7 @@ export default function App() {
       window.history.pushState({ ...window.history.state, daymarkView: view }, '');
     }
     if (view !== 'habits') setOpenHabitAddOnMount(false);
+    if (view !== 'expenses') setOpenTransactionHistory(false);
     setCurrentView(view);
   };
 
@@ -75,6 +77,7 @@ export default function App() {
       setOpenHabitAddOnMount(false);
       setOpenTaskAddOnMount(false);
       setOpenExpenseAddOnMount(false);
+      setOpenTransactionHistory(false);
       setReturnToDailyAfterExpenseAdd(false);
       setCurrentView(isNotificationView(event.state?.daymarkView) ? event.state.daymarkView : 'daily');
     };
@@ -702,6 +705,7 @@ export default function App() {
           onDeleteTask={handleDeleteTask}
           onUpdateWellness={handleUpdateWellness}
           onQuickLogExpense={openExpenseAddFromOverview}
+          onViewTransactions={() => { setOpenTransactionHistory(true); navigateTo('expenses'); }}
           onOpenAddHabit={() => { setOpenHabitAddOnMount(true); navigateTo('habits'); }}
           onOpenAddTask={() => { setOpenTaskAddOnMount(true); navigateTo('tasks'); }}
           taskOrder={categories.taskOrder}
@@ -773,6 +777,7 @@ export default function App() {
           customCategories={categories.expenses}
           onSaveCustomCategories={saveExpenseCategories}
           openAddModal={openExpenseAddOnMount}
+          openTransactionHistory={openTransactionHistory}
           initialDate={selectedDate}
           onAddModalOpened={() => setOpenExpenseAddOnMount(false)}
           onQuickAddDismiss={handleExpenseAddModalDismiss}

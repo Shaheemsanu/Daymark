@@ -42,6 +42,7 @@ interface DailyOverviewProps {
   onDeleteTask: (taskId: string) => void;
   onUpdateWellness: (date: string, data: Partial<DailyWellness>) => void;
   onQuickLogExpense: () => void;
+  onViewTransactions?: () => void;
   onOpenAddHabit: () => void;
   wellnessGoals?: WellnessGoals;
   taskOrder?: string[];
@@ -100,6 +101,7 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
   onOpenAddTask,
   onUpdateWellness,
   onQuickLogExpense,
+  onViewTransactions,
   onOpenAddHabit,
   wellnessGoals,
   taskOrder,
@@ -117,9 +119,8 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
   const todayIso = formatDate(new Date());
   const isToday = selectedDate === todayIso;
   const accountBalances = (['expense', 'cash', 'savings'] as const).map(account => ({ account, balance: getAccountBalance(expenses, account, todayIso) }));
-  const totalAccountBalance = accountBalances.reduce((total, item) => total + item.balance, 0);
-  const latestTransaction = expenses.filter(item => item.date <= todayIso).reduce<Expense | undefined>((latest, item) =>
-    !latest || item.date > latest.date || (item.date === latest.date && item.createdAt > latest.createdAt) ? item : latest, undefined);
+  const positiveAccountTotal = accountBalances.reduce((sum, { balance }) => sum + Math.max(0, balance), 0);
+  const latestTransactions = expenses.filter(item => item.date <= todayIso).sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt).slice(0, 3);
   const negativeAccountCount = accountBalances.filter(({ balance }) => balance < 0).length;
 
   const availableTaskCategories = React.useMemo(() => {
@@ -331,7 +332,7 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
       {/* Snapshot Cards - Expense First */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         {/* 1. Today's Finance & Accounts Snapshot (EXPENSE FIRST) */}
-        <div className="grid min-w-0 row-span-5 grid-rows-subgrid gap-y-2 px-4 py-3 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs hover:border-slate-300 dark:hover:border-slate-700 transition-colors">
+        <div className="grid min-w-0 row-span-5 grid-rows-subgrid gap-y-2 px-4 pt-3 pb-1 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs hover:border-slate-300 dark:hover:border-slate-700 transition-colors">
           <div className="min-w-0">
             <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 mb-1">
               <span className="font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-2">
@@ -370,11 +371,11 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
               <strong className={`break-words text-lg font-semibold tabular-nums ${dailyTargetBalance < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>{formatCurrency(Math.abs(dailyTargetBalance), budget.currency)}</strong>
             </div>
             <p className="text-[10px] text-slate-500 dark:text-slate-400">{Math.round(dayOutflow / Math.max(1, budget.dailyBudget || budget.monthlyBudget / 30) * 100)}% of daily target used</p>
-            <div className="flex min-h-8 flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-2 dark:border-slate-800/80 text-xs text-slate-500">
+            <div className="flex min-h-6 flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-1 dark:border-slate-800/80 text-xs text-slate-500">
               <span className="text-[10px]">Target {formatCurrency(budget.dailyBudget || budget.monthlyBudget / 30, budget.currency)}</span>
               <button
                 onClick={onQuickLogExpense}
-                className="inline-flex min-h-8 items-center rounded-md text-[11px] font-semibold text-blue-600 transition-colors hover:text-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:text-blue-400 dark:hover:text-blue-300"
+                className="inline-flex min-h-6 items-center rounded-md text-[11px] font-semibold text-blue-600 transition-colors hover:text-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:text-blue-400 dark:hover:text-blue-300"
               >
                 + Log Finance
               </button>
@@ -383,34 +384,48 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
         </div>
 
         {/* Current account balances */}
-        <div className="grid min-w-0 row-span-5 grid-rows-subgrid gap-y-2 px-4 py-3 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs hover:border-slate-300 dark:hover:border-slate-700 transition-colors">
+        <div className="grid min-w-0 row-span-5 grid-rows-subgrid gap-y-2 px-4 pt-3 pb-1 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs hover:border-slate-300 dark:hover:border-slate-700 transition-colors">
           <div className="min-w-0">
-            <span className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-200"><Wallet className="h-3.5 w-3.5 text-blue-500" />Total Balance</span>
-            <div className="mt-2 flex min-w-0 items-center gap-2.5">
-              <span aria-hidden="true" className={`h-8 w-1 shrink-0 rounded-full ${totalAccountBalance < 0 ? 'bg-rose-500' : 'bg-blue-500'}`} />
-              <span className={`min-w-0 break-words text-3xl font-bold leading-none tracking-tight tabular-nums ${totalAccountBalance < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-white'}`}>{formatCurrency(totalAccountBalance, budget.currency)}</span>
-            </div>
-            <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">Across all accounts as of today</p>
-          </div>
-          <div className="h-1.5 rounded-full bg-slate-100 dark:bg-slate-800" />
-          <div className="flex min-w-0 row-span-3 flex-col gap-2">
-            {accountBalances.map(({ account, balance }) => <div key={account} className="flex min-w-0 items-center justify-between gap-2 text-[11px]"><span className="inline-flex min-w-0 items-center gap-2 text-slate-600 dark:text-slate-300"><span aria-hidden="true" className={`h-1.5 w-1.5 shrink-0 rounded-full ${account === 'expense' ? 'bg-blue-500' : account === 'cash' ? 'bg-amber-500' : 'bg-emerald-500'}`} />{account === 'cash' ? 'Cash in hand' : account === 'savings' ? 'Savings account' : 'Expense account'}</span><span className={`break-all text-right font-semibold tabular-nums ${balance < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-800 dark:text-slate-100'}`}>{formatCurrency(balance, budget.currency)}</span></div>)}
-            <div className="mt-auto border-t border-slate-100 pt-2 text-[10px] dark:border-slate-800/80">
-              {latestTransaction ? (
-                <div className="flex min-w-0 items-center justify-between gap-2">
-                  <span className="min-w-0 truncate text-slate-500 dark:text-slate-400" title={latestTransaction.title}>Latest · {latestTransaction.title}</span>
-                  <span className={`shrink-0 font-semibold tabular-nums ${latestTransaction.isTransfer || latestTransaction.category.toLowerCase().includes('transfer') ? 'text-slate-600 dark:text-slate-300' : latestTransaction.type === 'income' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
-                    {latestTransaction.isTransfer || latestTransaction.category.toLowerCase().includes('transfer') ? '' : latestTransaction.type === 'income' ? '+' : '−'}{formatCurrency(latestTransaction.amount, budget.currency)}
-                  </span>
+            <span className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-200"><Wallet className="h-3.5 w-3.5 text-blue-500" />Account balances</span>
+            <div className="mt-2 grid grid-cols-3 gap-1.5">
+              {accountBalances.map(({ account, balance }) => (
+                <div key={account} className="min-w-0 rounded-lg bg-slate-50 px-2 py-1.5 dark:bg-slate-800/60">
+                  <span className="flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400"><span aria-hidden="true" className={`h-1.5 w-1.5 shrink-0 rounded-full ${account === 'expense' ? 'bg-blue-500' : account === 'cash' ? 'bg-amber-500' : 'bg-emerald-500'}`} />{account === 'cash' ? 'Cash' : account === 'savings' ? 'Savings' : 'Expense'}</span>
+                  <span className={`mt-1 block break-words text-xs font-semibold tabular-nums ${balance < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-800 dark:text-slate-100'}`}>{formatCurrency(balance, budget.currency)}</span>
                 </div>
-              ) : <span className="text-slate-500 dark:text-slate-400">No transactions yet</span>}
+              ))}
+            </div>
+          </div>
+          <div
+            role="img"
+            aria-label={positiveAccountTotal > 0 ? `Share of positive account balances: ${accountBalances.map(({ account, balance }) => `${account} ${Math.round(Math.max(0, balance) / positiveAccountTotal * 100)}%`).join(', ')}${negativeAccountCount ? '. Negative balances are excluded.' : ''}` : 'No positive account balances to display'}
+            title={positiveAccountTotal > 0 ? 'Share of positive account balances' : 'No positive account balances'}
+            className="flex h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800"
+          >
+            {positiveAccountTotal > 0 && accountBalances.map(({ account, balance }) => (
+              <span key={account} className={`h-full transition-all ${account === 'expense' ? 'bg-blue-500' : account === 'cash' ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${Math.max(0, balance) / positiveAccountTotal * 100}%` }} />
+            ))}
+          </div>
+          <div className="grid min-w-0 row-span-3 grid-rows-subgrid gap-y-1">
+            <div className="row-span-2 flex min-w-0 flex-col justify-around gap-0.5">
+            {latestTransactions.length ? latestTransactions.map(transaction => (
+              <div key={transaction.id} className="flex min-w-0 items-center justify-between gap-2 text-[10px] leading-3">
+                <span className="min-w-0 truncate text-slate-500 dark:text-slate-400" title={transaction.title}>{transaction.title}</span>
+                <span className={`shrink-0 font-semibold tabular-nums ${transaction.isTransfer || transaction.category.toLowerCase().includes('transfer') ? 'text-slate-600 dark:text-slate-300' : transaction.type === 'income' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                  {transaction.isTransfer || transaction.category.toLowerCase().includes('transfer') ? '' : transaction.type === 'income' ? '+' : '−'}{formatCurrency(transaction.amount, budget.currency)}
+                </span>
+              </div>
+            )) : <span className="text-[10px] text-slate-500 dark:text-slate-400">No transactions yet</span>}
+            </div>
+            <div className="flex min-h-6 flex-col justify-center border-t border-slate-100 pt-1 text-[10px] dark:border-slate-800/80">
+              <button type="button" onClick={onViewTransactions} className="self-start font-semibold text-blue-600 hover:text-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:text-blue-400 dark:hover:text-blue-300">View all transactions →</button>
               {negativeAccountCount > 0 && <p className="mt-1 font-medium text-rose-600 dark:text-rose-400">{negativeAccountCount} {negativeAccountCount === 1 ? 'account is' : 'accounts are'} negative</p>}
             </div>
           </div>
         </div>
 
         {/* 2. Habit Completion */}
-        <div className="grid min-w-0 row-span-5 grid-rows-subgrid gap-y-2 px-4 py-3 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs hover:border-slate-300 dark:hover:border-slate-700 transition-colors">
+        <div className="grid min-w-0 row-span-5 grid-rows-subgrid gap-y-2 px-4 pt-3 pb-1 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs hover:border-slate-300 dark:hover:border-slate-700 transition-colors">
           <div className="min-w-0">
             <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 mb-1">
               <span className="flex items-center gap-2 font-semibold text-slate-700 dark:text-slate-200"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />Habits Consistency</span>
@@ -437,14 +452,14 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
               {nextHabit && <div className="mt-0.5 flex min-w-0 items-start gap-2"><span aria-hidden="true" className="mt-1.5 h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: nextHabit.color }} /><p className="min-w-0 line-clamp-2 break-words text-sm font-semibold leading-snug text-slate-800 dark:text-slate-100">{nextHabit.title}</p></div>}
             </div>
             <div className="min-w-0">{nextHabit?.category && <dl className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 text-[10px]"><dt className="text-slate-400 dark:text-slate-500">Category</dt><dd className="break-words font-medium text-slate-600 dark:text-slate-300">{nextHabit.category}</dd></dl>}</div>
-            <div className="flex min-h-8 flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-2 dark:border-slate-800/80 text-[10px] text-slate-500 dark:text-slate-400">
+            <div className="flex min-h-6 flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-1 dark:border-slate-800/80 text-[10px] text-slate-500 dark:text-slate-400">
               <span>{habitsForSelectedDay.length - completedHabitsCount} remaining</span>
             </div>
           </div>
         </div>
 
         {/* 3. Priority Tasks */}
-        <div className="grid min-w-0 row-span-5 grid-rows-subgrid gap-y-2 px-4 py-3 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs hover:border-slate-300 dark:hover:border-slate-700 transition-colors">
+        <div className="grid min-w-0 row-span-5 grid-rows-subgrid gap-y-2 px-4 pt-3 pb-1 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs hover:border-slate-300 dark:hover:border-slate-700 transition-colors">
           <div className="min-w-0">
             <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 mb-1">
               <span className="flex items-center gap-2 font-semibold text-slate-700 dark:text-slate-200"><ListTodo className="h-3.5 w-3.5 text-sky-500" />Tasks Throughput</span>
@@ -474,7 +489,7 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
               <div className="flex items-baseline gap-1.5"><dt className="text-slate-400 dark:text-slate-500">Priority</dt><dd className={`font-semibold capitalize ${nextTask.priority === 'high' ? 'text-rose-500' : nextTask.priority === 'medium' ? 'text-amber-500' : 'text-slate-400'}`}>{nextTask.priority}</dd></div>
               {nextTask.timeEstimateMin != null && nextTask.timeEstimateMin > 0 && <div className="flex items-baseline gap-1.5"><dt className="text-slate-400 dark:text-slate-500">Time</dt><dd className="font-medium tabular-nums text-slate-600 dark:text-slate-300">{nextTask.timeEstimateMin} min</dd></div>}
             </dl>}</div>
-            <div className="flex min-h-8 flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-2 dark:border-slate-800/80 text-[10px] text-slate-500 dark:text-slate-400">
+            <div className="flex min-h-6 flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-1 dark:border-slate-800/80 text-[10px] text-slate-500 dark:text-slate-400">
               <span>{dayTasks.length - completedTasksCount} pending</span>
               <span className="text-[10px] text-slate-400">{dayTasks.filter(t => t.priority === 'high' && !t.completed).length} high priority</span>
             </div>

@@ -52,6 +52,7 @@ interface ExpenseDashboardProps {
   customCategories: Record<string, CategoryInfo>;
   onSaveCustomCategories: (categories: Record<string, CategoryInfo>) => void | Promise<boolean>;
   openAddModal?: boolean;
+  openTransactionHistory?: boolean;
   initialDate?: string;
   onAddModalOpened?: () => void;
   onQuickAddDismiss?: () => void;
@@ -111,6 +112,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
   customCategories,
   onSaveCustomCategories,
   openAddModal = false,
+  openTransactionHistory = false,
   initialDate,
   onAddModalOpened,
   onQuickAddDismiss,
@@ -233,11 +235,16 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
   const [desktopHistoryPage, setDesktopHistoryPage] = useState(1);
 
   useEffect(() => {
+    if (openTransactionHistory) {
+      setHistoryTimeframe('all');
+      const frame = requestAnimationFrame(() => document.getElementById('transaction-ledger-section')?.scrollIntoView({ block: 'start' }));
+      return () => cancelAnimationFrame(frame);
+    }
     if (!initialDate) return;
     setHistoryTimeframe('custom');
     setHistoryStartDate(initialDate);
     setHistoryEndDate(initialDate);
-  }, [initialDate]);
+  }, [initialDate, openTransactionHistory]);
 
   const resetHistoryFilters = () => {
     setHistorySearch('');
