@@ -50,10 +50,10 @@ export function createExcelWorkbook(tables: ExportTable[]) {
     { name: '_rels/.rels', text: `${xml}<Relationships xmlns="${packageRelationships}"><Relationship Id="rId1" Type="${relationships}/officeDocument" Target="xl/workbook.xml"/></Relationships>` },
     { name: 'xl/workbook.xml', text: `${xml}<workbook xmlns="${main}" xmlns:r="${relationships}"><sheets>${tables.map((table, index) => `<sheet name="${escapeExportXML(table.name)}" sheetId="${index + 1}" r:id="rId${index + 1}"/>`).join('')}</sheets></workbook>` },
     { name: 'xl/_rels/workbook.xml.rels', text: `${xml}<Relationships xmlns="${packageRelationships}">${tables.map((_, index) => `<Relationship Id="rId${index + 1}" Type="${relationships}/worksheet" Target="worksheets/sheet${index + 1}.xml"/>`).join('')}</Relationships>` },
-    ...tables.map((table, index) => ({ name: `xl/worksheets/sheet${index + 1}.xml`, text: `${xml}<worksheet xmlns="${main}"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols>${(table.rows[0] || []).map((_, col) => `<col min="${col + 1}" max="${col + 1}" width="${col === 0 ? 28 : 22}" customWidth="1"/>`).join('')}</cols><sheetData>${table.rows.map((row, rowIndex) => `<row r="${rowIndex + 1}">${row.map((value, col) => {
+    ...tables.map((table, index) => ({ name: `xl/worksheets/sheet${index + 1}.xml`, text: `${xml}<worksheet xmlns="${main}"><sheetPr><pageSetUpPr fitToPage="1"/></sheetPr><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols>${(table.rows[0] || []).map((_, col) => `<col min="${col + 1}" max="${col + 1}" width="${col === 0 ? 28 : 22}" customWidth="1"/>`).join('')}</cols><sheetData>${table.rows.map((row, rowIndex) => `<row r="${rowIndex + 1}">${row.map((value, col) => {
       const ref = `${column(col)}${rowIndex + 1}`;
       // Inline strings stay text, including user content starting with =, +, or @.
       return typeof value === 'number' && Number.isFinite(value) ? `<c r="${ref}"><v>${value}</v></c>` : `<c r="${ref}" t="inlineStr"><is><t xml:space="preserve">${escapeExportXML(String(value).slice(0, 32767))}</t></is></c>`;
-    }).join('')}</row>`).join('')}</sheetData></worksheet>` })),
+    }).join('')}</row>`).join('')}</sheetData><pageMargins left="0.3" right="0.3" top="0.5" bottom="0.5" header="0.2" footer="0.2"/><pageSetup orientation="landscape" fitToWidth="1" fitToHeight="0"/></worksheet>` })),
   ]);
 }

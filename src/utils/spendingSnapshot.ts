@@ -1,15 +1,18 @@
 import { Expense } from '../types';
-import { accountNames, sourceAccount, isOperatingTransaction, resolveAnalyticsRange } from './financialAnalytics';
-import { shiftReportDate } from './expenseReports';
+import { accountNames, sourceAccount, isOperatingTransaction } from './financialAnalytics';
+import { reportWeekStart, shiftReportDate } from './expenseReports';
 
 export function buildSpendingSnapshot(expenses: Expense[], referenceDate: string) {
   const records = [...new Map(expenses.map(row => [row.id, row])).values()]
     .filter(row => row.type !== 'income' && isOperatingTransaction(row));
-  return ([['today', 'Today', 1], ['7days', 'Last 7 days', 7], ['30days', 'Last 30 days', 30]] as const).map(([preset, label, dayCount]) => {
-    const range = resolveAnalyticsRange(preset, referenceDate);
+  return ([['today', 'Today'], ['week', 'This week'], ['month', 'This month']] as const).map(([preset, label]) => {
+    const start = preset === 'today' ? referenceDate : preset === 'week' ? reportWeekStart(referenceDate) : `${referenceDate.slice(0, 7)}-01`;
+    const range = { start, end: referenceDate };
+    const dayCount = Math.round((Date.parse(`${referenceDate}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / 86400000) + 1;
     const rows = records.filter(row => row.date >= range.start && row.date <= range.end);
-    const previousStart = shiftReportDate(range.start, -dayCount);
-    const previousEnd = shiftReportDate(range.start, -1);
+    const previousStart = preset === 'month' ? `${shiftReportDate(start, -1).slice(0, 7)}-01` : shiftReportDate(start, preset === 'week' ? -7 : -1);
+    const candidateEnd = shiftReportDate(previousStart, dayCount - 1);
+    const previousEnd = preset === 'month' && candidateEnd >= start ? shiftReportDate(start, -1) : candidateEnd;
     const previousTotal = records.filter(row => row.date >= previousStart && row.date <= previousEnd)
       .reduce((sum, row) => sum + Math.round(row.amount * 100), 0) / 100;
     const daily = new Map<string, number>();

@@ -63,7 +63,7 @@ scenarios rather than promises.
 ## Exports and accessibility
 
 An essential spending summary sits above the shared filters. It shows Today,
-Last 7 days, and Last 30 days, each ending on the report reference date, across
+This week (starting Monday), and This month, each ending on the report reference date, across
 all accounts and categories. These fixed snapshots remain independent of the
 detailed filters. Each shows net spending, expense count, daily average,
 positive-purchase average and extrema, highest/lowest net spending days, and

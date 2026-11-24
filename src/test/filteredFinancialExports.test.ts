@@ -34,6 +34,62 @@ function unzipStored(bytes: Uint8Array) {
 
 describe('exports of the current filtered report', () => {
   const report = buildFinancialAnalytics(records, budget, filters)!;
+  it('includes only the selected sections across report formats', () => {
+    const selected = ['Summary', 'Transactions'];
+    expect(filteredFinancialTables(report, 'INR', selected).map(table => table.name)).toEqual(selected);
+    expect(filteredFinancialCSV(report, 'INR', selected)).not.toContain('Monthly spending');
+    expect(filteredFinancialHTML(report, 'INR', selected)).not.toContain('<h2>Accounts</h2>');
+    const workbook = unzipStored(createExcelWorkbook(filteredFinancialTables(report, 'INR', selected)));
+    expect(workbook.get('xl/workbook.xml')).toContain('Transactions');
+    expect(workbook.get('xl/workbook.xml')).not.toContain('Accounts');
+    expect(workbook.get('xl/worksheets/sheet1.xml')).toContain('fitToWidth="1" fitToHeight="0"');
+  });
+
+  it('does not invent a chart when the on-screen diagram is unavailable', () => {
+    const html = filteredFinancialHTML(report, 'INR', ['Category spending chart']);
+    expect(html).not.toContain('<h2>Category spending chart</h2>');
+    expect(html).not.toContain('<svg');
+    expect(html).not.toContain('<h2>Income vs. expenses chart</h2>');
+    expect(html).not.toContain('<h2>Transactions</h2>');
+  });
+
+  it('uses the rendered chart in the PDF when it is available', () => {
+    const html = filteredFinancialHTML(report, 'INR', ['Income vs. expenses chart'], {
+      'Income vs. expenses chart': { svg: '<svg viewBox="0 0 100 50"><path d="M0 0L10 10"/></svg>', description: 'Daily totals', legend: [{ label: 'Expenses', color: '#6366f1' }] },
+    });
+    expect(html).toContain('class="screen-chart"');
+    expect(html).toContain('<path d="M0 0L10 10"/>');
+    expect(html).toContain('Daily totals');
+    expect(html).toContain('Expenses');
+  });
+
+  it('includes selected charts from the other tabs and the full captured insights', () => {
+    const chart = { svg: '<svg><path d="M0 0"/></svg>', description: 'Displayed chart', legend: [], title: 'Daily spending & spikes' };
+    const html = filteredFinancialHTML(report, 'INR', ['Daily spending chart', 'Monthly category comparison', 'Insights'], { 'Daily spending chart': chart }, [{ title: 'Income trend', body: 'Income increased.' }]);
+    expect(html).toContain('Daily spending &amp; spikes');
+    expect(html).toContain('<h2>Category spending comparison</h2>');
+    expect(html).toContain('<h3>Income trend</h3>');
+    expect(html).toContain('Income increased.');
+  });
+
+  it('places selected charts and tables under their matching report section', () => {
+    const chart = { svg: '<svg></svg>', description: '', legend: [], title: 'Daily spending & spikes' };
+    const html = filteredFinancialHTML(report, 'INR', ['Filters', 'Daily spending', 'Daily spending chart', 'Accounts'], { 'Daily spending chart': chart }, [], ['Expenses', 'Accounts']);
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const groups = [...doc.querySelectorAll('.report-group')];
+    expect(groups.map(group => group.querySelector('.group-title')?.textContent)).toEqual(['Expenses', 'Accounts']);
+    expect(groups[0].textContent).toContain('Daily spending & spikes');
+    expect(groups[0].textContent).toContain('Daily spending');
+    expect(groups[1].textContent).toContain('Accounts');
+    expect(groups[1].textContent).not.toContain('Daily spending & spikes');
+  });
+
+  it('includes selected patterns, transfers, calendar and insights', () => {
+    const html = filteredFinancialHTML(report, 'INR', ['Spending calendar', 'Insights', 'Recurring payments', 'Account transfers', 'Savings trend chart'], { 'Savings trend chart': { svg: '<svg></svg>', description: '', legend: [] } });
+    for (const title of ['Spending calendar', 'Insights', 'Recurring payments', 'Account transfers', 'Savings trend']) expect(html).toContain(`<h2>${title}</h2>`);
+    expect(html).toContain('2026-11-12');
+    expect(html).not.toContain('<h2>Summary</h2>');
+  });
   it('shares one set of filtered summary and detail tables across formats', () => {
     const tables = filteredFinancialTables(report, 'INR');
     expect(tables.find(table => table.name === 'Transactions')!.rows).toHaveLength(3);
@@ -63,9 +119,10 @@ describe('exports of the current filtered report', () => {
     const files = unzipStored(createExcelWorkbook(tables));
     expect(files.size).toBe(4 + tables.length);
     expect(files.get('[Content_Types].xml')).toContain('spreadsheetml.sheet.main+xml');
-    expect(files.get('xl/workbook.xml')).toContain('name="Transactions" sheetId="8" r:id="rId8"');
-    expect(files.get('xl/_rels/workbook.xml.rels')).toContain('Target="worksheets/sheet8.xml"');
-    const transactions = files.get('xl/worksheets/sheet8.xml')!;
+    const transactionSheet = tables.findIndex(table => table.name === 'Transactions') + 1;
+    expect(files.get('xl/workbook.xml')).toContain(`name="Transactions" sheetId="${transactionSheet}" r:id="rId${transactionSheet}"`);
+    expect(files.get('xl/_rels/workbook.xml.rels')).toContain(`Target="worksheets/sheet${transactionSheet}.xml"`);
+    const transactions = files.get(`xl/worksheets/sheet${transactionSheet}.xml`)!;
     expect(transactions).toContain('<c r="G2"><v>25.5</v></c>');
     expect(transactions).toContain('<c r="G3"><v>-5.5</v></c>');
     expect(transactions).toContain('=SUM(A1) &lt;script&gt; &amp; &quot;quote&quot;');

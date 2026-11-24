@@ -7,7 +7,7 @@ import { ExpenseDashboard } from '../components/ExpenseDashboard';
 import { BudgetConfig, Expense } from '../types';
 import { downloadFilteredReport, printFinancialSummary } from '../utils/financialExports';
 
-vi.mock('../components/FinancialCharts', () => ({ financePanel: 'panel', FinancialChart: ({ title, onSelect, footerContent }: { title: string; onSelect?: (category: string) => void; footerContent?: React.ReactNode }) => <section aria-label={title}><h4>{title}</h4>{onSelect && <button onClick={() => onSelect('Food')}>Select Food category</button>}{footerContent}</section> }));
+vi.mock('../components/FinancialCharts', () => ({ financePanel: 'panel', FinancialChart: ({ title, onSelect, footerContent, headerAction }: { title: string; onSelect?: (category: string) => void; footerContent?: React.ReactNode; headerAction?: React.ReactNode }) => <section aria-label={title}><h4>{title}</h4>{headerAction}{onSelect && <button onClick={() => onSelect('Food')}>Select Food category</button>}{footerContent}</section> }));
 vi.mock('../utils/financialExports', () => ({ downloadFilteredReport: vi.fn(), printFinancialSummary: vi.fn(() => true) }));
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 const originalShowModal = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, 'showModal');
@@ -30,12 +30,12 @@ const expenses: Expense[] = [
 ];
 const kpi = (name: string) => screen.getByText(name, { exact: true }).closest('article')!;
 
-it('shows Today, Last 7 days, and Last 30 days summaries above filters', () => {
+it('shows Today, This week, and This month summaries above filters', () => {
   render(<FinancialAnalyticsDashboard expenses={expenses} budget={budget} referenceDate="2026-11-16" />);
   const summary = screen.getByRole('region', { name: 'Essential spending summary' });
   const filters = screen.getByRole('region', { name: 'Shared report filters' });
   expect(summary.compareDocumentPosition(filters) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  expect(within(summary).getAllByRole('heading', { level: 4 }).map(heading => heading.textContent)).toEqual(['Today', 'Last 7 days', 'Last 30 days']);
+  expect(within(summary).getAllByRole('heading', { level: 4 }).map(heading => heading.textContent)).toEqual(['Today', 'This week', 'This month']);
   const today = within(summary).getByRole('article', { name: 'Today spending' });
   expect(within(today).getByText('INR 40.00', { selector: 'article > p' })).toBeInTheDocument();
   expect(within(today).getByText('Largest purchase')).toBeInTheDocument();
@@ -54,7 +54,7 @@ it('shows Today, Last 7 days, and Last 30 days summaries above filters', () => {
   fireEvent.click(moreDetails);
   expect(within(today).getByText('Smallest purchase')).not.toBeVisible();
   expect(within(summary).getAllByRole('img')).toHaveLength(3);
-  const month = within(summary).getByRole('article', { name: 'Last 30 days spending' });
+  const month = within(summary).getByRole('article', { name: 'This month spending' });
   expect(within(month).getByText('INR 100.00', { selector: 'article > p' })).toBeInTheDocument();
   fireEvent.change(screen.getByLabelText('Analytics account'), { target: { value: 'cash' } });
   fireEvent.change(screen.getByLabelText('Analytics period'), { target: { value: 'yesterday' } });
@@ -99,16 +99,25 @@ it('shares global filters across KPIs, sections, and exports', () => {
   expect(screen.queryByText('Taxi')).toBeNull();
   fireEvent.change(screen.getByLabelText('Report export format'), { target: { value: 'csv' } });
   fireEvent.click(screen.getByRole('button', { name: 'Export' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Clear all' }));
+  expect(screen.getByRole('button', { name: 'Export selected' })).toBeDisabled();
+  expect(screen.getAllByRole('checkbox')).toHaveLength(6);
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Overview' }));
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Expenses' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Export selected' }));
   expect(vi.mocked(downloadFilteredReport).mock.calls[0][0].total.expenses).toBe(60);
   expect(vi.mocked(downloadFilteredReport).mock.calls[0][0].filters.account).toBe('cash');
-  expect(vi.mocked(downloadFilteredReport).mock.calls[0].slice(1)).toEqual(['csv', 'INR']);
+  expect(vi.mocked(downloadFilteredReport).mock.calls[0][3]).toEqual(expect.arrayContaining(['Filters', 'Summary', 'Transactions']));
+  expect(vi.mocked(downloadFilteredReport).mock.calls[0][3]).not.toContain('Accounts');
   expect(within(screen.getByLabelText('Report export format')).getAllByRole('option').map(option => option.textContent)).toEqual(['PDF report (print)', 'Excel (.xlsx)', 'CSV (.csv)']);
   fireEvent.change(screen.getByLabelText('Report export format'), { target: { value: 'xlsx' } });
   fireEvent.click(screen.getByRole('button', { name: 'Export' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Export selected' }));
   expect(vi.mocked(downloadFilteredReport).mock.calls[1][0].current.map(row => row.id)).toEqual(['a']);
-  expect(vi.mocked(downloadFilteredReport).mock.calls[1].slice(1)).toEqual(['xlsx', 'INR']);
+  expect(vi.mocked(downloadFilteredReport).mock.calls[1][3]).toEqual(expect.arrayContaining(['Summary', 'Transactions']));
   fireEvent.change(screen.getByLabelText('Report export format'), { target: { value: 'pdf' } });
   fireEvent.click(screen.getByRole('button', { name: 'Export' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Export selected' }));
   expect(vi.mocked(printFinancialSummary).mock.calls[0][0].current.map(row => row.id)).toEqual(['a']);
   fireEvent.click(screen.getByRole('button', { name: 'Reset filters' }));
   expect(within(kpi('Total expenses')).getByText('INR 100.00')).toBeInTheDocument();
@@ -135,21 +144,14 @@ it('has one shared date selector with exactly the requested ranges', () => {
   expect(within(kpi('Total expenses')).getByText('INR 60.00')).toBeInTheDocument();
 });
 
-it('keeps grouping in optional chart settings without changing selected dates or totals', () => {
+it('uses the shared date filter without a chart grouping selector', () => {
   render(<FinancialAnalyticsDashboard expenses={expenses} budget={budget} referenceDate="2026-11-16" />);
-  const settingsSummary = screen.getByText(/Chart display settings/);
-  const settings = settingsSummary.closest('details')!;
-  expect(settings.open).toBe(false);
   expect(within(kpi('Total expenses')).getByText('INR 100.00')).toBeInTheDocument();
-  settings.open = true;
-  const grouping = screen.getByLabelText('Analytics date grouping');
-  expect(grouping).toHaveValue('auto');
-  expect(within(grouping).getByRole('option', { name: 'Auto (daily)' })).toBeInTheDocument();
-  fireEvent.change(grouping, { target: { value: 'monthly' } });
+  expect(screen.queryByLabelText(/date grouping/)).not.toBeInTheDocument();
   expect(within(kpi('Total expenses')).getByText('INR 100.00')).toBeInTheDocument();
   expect(screen.getByText('18-10-2026 – 16-11-2026')).toBeInTheDocument();
   fireEvent.change(screen.getByLabelText('Analytics period'), { target: { value: 'today' } });
-  expect(screen.getByText('16-11-2026')).toBeInTheDocument();
+  expect(within(screen.getByRole('region', { name: 'Shared report filters' })).getByText('16-11-2026')).toBeInTheDocument();
   expect(within(kpi('Total expenses')).getByText('INR 40.00')).toBeInTheDocument();
 });
 
@@ -162,10 +164,12 @@ it('supports category filtering and keeps calendar clicks in Patterns', () => {
   expect(within(kpi('Total expenses')).getByText('INR 60.00')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Reset filters' }));
   fireEvent.click(screen.getByRole('tab', { name: 'Patterns' }));
-  fireEvent.click(screen.getByRole('img', { name: /2026-11-16:/ }));
+  fireEvent.click(screen.getByRole('button', { name: /2026-11-16:/ }));
+  expect(screen.getByRole('status')).toHaveTextContent('INR 40.00');
+  expect(screen.getByRole('status')).toHaveTextContent('16-11-2026');
   expect(screen.getByRole('tab', { name: 'Patterns' })).toHaveAttribute('aria-selected', 'true');
   expect(screen.getByRole('tab', { name: 'Expenses' })).toHaveAttribute('aria-selected', 'false');
-  expect(screen.getByText('Spending calendar')).toBeInTheDocument();
+  expect(screen.getByRole('heading', { name: 'Spending calendar' })).toBeInTheDocument();
 });
 
 it('refreshes from changed transaction props and shows actual category spending without budgets', () => {
@@ -213,6 +217,17 @@ it('supports keyboard section navigation without the standalone Transactions tab
   expect(screen.queryByRole('heading', { name: 'Transactions' })).toBeNull();
   expect(screen.queryByLabelText('Search report transactions')).toBeNull();
   expect(screen.getByRole('heading', { name: 'Category spending comparison' })).toBeInTheDocument();
+});
+
+it('shows monthly category amounts and empty periods in the spending comparison', () => {
+  render(<FinancialAnalyticsDashboard expenses={expenses} budget={budget} referenceDate="2026-11-16" />);
+  fireEvent.click(screen.getByRole('tab', { name: 'Expenses' }));
+  const comparison = screen.getByRole('region', { name: 'Category spending comparison' });
+  expect(within(comparison).getByText('No spending recorded in this period.')).toBeInTheDocument();
+  expect(within(comparison).getByText('Food')).toBeInTheDocument();
+  expect(within(comparison).getByText('Transport')).toBeInTheDocument();
+  expect(within(comparison).getByText('INR 60.00')).toBeInTheDocument();
+  expect(within(comparison).getByText('INR 100.00')).toBeInTheDocument();
 });
 
 it('features the highest spending category and opens compact categories in a dialog', () => {
