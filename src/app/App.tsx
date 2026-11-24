@@ -33,6 +33,7 @@ import { createUuid } from '../utils/uuid';
 import { WellnessGoals } from '../types';
 import { CompactDateNavigator } from '../components/CompactDateNavigator';
 import { Account, createBalanceEntry, isAccountTransactionVisible } from '../utils/accounts';
+import { isLoanMovement } from '../utils/loanMovement';
 import { isDialogBackPending, useDialogBack } from '../hooks/useDialogBack';
 const GeneralChatScreen = lazy(() => import('../features/ai/GeneralChatScreen'));
 const isNotificationView = (value: unknown): value is NavView => typeof value === 'string' && ['daily', 'expenses', 'habits', 'tasks', 'notes', 'reports', 'history', 'ai'].includes(value);
@@ -572,6 +573,7 @@ export default function App() {
   const handleUpdateExpense = async (id: string, partial: Partial<Expense>): Promise<boolean | string> => {
     const existing = expenses.find(expense => expense.id === id);
     if (!existing) return 'Transaction could not be found.';
+    if (isLoanMovement(existing)) return 'Loan transactions cannot be edited separately from their loan record.';
     if (!user) return 'You must be signed in to update a transaction.';
     const updated = { ...existing, ...partial };
     if (!isAccountTransactionVisible(updated, accountPermissions)) return 'This account is currently disabled in Settings.';
@@ -591,6 +593,8 @@ export default function App() {
   };
 
   const handleDeleteExpense = async (id: string): Promise<boolean | string> => {
+    const existing = expenses.find(expense => expense.id === id);
+    if (existing && isLoanMovement(existing)) return 'Loan transactions cannot be deleted separately from their loan record.';
     if (!user) return 'You must be signed in to delete a transaction.';
     setCloudPendingCount(count => count + 1);
     try {
@@ -834,6 +838,9 @@ export default function App() {
           onAddExpense={handleAddExpense}
           onUpdateExpense={handleUpdateExpense}
           onDeleteExpense={handleDeleteExpense}
+          onLoanTransactionAdded={expense => setExpenses(current => current.some(row => row.id === expense.id) ? current : [expense, ...current])}
+          onLoanTransactionUpdated={expense => setExpenses(current => current.map(row => row.id === expense.id ? expense : row))}
+          onLoanTransactionDeleted={id => setExpenses(current => current.filter(row => row.id !== id))}
           onUpdateBudget={handleUpdateBudget}
           onExportCSV={handleExportCSV}
           customCategories={categories.expenses}

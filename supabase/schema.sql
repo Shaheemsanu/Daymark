@@ -592,3 +592,379 @@ DROP TRIGGER IF EXISTS sync_account_permissions_user_details ON auth.users;
 CREATE TRIGGER sync_account_permissions_user_details
   AFTER INSERT OR UPDATE OF email, raw_user_meta_data ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.sync_account_permissions_user_details();
+
+
+-- Loans and dues
+CREATE TABLE IF NOT EXISTS public.loans_and_dues (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  person TEXT NOT NULL CHECK (length(trim(person)) BETWEEN 1 AND 120),
+  record_kind TEXT NOT NULL DEFAULT 'lent' CHECK (record_kind IN ('lent', 'borrowed', 'emi')),
+  amount NUMERIC(12,2) NOT NULL CHECK (amount > 0),
+  repaid NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (repaid >= 0 AND repaid <= amount),
+  installment_amount NUMERIC(12,2) CHECK (installment_amount IS NULL OR installment_amount > 0),
+  lent_date DATE NOT NULL,
+  end_date DATE CHECK (end_date IS NULL OR end_date >= lent_date),
+  payment_day SMALLINT CHECK (payment_day IS NULL OR payment_day BETWEEN 1 AND 31),
+  due_date DATE,
+  note TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE public.loans_and_dues ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Users can select own loans and dues" ON public.loans_and_dues;
+DROP POLICY IF EXISTS "Users can insert own loans and dues" ON public.loans_and_dues;
+DROP POLICY IF EXISTS "Users can update own loans and dues" ON public.loans_and_dues;
+DROP POLICY IF EXISTS "Users can delete own loans and dues" ON public.loans_and_dues;
+CREATE POLICY "Users can select own loans and dues" ON public.loans_and_dues FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can insert own loans and dues" ON public.loans_and_dues FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can update own loans and dues" ON public.loans_and_dues FOR UPDATE USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can delete own loans and dues" ON public.loans_and_dues FOR DELETE USING (auth.uid() = user_id);
+CREATE INDEX IF NOT EXISTS idx_loans_and_dues_user_date ON public.loans_and_dues(user_id, lent_date DESC);
+
+-- A ledger entry may be matched to only one loan movement.
+CREATE TABLE IF NOT EXISTS public.loan_existing_movements (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  loan_id UUID NOT NULL REFERENCES public.loans_and_dues(id) ON DELETE CASCADE,
+  expense_id UUID NOT NULL UNIQUE REFERENCES public.expenses(id) ON DELETE RESTRICT
+);
+ALTER TABLE public.loan_existing_movements ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Users can view own loan matches" ON public.loan_existing_movements;
+DROP POLICY IF EXISTS "Users can create own loan matches" ON public.loan_existing_movements;
+CREATE POLICY "Users can view own loan matches" ON public.loan_existing_movements FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can create own loan matches" ON public.loan_existing_movements FOR INSERT WITH CHECK (
+  auth.uid() = user_id
+  AND EXISTS (SELECT 1 FROM public.loans_and_dues WHERE id = loan_id AND user_id = auth.uid())
+  AND EXISTS (SELECT 1 FROM public.expenses WHERE id = expense_id AND user_id = auth.uid())
+);
+
+CREATE OR REPLACE FUNCTION public.protect_linked_loan_movement()
+RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER SET search_path = public AS $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM public.loan_existing_movements WHERE expense_id = OLD.id)
+    AND (NEW.entry_date IS DISTINCT FROM OLD.entry_date OR NEW.amount IS DISTINCT FROM OLD.amount
+      OR NEW.account IS DISTINCT FROM OLD.account OR NEW.transaction_type IS DISTINCT FROM OLD.transaction_type
+      OR NEW.is_transfer IS DISTINCT FROM OLD.is_transfer) THEN
+    RAISE EXCEPTION 'This transaction is linked to a loan. Its amount, date, account and direction cannot be changed.';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+DROP TRIGGER IF EXISTS protect_linked_loan_movement ON public.expenses;
+CREATE TRIGGER protect_linked_loan_movement BEFORE UPDATE ON public.expenses
+FOR EACH ROW EXECUTE FUNCTION public.protect_linked_loan_movement();
+
+-- Create each loan movement and its ledger entry in the same database transaction.
+CREATE OR REPLACE FUNCTION public.save_loan_with_movement(p_loan jsonb, p_account text DEFAULT NULL)
+RETURNS jsonb LANGUAGE plpgsql SECURITY INVOKER SET search_path = public AS $$
+DECLARE
+  uid uuid := auth.uid();
+  loan public.loans_and_dues%ROWTYPE;
+  movement public.expenses%ROWTYPE;
+  kind text := p_loan->>'record_kind';
+  existing_id uuid := NULLIF(p_loan->>'existing_expense_id', '')::uuid;
+BEGIN
+  IF uid IS NULL THEN RAISE EXCEPTION 'Sign in to save a loan'; END IF;
+  IF existing_id IS NOT NULL AND p_account IS NULL THEN RAISE EXCEPTION 'Select the account for the existing transaction'; END IF;
+  IF p_account IS NOT NULL THEN
+    IF p_account NOT IN ('expense', 'cash', 'savings') OR
+       (p_account = 'cash' AND NOT COALESCE((SELECT cash_enabled FROM public.account_permissions WHERE user_id = uid), false)) OR
+       (p_account = 'savings' AND NOT COALESCE((SELECT savings_enabled FROM public.account_permissions WHERE user_id = uid), false)) THEN
+      RAISE EXCEPTION 'This account is not enabled';
+    END IF;
+    IF kind = 'emi' AND (NULLIF(p_loan->>'initial_received', '') IS NULL OR (p_loan->>'initial_received')::numeric <= 0 OR (p_loan->>'initial_received')::numeric <> round((p_loan->>'initial_received')::numeric, 2)) THEN RAISE EXCEPTION 'Enter a valid amount received'; END IF;
+  END IF;
+  INSERT INTO public.loans_and_dues (user_id, person, record_kind, amount, lent_date, due_date, end_date, payment_day, installment_amount, note)
+  VALUES (uid, p_loan->>'person', kind, (p_loan->>'amount')::numeric, (p_loan->>'lent_date')::date,
+    NULLIF(p_loan->>'due_date', '')::date, NULLIF(p_loan->>'end_date', '')::date,
+    NULLIF(p_loan->>'payment_day', '')::smallint, NULLIF(p_loan->>'installment_amount', '')::numeric, NULLIF(p_loan->>'note', ''))
+  RETURNING * INTO loan;
+  IF existing_id IS NOT NULL THEN
+    SELECT * INTO movement FROM public.expenses WHERE id = existing_id AND user_id = uid FOR UPDATE;
+    IF NOT FOUND OR movement.entry_date IS DISTINCT FROM loan.lent_date OR movement.amount IS DISTINCT FROM (CASE WHEN kind = 'emi' THEN (p_loan->>'initial_received')::numeric ELSE loan.amount END)
+      OR COALESCE(movement.account, 'expense') IS DISTINCT FROM p_account OR COALESCE(movement.transaction_type, 'expense') IS DISTINCT FROM (CASE WHEN kind = 'lent' THEN 'expense' ELSE 'income' END)
+      OR COALESCE(movement.is_transfer, false) OR lower(movement.category) LIKE '%transfer%'
+      OR movement.category IN ('Loan funds movement', 'Loan: Money lent', 'Loan: Money borrowed', 'Loan: EMI / loan') THEN
+      RAISE EXCEPTION 'The selected transaction no longer matches. Refresh and try again.';
+    END IF;
+    IF EXISTS (SELECT 1 FROM public.loan_existing_movements WHERE expense_id = existing_id) THEN RAISE EXCEPTION 'This transaction is already linked to a loan.'; END IF;
+    INSERT INTO public.loan_existing_movements(user_id, loan_id, expense_id) VALUES (uid, loan.id, existing_id);
+  ELSIF p_account IS NOT NULL THEN
+    INSERT INTO public.expenses (user_id, entry_date, title, amount, category, spend_type, transaction_type, account, is_transfer, payment_method, notes)
+    VALUES (uid, loan.lent_date, CASE WHEN kind = 'lent' THEN 'Money lent to ' WHEN kind = 'emi' THEN 'Loan received from ' ELSE 'Money borrowed from ' END || loan.person,
+      CASE WHEN kind = 'emi' THEN (p_loan->>'initial_received')::numeric ELSE loan.amount END, CASE kind WHEN 'lent' THEN 'Loan: Money lent' WHEN 'borrowed' THEN 'Loan: Money borrowed' ELSE 'Loan: EMI / loan' END, 'need', CASE WHEN kind = 'lent' THEN 'expense' ELSE 'income' END,
+      p_account, false, CASE WHEN p_account = 'cash' THEN 'Cash' ELSE 'Bank Transfer' END, 'Loan record: ' || loan.id::text)
+    RETURNING * INTO movement;
+  END IF;
+  RETURN jsonb_build_object('loan', to_jsonb(loan), 'transaction', CASE WHEN p_account IS NULL OR existing_id IS NOT NULL THEN NULL ELSE to_jsonb(movement) END);
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.record_loan_payment(p_id uuid, p_expected_repaid numeric, p_amount numeric, p_date date, p_account text)
+RETURNS jsonb LANGUAGE plpgsql SECURITY INVOKER SET search_path = public AS $$
+DECLARE
+  uid uuid := auth.uid();
+  loan public.loans_and_dues%ROWTYPE;
+  movement public.expenses%ROWTYPE;
+BEGIN
+  IF uid IS NULL THEN RAISE EXCEPTION 'Sign in to record a payment'; END IF;
+  IF p_account IS NULL OR p_account NOT IN ('expense', 'cash', 'savings') OR
+     (p_account = 'cash' AND NOT COALESCE((SELECT cash_enabled FROM public.account_permissions WHERE user_id = uid), false)) OR
+     (p_account = 'savings' AND NOT COALESCE((SELECT savings_enabled FROM public.account_permissions WHERE user_id = uid), false)) THEN
+    RAISE EXCEPTION 'This account is not enabled';
+  END IF;
+  SELECT * INTO loan FROM public.loans_and_dues WHERE id = p_id AND user_id = uid FOR UPDATE;
+  IF NOT FOUND OR loan.repaid IS DISTINCT FROM p_expected_repaid THEN RAISE EXCEPTION 'This record changed elsewhere. Refresh and try again.'; END IF;
+  IF p_amount IS NULL OR p_amount <= 0 OR p_amount <> round(p_amount, 2) OR p_amount > loan.amount - loan.repaid THEN RAISE EXCEPTION 'Invalid payment amount'; END IF;
+  IF p_date IS NULL OR p_date < loan.lent_date THEN RAISE EXCEPTION 'Payment date cannot be before the loan start date'; END IF;
+  UPDATE public.loans_and_dues SET repaid = repaid + p_amount WHERE id = p_id AND user_id = uid RETURNING * INTO loan;
+  INSERT INTO public.expenses (user_id, entry_date, title, amount, category, spend_type, transaction_type, account, is_transfer, payment_method, notes)
+  VALUES (uid, p_date, CASE WHEN loan.record_kind = 'lent' THEN 'Loan repayment from ' ELSE 'Loan payment to ' END || loan.person,
+    p_amount, CASE loan.record_kind WHEN 'lent' THEN 'Loan: Money lent' WHEN 'borrowed' THEN 'Loan: Money borrowed' ELSE 'Loan: EMI / loan' END, 'need', CASE WHEN loan.record_kind = 'lent' THEN 'income' ELSE 'expense' END,
+    p_account, false, CASE WHEN p_account = 'cash' THEN 'Cash' ELSE 'Bank Transfer' END, 'Loan record: ' || loan.id::text)
+  RETURNING * INTO movement;
+  RETURN jsonb_build_object('loan', to_jsonb(loan), 'transaction', to_jsonb(movement));
+END;
+$$;
+-- Apply a payment using a ledger entry the user confirmed, without inserting another.
+CREATE OR REPLACE FUNCTION public.link_existing_loan_payment(p_id uuid, p_expected_repaid numeric, p_amount numeric, p_date date, p_account text, p_expense_id uuid)
+RETURNS jsonb LANGUAGE plpgsql SECURITY INVOKER SET search_path = public AS $$
+DECLARE
+  uid uuid := auth.uid();
+  loan public.loans_and_dues%ROWTYPE;
+  movement public.expenses%ROWTYPE;
+BEGIN
+  IF uid IS NULL THEN RAISE EXCEPTION 'Sign in to record a payment'; END IF;
+  IF p_account IS NULL OR p_account NOT IN ('expense', 'cash', 'savings') OR
+    (p_account = 'cash' AND NOT COALESCE((SELECT cash_enabled FROM public.account_permissions WHERE user_id = uid), false)) OR
+    (p_account = 'savings' AND NOT COALESCE((SELECT savings_enabled FROM public.account_permissions WHERE user_id = uid), false)) THEN
+    RAISE EXCEPTION 'This account is not enabled';
+  END IF;
+  SELECT * INTO loan FROM public.loans_and_dues WHERE id = p_id AND user_id = uid FOR UPDATE;
+  IF NOT FOUND OR loan.repaid IS DISTINCT FROM p_expected_repaid THEN RAISE EXCEPTION 'This record changed elsewhere. Refresh and try again.'; END IF;
+  IF p_amount IS NULL OR p_amount <= 0 OR p_amount <> round(p_amount, 2) OR p_amount > loan.amount - loan.repaid THEN RAISE EXCEPTION 'Invalid payment amount'; END IF;
+  IF p_date IS NULL OR p_date < loan.lent_date THEN RAISE EXCEPTION 'Payment date cannot be before the loan start date'; END IF;
+  SELECT * INTO movement FROM public.expenses WHERE id = p_expense_id AND user_id = uid FOR UPDATE;
+  IF NOT FOUND OR movement.entry_date IS DISTINCT FROM p_date OR movement.amount IS DISTINCT FROM p_amount
+    OR COALESCE(movement.account, 'expense') IS DISTINCT FROM p_account OR COALESCE(movement.transaction_type, 'expense') IS DISTINCT FROM (CASE WHEN loan.record_kind = 'lent' THEN 'income' ELSE 'expense' END)
+    OR COALESCE(movement.is_transfer, false) OR lower(movement.category) LIKE '%transfer%'
+    OR movement.category IN ('Loan funds movement', 'Loan: Money lent', 'Loan: Money borrowed', 'Loan: EMI / loan') THEN
+    RAISE EXCEPTION 'The selected transaction no longer matches. Refresh and try again.';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.loan_existing_movements WHERE expense_id = p_expense_id) THEN RAISE EXCEPTION 'This transaction is already linked to a loan.'; END IF;
+  INSERT INTO public.loan_existing_movements(user_id, loan_id, expense_id) VALUES (uid, loan.id, p_expense_id);
+  UPDATE public.loans_and_dues SET repaid = repaid + p_amount WHERE id = p_id AND user_id = uid RETURNING * INTO loan;
+  RETURN jsonb_build_object('loan', to_jsonb(loan), 'transaction', NULL);
+END;
+$$;
+REVOKE ALL ON FUNCTION public.link_existing_loan_payment(uuid, numeric, numeric, date, text, uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.link_existing_loan_payment(uuid, numeric, numeric, date, text, uuid) TO authenticated;
+REVOKE ALL ON FUNCTION public.save_loan_with_movement(jsonb, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.record_loan_payment(uuid, numeric, numeric, date, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.save_loan_with_movement(jsonb, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.record_loan_payment(uuid, numeric, numeric, date, text) TO authenticated;
+
+-- Save payment methods on new loan ledger movements. Requires the loan ledger matching migration.
+
+CREATE OR REPLACE FUNCTION public.save_loan_with_movement(p_loan jsonb, p_account text DEFAULT NULL)
+RETURNS jsonb LANGUAGE plpgsql SECURITY INVOKER SET search_path = public AS $$
+DECLARE
+  uid uuid := auth.uid();
+  loan public.loans_and_dues%ROWTYPE;
+  movement public.expenses%ROWTYPE;
+  kind text := p_loan->>'record_kind';
+  existing_id uuid := NULLIF(p_loan->>'existing_expense_id', '')::uuid;
+BEGIN
+  IF uid IS NULL THEN RAISE EXCEPTION 'Sign in to save a loan'; END IF;
+  IF length(COALESCE(p_loan->>'payment_method', '')) > 120 THEN RAISE EXCEPTION 'Payment method is too long'; END IF;
+  IF existing_id IS NOT NULL AND p_account IS NULL THEN RAISE EXCEPTION 'Select the account for the existing transaction'; END IF;
+  IF p_account IS NOT NULL THEN
+    IF p_account NOT IN ('expense', 'cash', 'savings') OR
+       (p_account = 'cash' AND NOT COALESCE((SELECT cash_enabled FROM public.account_permissions WHERE user_id = uid), false)) OR
+       (p_account = 'savings' AND NOT COALESCE((SELECT savings_enabled FROM public.account_permissions WHERE user_id = uid), false)) THEN
+      RAISE EXCEPTION 'This account is not enabled';
+    END IF;
+    IF kind = 'emi' AND (NULLIF(p_loan->>'initial_received', '') IS NULL OR (p_loan->>'initial_received')::numeric <= 0 OR (p_loan->>'initial_received')::numeric <> round((p_loan->>'initial_received')::numeric, 2)) THEN RAISE EXCEPTION 'Enter a valid amount received'; END IF;
+  END IF;
+  INSERT INTO public.loans_and_dues (user_id, person, record_kind, amount, lent_date, due_date, end_date, payment_day, installment_amount, note)
+  VALUES (uid, p_loan->>'person', kind, (p_loan->>'amount')::numeric, (p_loan->>'lent_date')::date,
+    NULLIF(p_loan->>'due_date', '')::date, NULLIF(p_loan->>'end_date', '')::date,
+    NULLIF(p_loan->>'payment_day', '')::smallint, NULLIF(p_loan->>'installment_amount', '')::numeric, NULLIF(p_loan->>'note', ''))
+  RETURNING * INTO loan;
+  IF existing_id IS NOT NULL THEN
+    SELECT * INTO movement FROM public.expenses WHERE id = existing_id AND user_id = uid FOR UPDATE;
+    IF NOT FOUND OR movement.entry_date IS DISTINCT FROM loan.lent_date OR movement.amount IS DISTINCT FROM (CASE WHEN kind = 'emi' THEN (p_loan->>'initial_received')::numeric ELSE loan.amount END)
+      OR COALESCE(movement.account, 'expense') IS DISTINCT FROM p_account OR COALESCE(movement.transaction_type, 'expense') IS DISTINCT FROM (CASE WHEN kind = 'lent' THEN 'expense' ELSE 'income' END)
+      OR COALESCE(movement.is_transfer, false) OR lower(movement.category) LIKE '%transfer%'
+      OR movement.category IN ('Loan funds movement', 'Loan: Money lent', 'Loan: Money borrowed', 'Loan: EMI / loan') THEN
+      RAISE EXCEPTION 'The selected transaction no longer matches. Refresh and try again.';
+    END IF;
+    IF EXISTS (SELECT 1 FROM public.loan_existing_movements WHERE expense_id = existing_id) THEN RAISE EXCEPTION 'This transaction is already linked to a loan.'; END IF;
+    INSERT INTO public.loan_existing_movements(user_id, loan_id, expense_id) VALUES (uid, loan.id, existing_id);
+  ELSIF p_account IS NOT NULL THEN
+    INSERT INTO public.expenses (user_id, entry_date, title, amount, category, spend_type, transaction_type, account, is_transfer, payment_method, notes)
+    VALUES (uid, loan.lent_date, CASE WHEN kind = 'lent' THEN 'Money lent to ' WHEN kind = 'emi' THEN 'Loan received from ' ELSE 'Money borrowed from ' END || loan.person,
+      CASE WHEN kind = 'emi' THEN (p_loan->>'initial_received')::numeric ELSE loan.amount END, CASE kind WHEN 'lent' THEN 'Loan: Money lent' WHEN 'borrowed' THEN 'Loan: Money borrowed' ELSE 'Loan: EMI / loan' END, 'need', CASE WHEN kind = 'lent' THEN 'expense' ELSE 'income' END,
+      p_account, false, COALESCE(NULLIF(trim(p_loan->>'payment_method'), ''), CASE WHEN p_account = 'cash' THEN 'Cash' ELSE 'Bank Transfer' END), 'Loan record: ' || loan.id::text)
+    RETURNING * INTO movement;
+  END IF;
+  RETURN jsonb_build_object('loan', to_jsonb(loan), 'transaction', CASE WHEN p_account IS NULL OR existing_id IS NOT NULL THEN NULL ELSE to_jsonb(movement) END);
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.record_loan_payment_with_method(p_id uuid, p_expected_repaid numeric, p_amount numeric, p_date date, p_account text, p_payment_method text DEFAULT NULL)
+RETURNS jsonb LANGUAGE plpgsql SECURITY INVOKER SET search_path = public AS $$
+DECLARE
+  uid uuid := auth.uid();
+  loan public.loans_and_dues%ROWTYPE;
+  movement public.expenses%ROWTYPE;
+BEGIN
+  IF uid IS NULL THEN RAISE EXCEPTION 'Sign in to record a payment'; END IF;
+  IF length(COALESCE(p_payment_method, '')) > 120 THEN RAISE EXCEPTION 'Payment method is too long'; END IF;
+  IF p_account IS NULL OR p_account NOT IN ('expense', 'cash', 'savings') OR
+     (p_account = 'cash' AND NOT COALESCE((SELECT cash_enabled FROM public.account_permissions WHERE user_id = uid), false)) OR
+     (p_account = 'savings' AND NOT COALESCE((SELECT savings_enabled FROM public.account_permissions WHERE user_id = uid), false)) THEN
+    RAISE EXCEPTION 'This account is not enabled';
+  END IF;
+  SELECT * INTO loan FROM public.loans_and_dues WHERE id = p_id AND user_id = uid FOR UPDATE;
+  IF NOT FOUND OR loan.repaid IS DISTINCT FROM p_expected_repaid THEN RAISE EXCEPTION 'This record changed elsewhere. Refresh and try again.'; END IF;
+  IF p_amount IS NULL OR p_amount <= 0 OR p_amount <> round(p_amount, 2) OR p_amount > loan.amount - loan.repaid THEN RAISE EXCEPTION 'Invalid payment amount'; END IF;
+  IF p_date IS NULL OR p_date < loan.lent_date THEN RAISE EXCEPTION 'Payment date cannot be before the loan start date'; END IF;
+  UPDATE public.loans_and_dues SET repaid = repaid + p_amount WHERE id = p_id AND user_id = uid RETURNING * INTO loan;
+  INSERT INTO public.expenses (user_id, entry_date, title, amount, category, spend_type, transaction_type, account, is_transfer, payment_method, notes)
+  VALUES (uid, p_date, CASE WHEN loan.record_kind = 'lent' THEN 'Loan repayment from ' ELSE 'Loan payment to ' END || loan.person,
+    p_amount, CASE loan.record_kind WHEN 'lent' THEN 'Loan: Money lent' WHEN 'borrowed' THEN 'Loan: Money borrowed' ELSE 'Loan: EMI / loan' END, 'need', CASE WHEN loan.record_kind = 'lent' THEN 'income' ELSE 'expense' END,
+    p_account, false, COALESCE(NULLIF(trim(p_payment_method), ''), CASE WHEN p_account = 'cash' THEN 'Cash' ELSE 'Bank Transfer' END), 'Loan record: ' || loan.id::text)
+  RETURNING * INTO movement;
+  RETURN jsonb_build_object('loan', to_jsonb(loan), 'transaction', to_jsonb(movement));
+END;
+$$;
+REVOKE ALL ON FUNCTION public.record_loan_payment_with_method(uuid, numeric, numeric, date, text, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.record_loan_payment_with_method(uuid, numeric, numeric, date, text, text) TO authenticated;
+
+-- Update a payment and its ledger transaction atomically.
+CREATE OR REPLACE FUNCTION public.edit_loan_payment(
+  p_loan_id uuid, p_expense_id uuid, p_expected_repaid numeric,
+  p_expected_amount numeric, p_expected_date date, p_expected_account text, p_expected_method text,
+  p_amount numeric, p_date date, p_account text, p_payment_method text
+) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+  uid uuid := auth.uid();
+  loan public.loans_and_dues%ROWTYPE;
+  movement public.expenses%ROWTYPE;
+  link_id uuid;
+  new_repaid numeric;
+BEGIN
+  IF uid IS NULL THEN RAISE EXCEPTION 'Sign in to edit a payment'; END IF;
+  IF p_account IS NULL OR p_account NOT IN ('expense', 'cash', 'savings') OR
+     (p_account = 'cash' AND NOT COALESCE((SELECT cash_enabled FROM public.account_permissions WHERE user_id = uid), false)) OR
+     (p_account = 'savings' AND NOT COALESCE((SELECT savings_enabled FROM public.account_permissions WHERE user_id = uid), false)) THEN
+    RAISE EXCEPTION 'This account is not enabled';
+  END IF;
+  IF p_payment_method IS NULL OR length(trim(p_payment_method)) = 0 OR length(p_payment_method) > 120 OR (p_account = 'cash' AND p_payment_method <> 'Cash') THEN
+    RAISE EXCEPTION 'Select a valid payment method';
+  END IF;
+  SELECT * INTO loan FROM public.loans_and_dues WHERE id = p_loan_id AND user_id = uid FOR UPDATE;
+  IF NOT FOUND OR loan.repaid IS DISTINCT FROM p_expected_repaid THEN RAISE EXCEPTION 'This loan changed elsewhere. Refresh and try again.'; END IF;
+  SELECT * INTO movement FROM public.expenses WHERE id = p_expense_id AND user_id = uid FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Payment not found'; END IF;
+  IF (movement.account = 'cash' AND NOT COALESCE((SELECT cash_enabled FROM public.account_permissions WHERE user_id = uid), false)) OR
+     (movement.account = 'savings' AND NOT COALESCE((SELECT savings_enabled FROM public.account_permissions WHERE user_id = uid), false)) THEN RAISE EXCEPTION 'The original account is not enabled'; END IF;
+  IF movement.amount IS DISTINCT FROM p_expected_amount OR movement.entry_date IS DISTINCT FROM p_expected_date OR
+     movement.account IS DISTINCT FROM p_expected_account OR movement.payment_method IS DISTINCT FROM p_expected_method THEN
+    RAISE EXCEPTION 'This payment changed elsewhere. Refresh and try again.';
+  END IF;
+  SELECT id INTO link_id FROM public.loan_existing_movements WHERE user_id = uid AND loan_id = loan.id AND expense_id = movement.id;
+  IF (link_id IS NULL AND (movement.notes IS DISTINCT FROM 'Loan record: ' || loan.id::text OR movement.category NOT IN ('Loan funds movement', 'Loan: Money lent', 'Loan: Money borrowed', 'Loan: EMI / loan'))) OR
+     movement.transaction_type IS DISTINCT FROM (CASE WHEN loan.record_kind = 'lent' THEN 'income' ELSE 'expense' END) OR movement.is_transfer THEN
+    RAISE EXCEPTION 'This transaction is not a payment for this loan';
+  END IF;
+  IF p_amount IS NULL OR p_amount <= 0 OR p_amount <> round(p_amount, 2) OR p_amount >= 10000000000 THEN RAISE EXCEPTION 'Enter a valid payment amount'; END IF;
+  IF p_date IS NULL OR p_date < loan.lent_date THEN RAISE EXCEPTION 'Payment date cannot be before the loan start date'; END IF;
+  new_repaid := loan.repaid - movement.amount + p_amount;
+  IF new_repaid < 0 OR new_repaid > loan.amount THEN RAISE EXCEPTION 'The payment amount exceeds the loan balance or the payment history is incomplete'; END IF;
+  -- The link protection trigger blocks direct edits; temporarily remove and restore this
+  -- verified link within the same transaction, so no other request can observe a gap.
+  IF link_id IS NOT NULL THEN DELETE FROM public.loan_existing_movements WHERE id = link_id AND user_id = uid; END IF;
+  UPDATE public.expenses SET amount = p_amount, entry_date = p_date, account = p_account, payment_method = trim(p_payment_method)
+    WHERE id = movement.id AND user_id = uid RETURNING * INTO movement;
+  IF link_id IS NOT NULL THEN INSERT INTO public.loan_existing_movements(id, user_id, loan_id, expense_id) VALUES (link_id, uid, loan.id, movement.id); END IF;
+  UPDATE public.loans_and_dues SET repaid = new_repaid WHERE id = loan.id AND user_id = uid RETURNING * INTO loan;
+  RETURN jsonb_build_object('loan', to_jsonb(loan), 'transaction', to_jsonb(movement));
+END;
+$$;
+REVOKE ALL ON FUNCTION public.edit_loan_payment(uuid, uuid, numeric, numeric, date, text, text, numeric, date, text, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.edit_loan_payment(uuid, uuid, numeric, numeric, date, text, text, numeric, date, text, text) TO authenticated;
+
+-- Delete a confirmed loan payment and its ledger movement together.
+CREATE OR REPLACE FUNCTION public.delete_loan_payment(
+  p_loan_id uuid, p_expense_id uuid, p_expected_repaid numeric,
+  p_expected_amount numeric, p_expected_date date, p_expected_account text, p_expected_method text
+) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+  uid uuid := auth.uid();
+  loan public.loans_and_dues%ROWTYPE;
+  movement public.expenses%ROWTYPE;
+  link_id uuid;
+BEGIN
+  IF uid IS NULL THEN RAISE EXCEPTION 'Sign in to delete a payment'; END IF;
+  SELECT * INTO loan FROM public.loans_and_dues WHERE id = p_loan_id AND user_id = uid FOR UPDATE;
+  IF NOT FOUND OR loan.repaid IS DISTINCT FROM p_expected_repaid THEN RAISE EXCEPTION 'This loan changed elsewhere. Refresh and try again.'; END IF;
+  SELECT * INTO movement FROM public.expenses WHERE id = p_expense_id AND user_id = uid FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Payment not found'; END IF;
+  IF (movement.account = 'cash' AND NOT COALESCE((SELECT cash_enabled FROM public.account_permissions WHERE user_id = uid), false)) OR
+     (movement.account = 'savings' AND NOT COALESCE((SELECT savings_enabled FROM public.account_permissions WHERE user_id = uid), false)) THEN RAISE EXCEPTION 'This account is not enabled'; END IF;
+  IF movement.amount IS DISTINCT FROM p_expected_amount OR movement.entry_date IS DISTINCT FROM p_expected_date OR
+     movement.account IS DISTINCT FROM p_expected_account OR movement.payment_method IS DISTINCT FROM p_expected_method THEN
+    RAISE EXCEPTION 'This payment changed elsewhere. Refresh and try again.';
+  END IF;
+  SELECT id INTO link_id FROM public.loan_existing_movements WHERE user_id = uid AND loan_id = loan.id AND expense_id = movement.id;
+  IF (link_id IS NULL AND (movement.notes IS DISTINCT FROM 'Loan record: ' || loan.id::text OR movement.category NOT IN ('Loan funds movement', 'Loan: Money lent', 'Loan: Money borrowed', 'Loan: EMI / loan'))) OR
+     movement.transaction_type IS DISTINCT FROM (CASE WHEN loan.record_kind = 'lent' THEN 'income' ELSE 'expense' END) OR movement.is_transfer THEN
+    RAISE EXCEPTION 'This transaction is not a payment for this loan';
+  END IF;
+  IF loan.repaid < movement.amount THEN RAISE EXCEPTION 'The payment history is incomplete. Refresh and check the loan before deleting.'; END IF;
+  IF link_id IS NOT NULL THEN DELETE FROM public.loan_existing_movements WHERE id = link_id AND user_id = uid; END IF;
+  DELETE FROM public.expenses WHERE id = movement.id AND user_id = uid;
+  UPDATE public.loans_and_dues SET repaid = repaid - movement.amount WHERE id = loan.id AND user_id = uid RETURNING * INTO loan;
+  RETURN jsonb_build_object('loan', to_jsonb(loan));
+END;
+$$;
+REVOKE ALL ON FUNCTION public.delete_loan_payment(uuid, uuid, numeric, numeric, date, text, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.delete_loan_payment(uuid, uuid, numeric, numeric, date, text, text) TO authenticated;
+
+-- Delete a loan and its associated ledger movements in one transaction.
+CREATE OR REPLACE FUNCTION public.delete_loan_with_transactions(p_loan_id uuid, p_expected_amount numeric, p_expected_repaid numeric)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+  uid uuid := auth.uid();
+  loan public.loans_and_dues%ROWTYPE;
+  movement public.expenses%ROWTYPE;
+  movement_ids uuid[] := ARRAY[]::uuid[];
+BEGIN
+  IF uid IS NULL THEN RAISE EXCEPTION 'Sign in to delete a loan'; END IF;
+  SELECT * INTO loan FROM public.loans_and_dues WHERE id = p_loan_id AND user_id = uid FOR UPDATE;
+  IF NOT FOUND OR loan.amount IS DISTINCT FROM p_expected_amount OR loan.repaid IS DISTINCT FROM p_expected_repaid THEN
+    RAISE EXCEPTION 'This loan changed elsewhere. Refresh and try again.';
+  END IF;
+  FOR movement IN
+    SELECT e.* FROM public.expenses e
+    WHERE e.user_id = uid AND (
+      (e.notes = 'Loan record: ' || loan.id::text AND e.category IN ('Loan funds movement', 'Loan: Money lent', 'Loan: Money borrowed', 'Loan: EMI / loan'))
+      OR EXISTS (SELECT 1 FROM public.loan_existing_movements l WHERE l.user_id = uid AND l.loan_id = loan.id AND l.expense_id = e.id)
+    ) ORDER BY e.id FOR UPDATE OF e
+  LOOP
+    IF (movement.account = 'cash' AND NOT COALESCE((SELECT cash_enabled FROM public.account_permissions WHERE user_id = uid), false)) OR
+       (movement.account = 'savings' AND NOT COALESCE((SELECT savings_enabled FROM public.account_permissions WHERE user_id = uid), false)) THEN
+      RAISE EXCEPTION 'Enable all accounts used by this loan before deleting it.';
+    END IF;
+    movement_ids := array_append(movement_ids, movement.id);
+  END LOOP;
+  DELETE FROM public.loan_existing_movements WHERE user_id = uid AND loan_id = loan.id;
+  DELETE FROM public.expenses WHERE user_id = uid AND id = ANY(movement_ids);
+  DELETE FROM public.loans_and_dues WHERE id = loan.id AND user_id = uid;
+  RETURN jsonb_build_object('deleted_transaction_ids', to_jsonb(movement_ids));
+END;
+$$;
+REVOKE ALL ON FUNCTION public.delete_loan_with_transactions(uuid, numeric, numeric) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.delete_loan_with_transactions(uuid, numeric, numeric) TO authenticated;

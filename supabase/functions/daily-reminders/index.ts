@@ -1,5 +1,6 @@
 import { withSupabase } from 'npm:@supabase/server@1';
 import { importPKCS8, SignJWT } from 'npm:jose@6';
+import { loanRemindersForDate, type ReminderLoan } from '../_shared/loanReminders.ts';
 
 // Retry once on a temporary server or network failure. Delivery cannot be
 // confirmed if the connection drops after Firebase accepts a request.
@@ -70,7 +71,25 @@ export default {
         const pendingTasks = pendingFor(today, weekday).length;
         const completed = completedFor(today);
         const pendingHabits = (habitResult.data || []).filter(row => (row.weekdays || []).includes(weekday) && !completed.has(row.id)).length;
+        let loanReminders: ReturnType<typeof loanRemindersForDate> = [];
+        if (hour === '09' && Number(part('minute')) < 15) {
+          try {
+            const loans: ReminderLoan[] = [];
+            const pageSize = 1000;
+            for (let offset = 0; ; offset += pageSize) {
+              const result = await db.from('loans_and_dues').select('id,person,record_kind,amount,repaid,lent_date,due_date,end_date,payment_day').eq('user_id', pref.user_id).order('id').range(offset, offset + pageSize - 1);
+              if (result.error) throw result.error;
+              loans.push(...(result.data || []) as ReminderLoan[]);
+              if (!result.data || result.data.length < pageSize) break;
+            }
+            loanReminders = loanRemindersForDate(loans, today);
+          } catch (error) {
+            // A missing loans setup must not prevent unrelated reminders.
+            console.error('Loan reminders unavailable', pref.user_id, error instanceof Error ? error.message : 'Could not load loans');
+          }
+        }
         const reminders = [
+          ...loanReminders,
           ...targets.flatMap(target => pendingFor(target.date, target.weekday).filter(row => row.start_time?.slice(0, 5) === target.time)
             .map(row => ({ date: target.date, kind: `task-start:${row.id}`, title: 'Task starting soon', body: row.title, view: 'tasks' }))),
           ...targets.flatMap(target => (habitResult.data || []).filter(row => (row.weekdays || []).includes(target.weekday) && !completedFor(target.date).has(row.id) && row.start_time?.slice(0, 5) === target.time)

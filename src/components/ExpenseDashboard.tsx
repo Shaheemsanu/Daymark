@@ -25,11 +25,14 @@ import {
   TrendingUp,
   Wallet,
   RotateCcw,
+  HandCoins,
+  ArrowLeft,
   X
 } from 'lucide-react';
 import { Expense, ExpenseCategory, BudgetConfig, PaymentMethod, SpendType, CategoryInfo } from '../types';
 import { formatDisplayDate } from '../utils/dateFormatting';
 import { getAccountBalance, getBalanceAdjustmentNote, isAccountTransactionVisible } from '../utils/accounts';
+import { isLoanMovement, LOAN_MOVEMENT_CATEGORIES } from '../utils/loanMovement';
 import { copyText } from '../utils/clipboard';
 import {
   CATEGORIES,
@@ -38,6 +41,7 @@ import {
   formatDate,
 } from '../utils/constants';
 import { CategoryDonutChart, DailySpendingTrendChart, FinancialHealth50_30_20 } from './ExpenseCharts';
+import Receivables from './Receivables';
 
 const FinancialAnalyticsDashboard = lazy(() => import('./FinancialAnalyticsDashboard'));
 
@@ -47,6 +51,9 @@ interface ExpenseDashboardProps {
   onAddExpense: (expense: Omit<Expense, 'id' | 'createdAt'>) => Promise<boolean | string>;
   onUpdateExpense: (id: string, expense: Partial<Expense>) => Promise<boolean | string>;
   onDeleteExpense: (id: string) => Promise<boolean | string>;
+  onLoanTransactionAdded?: (expense: Expense) => void;
+  onLoanTransactionUpdated?: (expense: Expense) => void;
+  onLoanTransactionDeleted?: (id: string) => void;
   onUpdateBudget: (budget: BudgetConfig) => void;
   onExportCSV: () => void;
   customCategories: Record<string, CategoryInfo>;
@@ -110,6 +117,9 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
   onAddExpense,
   onUpdateExpense,
   onDeleteExpense,
+  onLoanTransactionAdded,
+  onLoanTransactionUpdated,
+  onLoanTransactionDeleted,
   onUpdateBudget,
   onExportCSV,
   customCategories,
@@ -135,6 +145,8 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
 
   // Tab switcher state for Analytics & Ledger (default to Transaction Ledger as first tab)
   const [activeTab, setActiveTab] = useState<'ledger' | 'classification' | 'category' | 'velocity' | 'account_report'>('ledger');
+  const [showLoans, setShowLoans] = useState(false);
+  useDialogBack(showLoans, () => setShowLoans(false));
   useEffect(() => {
     if ((!analyticsEnabled && ['classification', 'category', 'velocity'].includes(activeTab)) ||
         (!accountIntelligenceEnabled && activeTab === 'account_report')) setActiveTab('ledger');
@@ -343,7 +355,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
   // Daily, Weekly, Monthly Spends specifically for Expense Account
   const dailyExpenseSpend = useMemo(() => {
     return expenseAccTransactions
-      .filter(e => e.date === referenceDateIso && e.type !== 'income' && !e.isTransfer)
+      .filter(e => e.date === referenceDateIso && e.type !== 'income' && !e.isTransfer && !isLoanMovement(e))
       .reduce((sum, e) => sum + e.amount, 0);
   }, [expenseAccTransactions, referenceDateIso]);
 
@@ -352,7 +364,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
     d.setDate(d.getDate() - 6);
     const sevenDaysAgoIso = formatDate(d);
     return expenseAccTransactions
-      .filter(e => e.date >= sevenDaysAgoIso && e.date <= referenceDateIso && e.type !== 'income' && !e.isTransfer)
+      .filter(e => e.date >= sevenDaysAgoIso && e.date <= referenceDateIso && e.type !== 'income' && !e.isTransfer && !isLoanMovement(e))
       .reduce((sum, e) => sum + e.amount, 0);
   }, [expenseAccTransactions, referenceDateIso]);
 
@@ -361,7 +373,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
     previousDay.setDate(previousDay.getDate() - 1);
     const previousDayIso = formatDate(previousDay);
     return expenseAccTransactions
-      .filter(e => e.date === previousDayIso && e.type !== 'income' && !e.isTransfer)
+      .filter(e => e.date === previousDayIso && e.type !== 'income' && !e.isTransfer && !isLoanMovement(e))
       .reduce((sum, e) => sum + e.amount, 0);
   }, [expenseAccTransactions, referenceDateIso]);
 
@@ -373,7 +385,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
     const startIso = formatDate(start);
     const endIso = formatDate(end);
     return expenseAccTransactions
-      .filter(e => e.date >= startIso && e.date <= endIso && e.date <= referenceDateIso && e.type !== 'income' && !e.isTransfer)
+      .filter(e => e.date >= startIso && e.date <= endIso && e.date <= referenceDateIso && e.type !== 'income' && !e.isTransfer && !isLoanMovement(e))
       .reduce((sum, e) => sum + e.amount, 0);
   }, [expenseAccTransactions, referenceDateIso]);
 
@@ -381,7 +393,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
     return expenseAccTransactions
       .filter(e => {
         const eDate = new Date(e.date + 'T00:00:00');
-        return eDate.getFullYear() === currentYear && eDate.getMonth() === currentMonth && e.date <= referenceDateIso && e.type !== 'income' && !e.isTransfer;
+        return eDate.getFullYear() === currentYear && eDate.getMonth() === currentMonth && e.date <= referenceDateIso && e.type !== 'income' && !e.isTransfer && !isLoanMovement(e);
       })
       .reduce((sum, e) => sum + e.amount, 0);
   }, [expenseAccTransactions, currentYear, currentMonth, referenceDateIso]);
@@ -393,7 +405,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
     return expenseAccTransactions
       .filter(e => {
         const eDate = new Date(`${e.date}T00:00:00`);
-        return eDate.getFullYear() === previousYear && eDate.getMonth() === previousMonth && e.type !== 'income' && !e.isTransfer;
+        return eDate.getFullYear() === previousYear && eDate.getMonth() === previousMonth && e.type !== 'income' && !e.isTransfer && !isLoanMovement(e);
       })
       .reduce((sum, e) => sum + e.amount, 0);
   }, [expenseAccTransactions, currentYear, currentMonth]);
@@ -407,7 +419,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
       day.setDate(today.getDate() - daysAgo);
       const dayIso = formatDate(day);
       const transactions = expenseAccTransactions
-        .filter(e => e.date === dayIso && e.type !== 'income' && !e.isTransfer);
+        .filter(e => e.date === dayIso && e.type !== 'income' && !e.isTransfer && !isLoanMovement(e));
       if (transactions.length === 0) continue;
       const spend = transactions.reduce((sum, e) => sum + e.amount, 0);
       total += spend - dailyTarget;
@@ -428,7 +440,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
       const startIso = formatDate(start);
       const endIso = formatDate(end);
       const transactions = expenseAccTransactions
-        .filter(e => e.date >= startIso && e.date <= endIso && e.date <= referenceDateIso && e.type !== 'income' && !e.isTransfer);
+        .filter(e => e.date >= startIso && e.date <= endIso && e.date <= referenceDateIso && e.type !== 'income' && !e.isTransfer && !isLoanMovement(e));
       if (transactions.length === 0) continue;
       const spend = transactions.reduce((sum, e) => sum + e.amount, 0);
       total += spend - weeklyTarget;
@@ -443,7 +455,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
       const transactions = expenseAccTransactions
         .filter(e => {
           const date = new Date(`${e.date}T00:00:00`);
-          return date.getFullYear() === month.getFullYear() && date.getMonth() === month.getMonth() && e.date <= referenceDateIso && e.type !== 'income' && !e.isTransfer;
+          return date.getFullYear() === month.getFullYear() && date.getMonth() === month.getMonth() && e.date <= referenceDateIso && e.type !== 'income' && !e.isTransfer && !isLoanMovement(e);
         });
       if (transactions.length === 0) continue;
       const spend = transactions.reduce((sum, e) => sum + e.amount, 0);
@@ -503,7 +515,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
 
   const thisMonthSpendTotal = useMemo(() => {
     return thisMonthTransactions
-      .filter(e => e.type !== 'income' && !e.isTransfer)
+      .filter(e => e.type !== 'income' && !e.isTransfer && !isLoanMovement(e))
       .reduce((sum, e) => sum + e.amount, 0);
   }, [thisMonthTransactions]);
 
@@ -658,7 +670,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
   ]);
 
   const classificationAnalyticsExpenses = useMemo(() => expenses.filter(expense => {
-    if (!isAccountTransactionVisible(expense, accountVisibility)) return false;
+    if (!isAccountTransactionVisible(expense, accountVisibility) || isLoanMovement(expense)) return false;
     const date = new Date(`${expense.date}T00:00:00`);
     if (analyticsAccount !== 'all' && (expense.account || 'expense') !== analyticsAccount) return false;
     if (classificationPeriod !== 'custom' && expense.date > referenceDateIso) return false;
@@ -673,7 +685,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
   }), [expenses, accountVisibility.cash, accountVisibility.savings, analyticsAccount, classificationPeriod, analyticsStartDate, analyticsEndDate, currentYear, currentMonth, referenceDateIso]);
 
   const categoryAnalyticsExpenses = useMemo(() => expenses.filter(expense => {
-    if (!isAccountTransactionVisible(expense, accountVisibility)) return false;
+    if (!isAccountTransactionVisible(expense, accountVisibility) || isLoanMovement(expense)) return false;
     const date = new Date(`${expense.date}T00:00:00`);
     if (analyticsAccount !== 'all' && (expense.account || 'expense') !== analyticsAccount) return false;
     if (categoryPeriod !== 'custom' && categoryPeriod !== 'all' && expense.date > referenceDateIso) return false;
@@ -698,7 +710,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
 
   const velocityAnalyticsExpenses = useMemo(() => {
     return expenses.filter(expense =>
-      isAccountTransactionVisible(expense, accountVisibility) &&
+      isAccountTransactionVisible(expense, accountVisibility) && !isLoanMovement(expense) &&
       expense.date >= velocityStartIso && expense.date <= velocityEndIso && expense.type !== 'income' && !expense.isTransfer &&
       (analyticsAccount === 'all' || (expense.account || 'expense') === analyticsAccount) &&
       (velocityCategory === 'all' || expense.category === velocityCategory) &&
@@ -1109,6 +1121,8 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
     }
   };
 
+  if (showLoans) return <div className="space-y-4 pb-24"><button type="button" onClick={() => setShowLoans(false)} className="inline-flex min-h-10 items-center gap-2 rounded-lg px-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"><ArrowLeft className="h-4 w-4" />Back to finance</button><Receivables currency={currencySymbol} today={formatDate(new Date())} expenses={expenses} accountVisibility={accountVisibility} onTransactionAdded={onLoanTransactionAdded} onTransactionUpdated={onLoanTransactionUpdated} onTransactionDeleted={onLoanTransactionDeleted} /></div>;
+
   return (
     <div className="space-y-6 pb-24 relative">
       {/* Top Banner */}
@@ -1137,6 +1151,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
               <span className="hidden sm:inline ml-1.5">Categories ({Object.keys(categoriesMap).length})</span>
             </button>
 
+
             <button
               onClick={openBudgetModal}
               className="flex items-center justify-center sm:justify-start w-9 h-9 sm:w-auto sm:px-3 sm:py-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full sm:rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors shadow-2xs cursor-pointer"
@@ -1145,6 +1160,8 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
               <SlidersHorizontal className="w-4 h-4 sm:w-3.5 sm:h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
               <span className="hidden sm:inline ml-1.5">Budget: {formatCurrency(monthlyBudget, currencySymbol)}</span>
             </button>
+
+            <button type="button" title="Loans and dues" aria-label="Loans and dues" onClick={() => setShowLoans(true)} className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 sm:w-auto sm:rounded-xl sm:px-3"><HandCoins className="h-4 w-4 text-indigo-500" /><span className="ml-1.5 hidden sm:inline">Loans &amp; dues</span></button>
 
             <button
               onClick={handleOpenAdd}
@@ -1364,6 +1381,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
             >
               <span className="sm:hidden">📋 Ledger ({expenses.length})</span><span className="hidden sm:inline">📋 Transaction Ledger ({expenses.length})</span>
             </button>
+
 
             {analyticsEnabled && (<button
               type="button"
@@ -1706,7 +1724,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                   className="w-full min-w-0 text-xs py-2.5 sm:w-auto sm:py-1.5 px-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-200 focus:outline-none"
                 >
                   <option value="all">All Categories</option>
-                  {Object.keys(categoriesMap).map(cat => (
+                  {[...new Set([...Object.keys(categoriesMap), ...LOAN_MOVEMENT_CATEGORIES])].map(cat => (
                     <option key={cat} value={cat}>
                       {cat}
                     </option>

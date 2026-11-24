@@ -1,6 +1,7 @@
 import { BudgetConfig, Expense } from '../types';
 import { Account, getAccountBalance } from './accounts';
 import { buildExpenseReport, reportWeekStart, shiftReportDate } from './expenseReports';
+import { isLoanMovement } from './loanMovement';
 
 export type AnalyticsFilters = { start: string; end: string; account: Account | 'all'; category: string; payment?: string; type: 'all' | 'income' | 'expense'; grouping: 'daily' | 'weekly' | 'monthly' | 'yearly' };
 export function automaticChartGrouping(start: string, end: string): AnalyticsFilters['grouping'] {
@@ -23,7 +24,7 @@ export const transferTarget = (expense: Expense): Account => expense.transferToA
 export const sourceAccount = (expense: Expense): Account => expense.account || (isInternalTransfer(expense) ? 'savings' : 'expense');
 const isAdjustment = (expense: Expense) => /^(opening balance|balance adjustment)$/i.test(expense.category);
 export const isCardRepayment = (expense: Expense) => /^credit card (payment|repayment)$/i.test(expense.category);
-export const isOperatingTransaction = (expense: Expense) => Number.isFinite(expense.amount) && !isInternalTransfer(expense) && !isAdjustment(expense) && !isCardRepayment(expense);
+export const isOperatingTransaction = (expense: Expense) => Number.isFinite(expense.amount) && !isInternalTransfer(expense) && !isAdjustment(expense) && !isCardRepayment(expense) && !isLoanMovement(expense);
 const monthDays = (month: string) => new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).getUTCDate();
 
 export function resolveAnalyticsRange(preset: string, reference: string) {

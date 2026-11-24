@@ -23,6 +23,7 @@ import { normalizeWellnessGoals } from '../utils/wellnessGoals';
 import { orderTasks } from '../utils/taskOrder';
 import { orderHabits } from '../utils/habitOrder';
 import { getAccountBalance, isAccountTransactionVisible } from '../utils/accounts';
+import { isLoanMovement } from '../utils/loanMovement';
 import { formatCurrency, formatDate, CATEGORIES } from '../utils/constants';
 import { WellnessNotes } from './WellnessNotes';
 
@@ -171,8 +172,8 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
   const dayOutflow = dayExpenses.filter(e => !isTransferEntry(e) && (e.type || 'expense') === 'expense').reduce((sum, e) => sum + e.amount, 0);
   const dayInflow = dayExpenses.filter(e => !isTransferEntry(e) && e.type === 'income').reduce((sum, e) => sum + e.amount, 0);
   const dayTransfers = dayExpenses.filter(isTransferEntry).reduce((sum, e) => sum + e.amount, 0);
-  const dayTotalSpent = dayOutflow; // for backwards compatibility calculations
-  const dailyTargetBalance = Math.round(((budget.dailyBudget || budget.monthlyBudget / 30) - dayOutflow) * 100) / 100;
+  const dayTotalSpent = dayExpenses.filter(e => !isTransferEntry(e) && !isLoanMovement(e) && (e.type || 'expense') === 'expense').reduce((sum, e) => sum + e.amount, 0);
+  const dailyTargetBalance = Math.round(((budget.dailyBudget || budget.monthlyBudget / 30) - dayTotalSpent) * 100) / 100;
 
   const dayTasks = (taskOrder?.length ? orderTasks(tasks, taskOrder) : tasks).filter(t => t.date === selectedDate);
   const filteredDayTasks = dayTasks.filter(task => task.title.toLowerCase().includes(taskSearch.trim().toLowerCase()) && (taskPriorityFilter === 'all' || task.priority === taskPriorityFilter) && (taskCategoryFilter === 'all' || (task.category || 'General') === taskCategoryFilter));
@@ -282,7 +283,7 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
             );
             const habitsDoneForDay = featureVisibility.habits ? habitsForDay.filter(habit => habit.completedDates.includes(item.iso)).length : 0;
             const tasksDoneForDay = featureVisibility.tasks ? tasks.filter(t => t.date === item.iso && t.completed).length : 0;
-            const spendForDay = expenses.filter(e => e.date === item.iso && isAccountTransactionVisible(e, accountVisibility)).reduce((sum, e) => sum + e.amount, 0);
+            const spendForDay = expenses.filter(e => e.date === item.iso && isAccountTransactionVisible(e, accountVisibility) && !isTransferEntry(e) && !isLoanMovement(e) && e.type !== 'income').reduce((sum, e) => sum + e.amount, 0);
 
             return (
               <button
@@ -362,10 +363,10 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
           <div className="w-full shrink-0 h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
             <div
               className={`h-full rounded-full transition-all duration-300 ${
-                dayOutflow > (budget.dailyBudget || budget.monthlyBudget / 30) ? 'bg-amber-500' : 'bg-emerald-500'
+                dayTotalSpent > (budget.dailyBudget || budget.monthlyBudget / 30) ? 'bg-amber-500' : 'bg-emerald-500'
               }`}
               style={{
-                width: `${Math.min(100, (dayOutflow / Math.max(1, budget.dailyBudget || budget.monthlyBudget / 30)) * 100)}%`
+                width: `${Math.min(100, (dayTotalSpent / Math.max(1, budget.dailyBudget || budget.monthlyBudget / 30)) * 100)}%`
               }}
             />
           </div>
@@ -374,7 +375,7 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
               <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">{dailyTargetBalance < 0 ? 'Over target' : dailyTargetBalance > 0 ? 'Remaining balance' : 'On target'}</span>
               <strong className={`break-words text-lg font-semibold tabular-nums ${dailyTargetBalance < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>{formatCurrency(Math.abs(dailyTargetBalance), budget.currency)}</strong>
             </div>
-            <p className="text-[10px] text-slate-500 dark:text-slate-400">{Math.round(dayOutflow / Math.max(1, budget.dailyBudget || budget.monthlyBudget / 30) * 100)}% of daily target used</p>
+            <p className="text-[10px] text-slate-500 dark:text-slate-400">{Math.round(dayTotalSpent / Math.max(1, budget.dailyBudget || budget.monthlyBudget / 30) * 100)}% of daily target used</p>
             <div className="flex min-h-6 flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-1 dark:border-slate-800/80 text-xs text-slate-500">
               <span className="text-[10px]">Target {formatCurrency(budget.dailyBudget || budget.monthlyBudget / 30, budget.currency)}</span>
               <button

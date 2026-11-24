@@ -31,6 +31,8 @@ Apply `migrations/20261119000004_wellness_permission.sql` after the feature perm
 
 This directory contains the database schema and initialization instructions for **Daymark — Daily Todo & Habit Tracker**.
 
+For a new Loans and dues setup in the SQL Editor, run `migrations/20261124000001_loans_and_dues.sql`. It includes the table, schedule fields, permissions, and transaction functions. The existing expenses and account permissions tables must already be set up. New recorded movements update the selected enabled account and are excluded from operating income and spending. EMI payments are recorded as a single loan movement without an interest/principal split. Existing workspace JSON exports do not include loan records.
+
 ---
 
 ## 1. Quick Setup in Supabase Dashboard

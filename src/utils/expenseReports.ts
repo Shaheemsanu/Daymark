@@ -1,4 +1,5 @@
 import { Expense } from '../types';
+import { isLoanMovement } from './loanMovement';
 
 const DAY = 86400000;
 export const shiftReportDate = (date: string, days: number) => new Date(Date.parse(`${date}T00:00:00Z`) + days * DAY).toISOString().slice(0, 10);
@@ -6,7 +7,7 @@ export const reportWeekStart = (date: string) => shiftReportDate(date, -((new Da
 
 export function isReportExpense(expense: Expense) {
   const category = expense.category.toLowerCase();
-  return (expense.type || 'expense') === 'expense' && !expense.isTransfer && !category.includes('transfer')
+  return (expense.type || 'expense') === 'expense' && !expense.isTransfer && !isLoanMovement(expense) && !category.includes('transfer')
     && !['opening balance', 'balance adjustment'].includes(category)
     && Number.isFinite(expense.amount) && expense.amount > 0;
 }

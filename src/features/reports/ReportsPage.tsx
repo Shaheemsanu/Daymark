@@ -1,3 +1,4 @@
+import { isLoanMovement } from '../../utils/loanMovement';
 import React, { useState, useMemo, useEffect } from 'react';
 import {
   ResponsiveContainer,
@@ -152,7 +153,7 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
   const wellnessDays = useMemo(() => getReportDays(wellnessRange, wellnessStartDate, wellnessEndDate), [wellnessRange, wellnessStartDate, wellnessEndDate]);
 
   const filteredExpenses = useMemo(() => expenses.filter(expense =>
-    expenseDays.includes(expense.date) &&
+    !isLoanMovement(expense) && expenseDays.includes(expense.date) &&
     (expenseCategoryFilter === 'all' || expense.category === expenseCategoryFilter) &&
     (expenseAccountFilter === 'all' || (expense.account || 'expense') === expenseAccountFilter) &&
     (expenseFlowFilter === 'all' || (expense.type || 'expense') === expenseFlowFilter)
