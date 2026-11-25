@@ -12,6 +12,28 @@ beforeEach(() => { vi.mocked(receivablesService.list).mockResolvedValue([loan]);
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
 
 describe('money to receive', () => {
+  it('keeps add-record drafts separate for each loan type', async () => {
+    render(<Receivables currency="INR" today="2026-11-24" />);
+    await screen.findByText('Asha', { selector: 'h5' });
+    fireEvent.click(screen.getByRole('button', { name: 'Add record' }));
+    fireEvent.change(screen.getByLabelText('Person'), { target: { value: 'Lent draft' } });
+    fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '250' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Close add dialog' }));
+    fireEvent.click(screen.getByRole('tab', { name: /Money borrowed/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add record' }));
+    expect(screen.getByLabelText('Person')).toHaveValue('');
+    expect(screen.getByLabelText('Amount')).toHaveValue(null);
+    fireEvent.change(screen.getByLabelText('Person'), { target: { value: 'Borrowed draft' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Close add dialog' }));
+    fireEvent.click(screen.getByRole('tab', { name: /EMI \/ loan/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add record' }));
+    expect(screen.getByLabelText('Lender or provider')).toHaveValue('');
+    fireEvent.click(screen.getByRole('button', { name: 'Close add dialog' }));
+    fireEvent.click(screen.getByRole('tab', { name: /Money lent/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add record' }));
+    expect(screen.getByLabelText('Person')).toHaveValue('Lent draft');
+    expect(screen.getByLabelText('Amount')).toHaveValue(250);
+  });
   it('keeps the records and analytics view independent for each loan type', async () => {
     render(<Receivables currency="INR" today="2026-11-24" />);
     await screen.findByText('Asha', { selector: 'h5' });
