@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { AppProfile } from '../lib/types';
 import { PushSettings } from '../features/notifications/PushSettings';
 import { ForegroundPush } from '../features/notifications/ForegroundPush';
@@ -50,9 +50,47 @@ export const Layout: React.FC<LayoutProps> = ({
   const [isSignOutConfirmOpen, setIsSignOutConfirmOpen] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [signOutError, setSignOutError] = useState<string | null>(null);
+  const [chatViewport, setChatViewport] = useState<{ top: number; height: number; keyboardOpen: boolean } | null>(null);
+
+  useEffect(() => {
+    if (currentView !== 'ai' || !window.visualViewport) { setChatViewport(null); return; }
+    const viewport = window.visualViewport;
+    let focused = false;
+    let restingHeight = viewport.height;
+    const update = () => {
+      if (!focused || window.innerWidth >= 768) {
+        if (!focused) restingHeight = viewport.height;
+        setChatViewport(null);
+        return;
+      }
+      setChatViewport({ top: viewport.offsetTop, height: viewport.height, keyboardOpen: restingHeight - viewport.height > 120 });
+    };
+    const onFocus = (event: FocusEvent) => {
+      if (!(event.target instanceof HTMLTextAreaElement) || event.target.getAttribute('aria-label') !== 'Message Daymark AI') return;
+      focused = true;
+      update();
+    };
+    const onBlur = (event: FocusEvent) => {
+      if (!(event.target instanceof HTMLTextAreaElement) || event.target.getAttribute('aria-label') !== 'Message Daymark AI') return;
+      focused = false;
+      setChatViewport(null);
+    };
+    document.addEventListener('focusin', onFocus);
+    document.addEventListener('focusout', onBlur);
+    viewport.addEventListener('resize', update);
+    viewport.addEventListener('scroll', update);
+    window.addEventListener('resize', update);
+    return () => {
+      document.removeEventListener('focusin', onFocus);
+      document.removeEventListener('focusout', onBlur);
+      viewport.removeEventListener('resize', update);
+      viewport.removeEventListener('scroll', update);
+      window.removeEventListener('resize', update);
+    };
+  }, [currentView]);
 
   return (
-    <div className={`${currentView === 'ai' ? 'h-dvh overflow-hidden md:h-auto md:min-h-screen md:overflow-visible' : 'min-h-screen'} bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100 flex flex-col selection:bg-slate-200 dark:selection:bg-slate-800`}>
+    <div style={chatViewport ? { position: 'fixed', top: chatViewport.top, left: 0, width: '100%', height: chatViewport.height } : undefined} className={`${currentView === 'ai' ? 'h-dvh overflow-hidden md:h-auto md:min-h-screen md:overflow-visible' : 'min-h-screen'} bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100 flex flex-col selection:bg-slate-200 dark:selection:bg-slate-800`}>
       {/* Top Header conforming to 3-zone contract */}
       <header className="sticky top-0 z-40 shrink-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200 dark:border-slate-800">
         <div className="max-w-7xl mx-auto flex items-center justify-between gap-2 sm:gap-6 px-3 sm:px-6 py-3">
@@ -203,7 +241,7 @@ export const Layout: React.FC<LayoutProps> = ({
       </header>
 
       {/* Main Viewport */}
-      <main className={`flex-1 max-w-7xl w-full mx-auto ${currentView === 'ai' ? 'flex min-h-0 flex-col overflow-hidden p-2 pb-[calc(4.5rem+env(safe-area-inset-bottom))] md:block md:overflow-visible md:px-6 md:pt-2 md:pb-6 lg:px-8 lg:pb-8' : 'p-4 sm:p-6 lg:p-8 pb-24 md:pb-8'}`}>
+      <main className={`flex-1 max-w-7xl w-full mx-auto ${currentView === 'ai' ? `flex min-h-0 flex-col overflow-hidden p-2 ${chatViewport?.keyboardOpen ? 'pb-2' : 'pb-[calc(4.5rem+env(safe-area-inset-bottom))]'} md:block md:overflow-visible md:px-6 md:pt-2 md:pb-6 lg:px-8 lg:pb-8` : 'p-4 sm:p-6 lg:p-8 pb-24 md:pb-8'}`}>
         {currentView === 'history' && (
           <section aria-labelledby="settings-heading" className="mb-6">
             <h1 id="settings-heading" className="text-2xl font-bold tracking-tight">Settings</h1>
@@ -229,7 +267,7 @@ export const Layout: React.FC<LayoutProps> = ({
       </main>
 
       {/* Mobile Fixed Bottom Navigation Bar (Thumb-friendly touch targets) */}
-      <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 md:hidden flex items-center justify-around h-[calc(4rem+env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] px-2 shadow-xl">
+      <nav className={`${chatViewport?.keyboardOpen ? 'hidden' : 'flex'} fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 md:hidden items-center justify-around h-[calc(4rem+env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] px-2 shadow-xl`}>
         <button
           onClick={() => onSelectView('daily')}
           className={`flex flex-col items-center justify-center flex-1 h-full py-1 transition-colors ${

@@ -12,6 +12,33 @@ beforeEach(() => { vi.mocked(receivablesService.list).mockResolvedValue([loan]);
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
 
 describe('money to receive', () => {
+  it.each(['Money lent', 'Money borrowed', 'EMI / loan'])('shows the relevant message and account fields for %s', async tabName => {
+    render(<Receivables currency="INR" today="2026-11-24" />);
+    await screen.findByText('Asha');
+    fireEvent.click(screen.getByRole('tab', { name: new RegExp(tabName.replace('/', '\\/')) }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add record' }));
+    const dialog = screen.getByRole('dialog');
+    const checkbox = within(dialog).getByRole('checkbox');
+    if (checkbox instanceof HTMLInputElement && checkbox.checked) fireEvent.click(checkbox);
+    expect(within(dialog).getByText(/initial transaction won’t be recorded/)).toBeInTheDocument();
+    expect(within(dialog).queryByLabelText(/Paid from account|Received into account/)).toBeNull();
+    fireEvent.click(checkbox);
+    expect(within(dialog).getByText(/adds it to your transaction ledger/)).toBeInTheDocument();
+    expect(within(dialog).getByLabelText(/Paid from account|Received into account/)).toBeInTheDocument();
+  });
+  it.each([
+    ['Money lent', 'Add money lent'],
+    ['Money borrowed', 'Add money borrowed'],
+    ['EMI / loan', 'Add emi / loan'],
+  ])('opens and closes an add dialog for %s', async (tabName, dialogName) => {
+    render(<Receivables currency="INR" today="2026-11-24" />);
+    await screen.findByText('Asha');
+    fireEvent.click(screen.getByRole('tab', { name: new RegExp(tabName.replace('/', '\\/')) }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add record' }));
+    expect(screen.getByRole('dialog', { name: dialogName })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Close add dialog' }));
+    expect(screen.queryByRole('dialog', { name: dialogName })).toBeNull();
+  });
   it('confirms loan deletion and shows progress until it completes', async () => {
     const confirmation = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true);
     const onTransactionDeleted = vi.fn();
@@ -80,15 +107,28 @@ describe('money to receive', () => {
     expect(await within(record).findByText('INR 350.00')).toBeInTheDocument();
   });
   it('edits a loan without changing its recorded movement', async () => {
-    vi.mocked(receivablesService.update).mockResolvedValue({ ...loan, person: 'Anu', due_date: '2026-12-05' });
+    vi.mocked(receivablesService.update).mockResolvedValue({ loan: { ...loan, person: 'Anu', due_date: '2026-12-05' }, transaction: null });
     render(<Receivables currency="INR" today="2026-11-24" />);
     const record = (await screen.findByText('Asha')).closest('article')!;
     fireEvent.click(within(record).getByRole('button', { name: 'Edit Asha' }));
     fireEvent.change(within(record).getByLabelText('Edit name'), { target: { value: 'Anu' } });
     fireEvent.change(within(record).getByLabelText('Edit due date'), { target: { value: '2026-12-05' } });
     fireEvent.click(within(record).getByRole('button', { name: 'Save changes' }));
-    await waitFor(() => expect(receivablesService.update).toHaveBeenCalledWith(loan, expect.objectContaining({ person: 'Anu', amount: 500, due_date: '2026-12-05' })));
+    await waitFor(() => expect(receivablesService.update).toHaveBeenCalledWith(loan, expect.objectContaining({ person: 'Anu', amount: 500, due_date: '2026-12-05' }), null));
     expect(await screen.findByText('Anu')).toBeInTheDocument();
+  });
+  it('updates the original ledger movement with the edited amount and date', async () => {
+    const transaction = { id: 'original', title: 'Money lent to Asha', amount: 500, category: 'Loan: Money lent', date: '2026-11-01', paymentMethod: 'UPI / QR', account: 'expense' as const, type: 'expense' as const, notes: 'Loan record: 1', createdAt: 1 };
+    const onTransactionUpdated = vi.fn();
+    vi.mocked(receivablesService.update).mockResolvedValue({ loan: { ...loan, amount: 600, lent_date: '2026-11-02' }, transaction: { ...transaction, amount: 600, date: '2026-11-02' } });
+    render(<Receivables currency="INR" today="2026-11-24" expenses={[transaction]} onTransactionUpdated={onTransactionUpdated} />);
+    const record = (await screen.findByText('Asha')).closest('article')!;
+    fireEvent.click(within(record).getByRole('button', { name: 'Edit Asha' }));
+    fireEvent.change(within(record).getByLabelText('Edit amount'), { target: { value: '600' } });
+    fireEvent.change(within(record).getByLabelText('Edit start date'), { target: { value: '2026-11-02' } });
+    fireEvent.click(within(record).getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(receivablesService.update).toHaveBeenCalledWith(loan, expect.objectContaining({ amount: 600, lent_date: '2026-11-02' }), expect.objectContaining({ transaction, amount: 600 })));
+    expect(onTransactionUpdated).toHaveBeenCalledWith(expect.objectContaining({ id: 'original', amount: 600 }));
   });
   it('prevents an EMI total below payments already recorded', async () => {
     const emi = { ...loan, record_kind: 'emi' as const, installment_amount: 100 };
@@ -104,9 +144,10 @@ describe('money to receive', () => {
     expect(receivablesService.update).not.toHaveBeenCalled();
   });
   it('sends the selected payment method for a new loan transaction', async () => {
-    vi.mocked(receivablesService.create).mockResolvedValue({ loan, transaction: null });
+    vi.mocked(receivablesService.create).mockResolvedValue({ loan: { ...loan, id: '2', person: 'Sam', amount: 125, repaid: 0 }, transaction: null });
     render(<Receivables currency="INR" today="2026-11-24" />);
     await screen.findByText('Asha');
+    fireEvent.click(screen.getByRole('button', { name: 'Add record' }));
     fireEvent.change(screen.getByLabelText('Person'), { target: { value: 'Sam' } });
     fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '125' } });
     fireEvent.change(screen.getByLabelText('Payment method'), { target: { value: 'Debit Card' } });
@@ -126,13 +167,16 @@ describe('money to receive', () => {
   it('increments loan amount fields by one rupee and accepts paise', async () => {
     render(<Receivables currency="INR" today="2026-11-24" />);
     await screen.findByText('Asha');
+    fireEvent.click(screen.getByRole('button', { name: 'Add record' }));
     const amount = screen.getByLabelText('Amount') as HTMLInputElement;
     fireEvent.change(amount, { target: { value: '500.50' } });
     expect(amount.validity.valid).toBe(true);
     amount.stepUp();
     fireEvent.input(amount);
     expect(amount.value).toBe('501.5');
+    fireEvent.click(screen.getByRole('button', { name: 'Close add dialog' }));
     fireEvent.click(screen.getByRole('tab', { name: /EMI \/ loan/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add record' }));
     const installment = screen.getByLabelText('Installment amount (optional)') as HTMLInputElement;
     fireEvent.change(installment, { target: { value: '500.25' } });
     installment.stepUp();
@@ -142,6 +186,7 @@ describe('money to receive', () => {
     render(<Receivables currency="INR" today="2026-11-24" />);
     await screen.findByText('Asha');
     fireEvent.click(screen.getByRole('tab', { name: /EMI \/ loan/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add record' }));
     fireEvent.change(screen.getByLabelText('Total remaining to pay'), { target: { value: '12000' } });
     fireEvent.change(screen.getByLabelText('End date (optional)'), { target: { value: '2027-11-24' } });
     expect(screen.getByLabelText('Installment amount (optional)')).toHaveValue(923.08);
@@ -175,6 +220,7 @@ describe('money to receive', () => {
     vi.mocked(receivablesService.create).mockResolvedValue({ loan: { ...loan, id: '2', person: 'Sam', amount: 125, repaid: 0 }, transaction: null });
     render(<Receivables currency="INR" today="2026-11-24" expenses={[entry]} />);
     await screen.findByText('Asha');
+    fireEvent.click(screen.getByRole('button', { name: 'Add record' }));
     fireEvent.change(screen.getByLabelText('Person'), { target: { value: 'Sam' } });
     fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '125' } });
     fireEvent.click(screen.getByRole('radio', { name: /Sent to Sam/ }));
@@ -217,6 +263,7 @@ describe('money to receive', () => {
     vi.mocked(receivablesService.create).mockResolvedValue({ loan: { ...loan, id: '2', person: 'Sam', amount: 125, repaid: 0 }, transaction: null });
     render(<Receivables currency="INR" today="2026-11-24" />);
     await screen.findByText('Asha');
+    fireEvent.click(screen.getByRole('button', { name: 'Add record' }));
     fireEvent.change(screen.getByLabelText('Person'), { target: { value: 'Sam' } });
     fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '125' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save record' }));
@@ -229,12 +276,13 @@ describe('money to receive', () => {
     render(<Receivables currency="INR" today="2026-11-24" />);
     await screen.findByText('Asha');
     fireEvent.click(screen.getByRole('tab', { name: /EMI \/ loan/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add record' }));
     fireEvent.change(screen.getByLabelText('Lender or provider'), { target: { value: 'Bank' } });
     fireEvent.change(screen.getByLabelText('Total remaining to pay'), { target: { value: '12000' } });
     fireEvent.change(screen.getByLabelText('Installment amount (optional)'), { target: { value: '1000' } });
     fireEvent.change(screen.getByLabelText('End date (optional)'), { target: { value: '2027-11-24' } });
     fireEvent.change(screen.getByLabelText('Monthly payment day'), { target: { value: '15' } });
-    expect(screen.getByText('15-12-2026')).toBeInTheDocument();
+    expect(screen.getByText(/Next scheduled payment: 15-12-2026/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Save record' }));
     await waitFor(() => expect(receivablesService.create).toHaveBeenCalledWith(expect.objectContaining({ record_kind: 'emi', amount: 12000, installment_amount: 1000, end_date: '2027-11-24', payment_day: 15 }), null));
     const record = (await screen.findByText('Bank')).closest('article')!;
@@ -253,7 +301,9 @@ describe('money to receive', () => {
     const borrowed = screen.getByRole('tab', { name: /Money borrowed/ });
     expect(borrowed).toHaveAttribute('aria-selected', 'true');
     expect(borrowed).toHaveFocus();
+    fireEvent.click(screen.getByRole('button', { name: 'Add record' }));
     expect(screen.getByLabelText('Due date (optional)')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Close add dialog' }));
     expect(screen.queryByText('Asha')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('tab', { name: /Money lent/ }));
     expect(screen.getByText('Asha')).toBeInTheDocument();
@@ -265,6 +315,7 @@ describe('money to receive', () => {
     const onTransactionAdded = vi.fn();
     render(<Receivables currency="INR" today="2026-11-24" accountVisibility={{ cash: true, savings: false }} onTransactionAdded={onTransactionAdded} />);
     await screen.findByText('Asha');
+    fireEvent.click(screen.getByRole('button', { name: 'Add record' }));
     const account = screen.getByLabelText('Paid from account');
     expect(within(account).getByRole('option', { name: 'Cash in Hand' })).toBeInTheDocument();
     expect(within(account).queryByRole('option', { name: 'Savings Account' })).toBeNull();
@@ -300,6 +351,7 @@ describe('money to receive', () => {
     render(<Receivables currency="INR" today="2026-11-24" accountVisibility={{ cash: true, savings: false }} onTransactionAdded={onTransactionAdded} />);
     await screen.findByText('Asha');
     fireEvent.click(screen.getByRole('tab', { name: /EMI \/ loan/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add record' }));
     fireEvent.change(screen.getByLabelText('Lender or provider'), { target: { value: 'Bank' } });
     fireEvent.change(screen.getByLabelText('Total remaining to pay'), { target: { value: '12000' } });
     fireEvent.change(screen.getByLabelText('Monthly payment day'), { target: { value: '15' } });
@@ -316,7 +368,8 @@ describe('money to receive', () => {
     const onTransactionAdded = vi.fn();
     render(<Receivables currency="INR" today="2026-11-24" onTransactionAdded={onTransactionAdded} />);
     await screen.findByText('Asha');
-    fireEvent.click(screen.getByRole('checkbox', { name: /Add the original payment/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add record' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: /Record the original money you lent/ }));
     fireEvent.change(screen.getByLabelText('Person'), { target: { value: 'Sam' } });
     fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '500' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save record' }));

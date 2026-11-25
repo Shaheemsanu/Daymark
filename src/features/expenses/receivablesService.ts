@@ -5,7 +5,8 @@ import { Account } from '../../utils/accounts';
 export type LoanKind = 'lent' | 'borrowed' | 'emi';
 export type Receivable = { id: string; person: string; amount: number; repaid: number; lent_date: string; due_date: string | null; end_date: string | null; payment_day: number | null; note: string | null; record_kind: LoanKind; installment_amount: number | null };
 export type LoanMovementLink = { loan_id: string; expense_id: string };
-export type LoanEdits = Pick<Receivable, 'person' | 'amount' | 'due_date' | 'end_date' | 'payment_day' | 'note' | 'installment_amount'>;
+export type LoanEdits = Pick<Receivable, 'person' | 'amount' | 'lent_date' | 'due_date' | 'end_date' | 'payment_day' | 'note' | 'installment_amount'>;
+export type OriginalEdits = { transaction: Expense; amount: number; account: Account; paymentMethod: string };
 const columns = 'id,person,amount,repaid,lent_date,due_date,end_date,payment_day,note,record_kind,installment_amount';
 
 async function context() {
@@ -32,12 +33,13 @@ export const receivablesService = {
     if (error) throw error;
     return (data || []).map(mapRow);
   },
-  async update(item: Receivable, changes: LoanEdits): Promise<Receivable> {
-    const { db, userId } = await context();
-    const { data, error } = await db.from('loans_and_dues').update(changes).eq('id', item.id).eq('user_id', userId).eq('amount', item.amount).eq('repaid', item.repaid).select(columns).maybeSingle();
+  async update(item: Receivable, changes: LoanEdits, original: OriginalEdits | null): Promise<{ loan: Receivable; transaction: Expense | null }> {
+    const { db } = await context();
+    const snapshot = original && { id: original.transaction.id, expected_amount: original.transaction.amount, expected_date: original.transaction.date, expected_account: original.transaction.account || 'expense', expected_method: original.transaction.paymentMethod || null, amount: original.amount, account: original.account, payment_method: original.paymentMethod };
+    const { data, error } = await db.rpc('edit_loan_details', { p_id: item.id, p_expected: item, p_changes: changes, p_original: snapshot });
     if (error) throw error;
-    if (!data) throw new Error('This record changed elsewhere. Refresh and try again.');
-    return mapRow(data);
+    const updated = mapMovement(data.transaction);
+    return { loan: mapRow(data.loan), transaction: updated && original ? { ...original.transaction, ...updated } : null };
   },
   async delete(item: Receivable): Promise<string[]> {
     const { db } = await context();
