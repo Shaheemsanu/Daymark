@@ -745,7 +745,7 @@ export default function App() {
       {dataLoading && <div role="status" aria-live="polite" className="mx-4 mt-3 flex items-center gap-2 rounded-lg bg-slate-100 px-4 py-2 text-sm text-slate-700 dark:bg-slate-800 dark:text-slate-200"><LoaderCircle className="h-4 w-4 animate-spin" /> Loading your Supabase workspace…</div>}
       {dataError && <div role="alert" className="mx-4 mt-3 rounded-lg bg-rose-50 px-4 py-2 text-sm text-rose-700">{dataError}</div>}
       {/* 1. Daily Overview Dashboard */}
-      {(['habits', 'tasks', 'expenses'] as NavView[]).includes(currentView) && (
+      {(['habits', 'tasks'] as NavView[]).includes(currentView) && (
         <CompactDateNavigator date={selectedDate} onChange={setSelectedDate} />
       )}
       {currentView === 'daily' && (
@@ -830,6 +830,7 @@ export default function App() {
       {/* 4. Dedicated Expense Dashboard (New Model) */}
       {currentView === 'expenses' && (
         <ExpenseDashboard
+          dateNavigator={<CompactDateNavigator date={selectedDate} onChange={setSelectedDate} />}
           analyticsEnabled={accountPermissions.analytics}
           accountIntelligenceEnabled={permissionsLoaded && accountPermissions.accountIntelligence}
           analyticsLoading={dataLoading}

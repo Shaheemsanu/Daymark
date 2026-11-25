@@ -5,6 +5,7 @@ import { Account } from '../../utils/accounts';
 export type LoanKind = 'lent' | 'borrowed' | 'emi';
 export type Receivable = { id: string; person: string; amount: number; repaid: number; lent_date: string; due_date: string | null; end_date: string | null; payment_day: number | null; note: string | null; record_kind: LoanKind; installment_amount: number | null };
 export type LoanMovementLink = { loan_id: string; expense_id: string };
+export type InstallmentAssignment = { loan_id: string; expense_id: string; installment_date: string };
 export type LoanEdits = Pick<Receivable, 'person' | 'amount' | 'lent_date' | 'due_date' | 'end_date' | 'payment_day' | 'note' | 'installment_amount'>;
 export type OriginalEdits = { transaction: Expense; amount: number; account: Account; paymentMethod: string };
 const columns = 'id,person,amount,repaid,lent_date,due_date,end_date,payment_day,note,record_kind,installment_amount';
@@ -21,6 +22,17 @@ const mapRow = (row: Receivable): Receivable => ({ ...row, amount: Number(row.am
 const mapMovement = (row: Record<string, unknown> | null): Expense | null => row ? ({ id: String(row.id), title: String(row.title), amount: Number(row.amount), category: String(row.category), date: String(row.entry_date), paymentMethod: String(row.payment_method), type: row.transaction_type === 'income' ? 'income' : 'expense', account: row.account as Account, isTransfer: false, notes: row.notes ? String(row.notes) : undefined, createdAt: Date.parse(String(row.created_at)) }) : null;
 
 export const receivablesService = {
+  async listInstallmentAssignments(): Promise<InstallmentAssignment[]> {
+    const { db, userId } = await context();
+    const { data, error } = await db.from('loan_payment_installments').select('loan_id,expense_id,installment_date').eq('user_id', userId);
+    if (error) throw error;
+    return data || [];
+  },
+  async assignInstallment(loanId: string, expenseId: string, date: string | null): Promise<void> {
+    const { db } = await context();
+    const { error } = await db.rpc('assign_loan_payment_installment', { p_loan_id: loanId, p_expense_id: expenseId, p_installment_date: date });
+    if (error) throw error;
+  },
   async listMovementLinks(): Promise<LoanMovementLink[]> {
     const { db, userId } = await context();
     const { data, error } = await db.from('loan_existing_movements').select('loan_id,expense_id').eq('user_id', userId);
@@ -54,10 +66,12 @@ export const receivablesService = {
     if (error) throw error;
     return { loan: mapRow(data.loan), transaction: mapMovement(data.transaction) };
   },
-  async repay(item: Receivable, amount: number, date: string, account: Account, existingId?: string, paymentMethod?: string): Promise<{ loan: Receivable; transaction: Expense | null }> {
+  async repay(item: Receivable, amount: number, date: string, account: Account, existingId?: string, paymentMethod?: string, installmentDate?: string): Promise<{ loan: Receivable; transaction: Expense | null }> {
     const { db } = await context();
     const args = { p_id: item.id, p_expected_repaid: item.repaid, p_amount: amount, p_date: date, p_account: account };
-    const { data, error } = existingId
+    const { data, error } = item.record_kind === 'emi' && installmentDate
+      ? await db.rpc('record_emi_payment_for_installment', { ...args, p_expense_id: existingId || null, p_payment_method: paymentMethod || null, p_installment_date: installmentDate })
+      : existingId
       ? await db.rpc('link_existing_loan_payment', { ...args, p_expense_id: existingId })
       : await db.rpc('record_loan_payment_with_method', { ...args, p_payment_method: paymentMethod });
     if (error) throw error;

@@ -46,6 +46,7 @@ import Receivables from './Receivables';
 const FinancialAnalyticsDashboard = lazy(() => import('./FinancialAnalyticsDashboard'));
 
 interface ExpenseDashboardProps {
+  dateNavigator?: React.ReactNode;
   expenses: Expense[];
   budget: BudgetConfig;
   onAddExpense: (expense: Omit<Expense, 'id' | 'createdAt'>) => Promise<boolean | string>;
@@ -112,6 +113,7 @@ const COLOR_PALETTE = [
 ];
 
 export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
+  dateNavigator,
   expenses,
   budget,
   onAddExpense,
@@ -1123,7 +1125,8 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
 
   if (showLoans) return <div className="space-y-4 pb-24"><button type="button" onClick={() => setShowLoans(false)} className="inline-flex min-h-10 items-center gap-2 rounded-lg px-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"><ArrowLeft className="h-4 w-4" />Back to finance</button><Receivables currency={currencySymbol} today={formatDate(new Date())} expenses={expenses} accountVisibility={accountVisibility} onTransactionAdded={onLoanTransactionAdded} onTransactionUpdated={onLoanTransactionUpdated} onTransactionDeleted={onLoanTransactionDeleted} /></div>;
 
-  return (
+  return (<>
+    {dateNavigator}
     <div className="space-y-6 pb-24 relative">
       {/* Top Banner */}
       <div className="rounded-3xl border border-slate-200/80 dark:border-slate-800 bg-gradient-to-br from-white via-slate-50/50 to-emerald-50/20 dark:from-slate-900 dark:via-slate-900/90 dark:to-emerald-950/20 p-6 sm:p-8 shadow-sm">
@@ -2764,5 +2767,6 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
         </div>
       )}
     </div>
+    </>
   );
 };
