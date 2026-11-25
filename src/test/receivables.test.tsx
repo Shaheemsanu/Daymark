@@ -12,6 +12,59 @@ beforeEach(() => { vi.mocked(receivablesService.list).mockResolvedValue([loan]);
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
 
 describe('money to receive', () => {
+  it('keeps the records and analytics view independent for each loan type', async () => {
+    render(<Receivables currency="INR" today="2026-11-24" />);
+    await screen.findByText('Asha', { selector: 'h5' });
+    fireEvent.click(screen.getByRole('tab', { name: 'Analytics' }));
+    expect(screen.getByRole('tab', { name: 'Analytics' })).toHaveAttribute('aria-selected', 'true');
+    fireEvent.click(screen.getByRole('tab', { name: /Money borrowed/ }));
+    expect(screen.getByRole('tab', { name: 'Records' })).toHaveAttribute('aria-selected', 'true');
+    fireEvent.click(screen.getByRole('tab', { name: /EMI \/ loan/ }));
+    expect(screen.getByRole('tab', { name: 'Records' })).toHaveAttribute('aria-selected', 'true');
+    fireEvent.click(screen.getByRole('tab', { name: /Money lent/ }));
+    expect(screen.getByRole('tab', { name: 'Analytics' })).toHaveAttribute('aria-selected', 'true');
+  });
+  it('separates completed records and searches and filters each kind', async () => {
+    vi.mocked(receivablesService.list).mockResolvedValue([
+      { ...loan, id: 'active', person: 'Asha', due_date: '2026-11-23' },
+      { ...loan, id: 'done', person: 'Bina', repaid: 500, note: 'Travel' },
+      { ...loan, id: 'borrowed', person: 'Chen', record_kind: 'borrowed' },
+    ]);
+    render(<Receivables currency="INR" today="2026-11-24" />);
+    await screen.findByText('Asha', { selector: 'h5' });
+    expect(screen.getByText('Active records')).toBeInTheDocument();
+    expect(screen.getByText('Completed records')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Filter loan records'), { target: { value: 'completed' } });
+    expect(screen.queryByText('Asha', { selector: 'h5' })).toBeNull();
+    expect(screen.getByText('Bina', { selector: 'h5' })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Search loan records'), { target: { value: 'travel' } });
+    expect(screen.getByText('Bina', { selector: 'h5' })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Search loan records'), { target: { value: 'missing' } });
+    expect(screen.getByText('No records match your search and filter.')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Search loan records'), { target: { value: '' } });
+    fireEvent.change(screen.getByLabelText('Filter loan records'), { target: { value: 'late' } });
+    expect(screen.getByText('Asha', { selector: 'h5' })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Filter loan records'), { target: { value: 'all' } });
+    fireEvent.click(screen.getByRole('tab', { name: /Money borrowed/ }));
+    expect(screen.getByText('Chen', { selector: 'h5' })).toBeInTheDocument();
+  });
+  it('keeps search and status filters independent between loan types', async () => {
+    vi.mocked(receivablesService.list).mockResolvedValue([loan, { ...loan, id: '2', person: 'Bina', record_kind: 'borrowed' }, { ...loan, id: '3', person: 'Chen', record_kind: 'emi' }]);
+    render(<Receivables currency="INR" today="2026-11-24" />);
+    await screen.findByText('Asha', { selector: 'h5' });
+    fireEvent.change(screen.getByLabelText('Search loan records'), { target: { value: 'Asha' } });
+    fireEvent.change(screen.getByLabelText('Filter loan records'), { target: { value: 'completed' } });
+    fireEvent.click(screen.getByRole('tab', { name: /Money borrowed/ }));
+    expect(screen.getByLabelText('Search loan records')).toHaveValue('');
+    expect(screen.getByLabelText('Filter loan records')).toHaveValue('all');
+    expect(screen.getByText('Bina', { selector: 'h5' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: /EMI \/ loan/ }));
+    expect(screen.getByLabelText('Filter loan records')).toHaveValue('all');
+    expect(screen.getByText('Chen', { selector: 'h5' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: /Money lent/ }));
+    expect(screen.getByLabelText('Search loan records')).toHaveValue('Asha');
+    expect(screen.getByLabelText('Filter loan records')).toHaveValue('completed');
+  });
   it('assigns an existing EMI payment to a future installment', async () => {
     const emi = { ...loan, record_kind: 'emi' as const, lent_date: '2026-11-25', payment_day: 24, installment_amount: 100 };
     const payment = { id: 'p', title: 'Payment', amount: 100, category: 'Loan: EMI / loan', date: '2026-11-25', paymentMethod: 'Cash', account: 'expense' as const, type: 'expense' as const, notes: 'Loan record: 1', createdAt: 1 };
@@ -94,6 +147,7 @@ describe('money to receive', () => {
     expect(screen.getByRole('region', { name: 'Money lent analytics' })).toBeInTheDocument();
     expect(screen.queryByText('Asha', { selector: 'h5' })).toBeNull();
     fireEvent.click(screen.getByRole('tab', { name: /Money borrowed/ }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Analytics' }));
     expect(screen.getByRole('region', { name: 'Money borrowed analytics' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('tab', { name: 'Records' }));
     expect(screen.getByText(/No money borrowed records yet/)).toBeInTheDocument();
@@ -330,9 +384,9 @@ describe('money to receive', () => {
     render(<ExpenseDashboard dateNavigator={<div>Date navigator</div>} expenses={[]} budget={{ monthlyBudget: 3000, weeklyBudget: 700, dailyBudget: 100, currency: 'INR', categoryBudgets: {} }} initialDate="2026-11-24" onAddExpense={vi.fn()} onUpdateExpense={vi.fn()} onDeleteExpense={vi.fn()} onUpdateBudget={vi.fn()} onExportCSV={vi.fn()} customCategories={{}} onSaveCustomCategories={vi.fn()} />);
     expect(screen.getByText('Date navigator')).toBeInTheDocument();
     expect(within(screen.getByRole('group', { name: 'Expense modules' })).queryByRole('button', { name: /Loans/ })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Loans and dues' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Loans & Repayments' }));
     expect(screen.queryByText('Date navigator')).not.toBeInTheDocument();
-    expect(screen.getByRole('region', { name: 'Loans and dues' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Loans & Repayments' })).toBeInTheDocument();
     await screen.findByText('Asha', { selector: 'h5' });
     fireEvent.click(screen.getByRole('button', { name: 'Back to finance' }));
     expect(screen.getByText('Date navigator')).toBeInTheDocument();
