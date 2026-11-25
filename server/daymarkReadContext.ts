@@ -1,4 +1,6 @@
 import type { DataScope, ContextMeta, SourceFact } from '../src/features/ai/chatScope.ts';
+import { getAccountBalance } from '../src/utils/accounts.ts';
+import { normalizeWellnessGoals } from '../src/utils/wellnessGoals.ts';
 
 export class RetrievalError extends Error {
   constructor(public status: number, message: string) { super(message); }
@@ -7,14 +9,14 @@ type Row = Record<string, any>;
 export async function readDaymarkContext(scope: DataScope, access: { url: string; anonKey: string; token: string; userId: string }, request: typeof fetch) {
   // All database access lives here: fixed GETs, authenticated RLS and an explicit
   // owner filter. No SQL, arbitrary URLs, service keys or mutations are accepted.
-  const read = async (table: string, columns: string, dateColumn?: string): Promise<Row[]> => {
+  const read = async (table: string, columns: string, dateColumn?: string, key = 'id', includeEarlier = false): Promise<Row[]> => {
     const rows: Row[] = [];
     const seenIds = new Set<string>();
     let expectedTotal: number | null = null;
     while (rows.length <= 2000) {
-      const query = new URLSearchParams({ select: columns, user_id: 'eq.' + access.userId, order: dateColumn ? dateColumn + '.asc,id.asc' : 'id.asc', limit: '1000', offset: String(rows.length) });
+      const query = new URLSearchParams({ select: columns, user_id: 'eq.' + access.userId, order: dateColumn && dateColumn !== key ? dateColumn + '.asc,' + key + '.asc' : key + '.asc', limit: '1000', offset: String(rows.length) });
       if (dateColumn) {
-        query.append(dateColumn, 'gte.' + scope.start + (dateColumn === 'created_at' ? 'T00:00:00Z' : ''));
+        if (!includeEarlier) query.append(dateColumn, 'gte.' + scope.start + (dateColumn === 'created_at' ? 'T00:00:00Z' : ''));
         query.append(dateColumn, dateColumn === 'created_at' ? 'lt.' + new Date(Date.parse(scope.end) + 86400000).toISOString().slice(0, 10) + 'T00:00:00Z' : 'lte.' + scope.end);
       }
       const response = await request(access.url + '/rest/v1/' + table + '?' + query, {
@@ -27,10 +29,10 @@ export async function readDaymarkContext(scope: DataScope, access: { url: string
       const total = match ? Number(match[1]) : null;
       if (expectedTotal !== null && total !== null && expectedTotal !== total) throw new RetrievalError(409, 'Your records changed while loading. Please ask again for a fresh answer.');
       if (total !== null) expectedTotal = total;
-      if (page.some(row => !row || typeof row.id !== 'string' || seenIds.has(row.id))) throw new RetrievalError(409, 'Could not load a consistent set of records. Please try again.');
+      if (page.some(row => !row || typeof row[key] !== 'string' || seenIds.has(row[key]))) throw new RetrievalError(409, 'Could not load a consistent set of records. Please try again.');
       for (const row of page) {
-        if (seenIds.has(row.id)) throw new RetrievalError(409, 'Could not load a consistent set of records. Please try again.');
-        seenIds.add(row.id);
+        if (seenIds.has(row[key])) throw new RetrievalError(409, 'Could not load a consistent set of records. Please try again.');
+        seenIds.add(row[key]);
       }
       rows.push(...page);
       if (rows.length > 2000 || total !== null && total > 2000) throw new RetrievalError(413, 'Too many records. Choose a shorter date range.');
@@ -42,12 +44,24 @@ export async function readDaymarkContext(scope: DataScope, access: { url: string
   let data: Record<string, unknown>, recordCount = 0;
   let facts: SourceFact[] = [];
   if (scope.source === 'expenses') {
-    const [rows, budgets] = await Promise.all([
-      read('expenses', 'id,entry_date,title,amount,category,spend_type,transaction_type,account,is_transfer,payment_method,is_recurring', 'entry_date'),
-      read('budget_configs', 'id,currency'),
+    const [rows, budgets, loans, matches, installments, balanceRows] = await Promise.all([
+      read('expenses', 'id,entry_date,title,amount,category,spend_type,transaction_type,account,is_transfer,payment_method,notes,is_recurring', 'entry_date'),
+      read('budget_configs', 'id,currency,monthly_budget,weekly_budget,daily_budget,category_budgets,custom_categories,updated_at'),
+      read('loans_and_dues', 'id,person,record_kind,amount,repaid,installment_amount,lent_date,end_date,payment_day,due_date,note,created_at'),
+      read('loan_existing_movements', 'id,loan_id,expense_id'),
+      read('loan_payment_installments', 'expense_id,loan_id,installment_date', 'installment_date', 'expense_id'),
+      read('expenses', 'id,entry_date,amount,category,transaction_type,account,is_transfer', 'entry_date', 'id', true),
     ]);
-    recordCount = rows.length;
-    if (rows.some(row => row.amount === null || typeof row.amount !== 'number' && typeof row.amount !== 'string' || String(row.amount).trim() === '' || !Number.isFinite(Number(row.amount)) || !Number.isSafeInteger(Math.round(Number(row.amount) * 100)))) throw new RetrievalError(422, 'Some transaction amounts are invalid. Check your records before requesting financial analysis.');
+    const transactionIds = new Set(rows.map(row => row.id));
+    const relatedMatches = matches.filter(row => transactionIds.has(row.expense_id));
+    const linkedTransactions = rows.flatMap(row => {
+      const loanId = typeof row.notes === 'string' ? /^Loan record: ([0-9a-f-]+)$/i.exec(row.notes)?.[1] : undefined;
+      return loanId ? [{ expense_id: row.id, loan_id: loanId }] : [];
+    });
+    recordCount = rows.length + loans.length + relatedMatches.length + installments.length + budgets.length;
+    if ([...rows, ...balanceRows].some(row => row.amount === null || typeof row.amount !== 'number' && typeof row.amount !== 'string' || String(row.amount).trim() === '' || !Number.isFinite(Number(row.amount)) || !Number.isSafeInteger(Math.round(Number(row.amount) * 100)))) throw new RetrievalError(422, 'Some transaction amounts are invalid. Check your records before requesting financial analysis.');
+    const ledger = balanceRows.map(row => ({ id: row.id, date: row.entry_date, amount: Number(row.amount), category: row.category || '', type: row.transaction_type || 'expense', account: row.account || 'expense', isTransfer: Boolean(row.is_transfer), title: '', paymentMethod: '', createdAt: 0 }));
+    const accountBalances = Object.fromEntries((['expense', 'cash', 'savings'] as const).map(account => [account, getAccountBalance(ledger, account, scope.end)]));
     const operating = rows.filter(row => !row.is_transfer && !/transfer/i.test(row.category) && !/^(opening balance|balance adjustment|credit card payment|credit card repayment)$/i.test(row.category) && Number.isFinite(Number(row.amount)));
     const expenseRows = operating.filter(row => (row.transaction_type || 'expense') === 'expense');
     const incomeRows = operating.filter(row => row.transaction_type === 'income');
@@ -70,29 +84,30 @@ export async function readDaymarkContext(scope: DataScope, access: { url: string
       { label: 'Average per calendar day', value: money(spent / 100 / days) },
       { label: 'Expense transactions included', value: String(expenseRows.length) },
       { label: 'Calendar days', value: String(days) },
+      ...Object.entries(accountBalances).map(([account, value]) => ({ label: `${account} account balance as of ${scope.end}`, value: money(value) })),
       ...categoryRows.map(row => ({ label: row.name, value: money(row.amount) + (row.sharePercent === null ? '' : ' · ' + row.sharePercent.toFixed(1) + '% of expenses') })),
     ];
-    data = { currency, summary: { expenses: spent / 100, income: income / 100, net: (income - spent) / 100, dailyAverage: spent / 100 / days, calendarDays: days, expenseCount: expenseRows.length, incomeCount: incomeRows.length }, categories: categoryRows, daily, transactions: rows, note: 'Transfers, opening balances, balance adjustments and card repayments are excluded from the summary. No actual account balance or budget target is supplied. Daily average includes every calendar day.' };
+    data = { currency, summary: { expenses: spent / 100, income: income / 100, net: (income - spent) / 100, dailyAverage: spent / 100 / days, calendarDays: days, expenseCount: expenseRows.length, incomeCount: incomeRows.length }, accountBalancesAsOfEnd: accountBalances, categories: categoryRows, daily, transactions: rows.map(row => ({ ...row, notes: typeof row.notes === 'string' && /^Loan record: [0-9a-f-]+$/i.test(row.notes) ? 'Linked loan movement' : row.notes })), budget: budgets[0] || null, loans, loanMovementMatches: [...relatedMatches, ...linkedTransactions], installmentAssignments: installments, note: 'Account balances use the complete recorded ledger through the selected end date, including transfers and opening balances, as in Overview. They depend on recorded transactions and are not bank-verified. Transactions and installment assignments are restricted to the selected dates. Loans and budget are current snapshots, not historical balances: repaid and targets may have changed since the selected dates. A loan can start before the range and still have a due date or payment within it. Match transactions to loans using loanMovementMatches; do not double count a loan movement and its transaction. Transfers, opening balances, balance adjustments and card repayments are excluded from the summary. Daily average includes every calendar day.' };
   } else if (scope.source === 'habits') {
-    const [definitions, entries] = await Promise.all([read('custom_trackers', 'id,name,type,unit,target_value,weekdays'), read('tracker_entries', 'id,tracker_id,entry_date,numeric_value,boolean_value', 'entry_date')]);
+    const [definitions, entries, settings] = await Promise.all([read('custom_trackers', 'id,name,type,unit,target_value,weekdays,start_time,end_time,color,icon,created_at'), read('tracker_entries', 'id,tracker_id,entry_date,numeric_value,boolean_value', 'entry_date'), read('budget_configs', 'id,custom_categories')]);
     recordCount = definitions.length + entries.length;
     facts = [{ label: 'Current habit definitions', value: String(definitions.length) }, { label: 'Recorded entries in range', value: String(entries.length) }];
-    data = { definitions, entries, note: 'Current definitions and schedules; weekdays are 0=Sunday through 6=Saturday. Missing entries are unrecorded, not failures.' };
+    data = { definitions, entries, currentCategories: settings[0]?.custom_categories?.habits || [], note: 'Current definitions, categories and schedules; weekdays are 0=Sunday through 6=Saturday. Missing entries are unrecorded, not failures.' };
   } else if (scope.source === 'tasks') {
-    const [definitions, entries] = await Promise.all([read('tasks', 'id,title,is_active,weekdays,priority,time_estimate_min,category'), read('task_entries', 'id,task_id,entry_date,status,completed_at', 'entry_date')]);
+    const [definitions, entries, settings] = await Promise.all([read('tasks', 'id,title,description,is_active,weekdays,priority,time_estimate_min,start_time,end_time,category,created_at,updated_at'), read('task_entries', 'id,task_id,entry_date,status,completed_at', 'entry_date'), read('budget_configs', 'id,custom_categories')]);
     recordCount = definitions.length + entries.length;
     facts = [{ label: 'Current task definitions', value: String(definitions.length) }, ...['pending', 'complete', 'skipped'].map(status => ({ label: 'Recorded ' + status + ' entries', value: String(entries.filter(row => row.status === status).length) }))];
-    data = { definitions, entries, note: 'Current definitions; only entries show recorded statuses. Missing entries have no recorded status.' };
+    data = { definitions, entries, currentCategories: settings[0]?.custom_categories?.tasks || [], note: 'Current definitions and categories; only entries show recorded statuses. Missing entries have no recorded status.' };
   } else if (scope.source === 'notes') {
-    const notes = await read('notes', 'id,title,content,category,completed,priority,created_at,updated_at', 'created_at');
+    const [notes, settings] = await Promise.all([read('notes', 'id,title,content,category,completed,priority,created_at,updated_at', 'created_at'), read('budget_configs', 'id,custom_categories')]);
     recordCount = notes.length;
     facts = [{ label: 'Notes created in range (UTC)', value: String(notes.length) }, { label: 'Completed notes', value: String(notes.filter(row => row.completed === true).length) }, { label: 'Unfinished notes', value: String(notes.filter(row => row.completed === false).length) }];
-    data = { notes, note: 'Selected by note creation date in UTC. Image and media data are excluded.' };
+    data = { notes, currentCategories: settings[0]?.custom_categories?.notes || [], note: 'Selected by note creation date in UTC. Categories are current settings. Image and media data are excluded.' };
   } else {
-    const entries = await read('daily_notes', 'id,entry_date,content,mood,gratitude,sleep_hours,water_ml,energy_score', 'entry_date');
+    const [entries, settings] = await Promise.all([read('daily_notes', 'id,entry_date,content,mood,gratitude,sleep_hours,water_ml,energy_score', 'entry_date'), read('budget_configs', 'id,custom_categories')]);
     recordCount = entries.length;
     facts = [{ label: 'Recorded journal days', value: String(entries.length) }];
-    data = { entries, note: 'Only recorded journal entries are included. Missing values are unknown, not zero. Do not make medical diagnoses.' };
+    data = { entries, currentGoals: normalizeWellnessGoals(settings[0]?.custom_categories?.wellnessGoals), note: 'Goals are current settings, not necessarily the goals in effect during the selected dates. Only recorded journal entries are included. Missing values are unknown, not zero. Do not make medical diagnoses.' };
   }
   const meta: ContextMeta = { ...scope, recordCount, facts };
   if (JSON.stringify({ ...meta, data }).length > 180000) throw new RetrievalError(413, 'The selected records are too large. Choose a shorter date range.');

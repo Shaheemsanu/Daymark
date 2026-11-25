@@ -34,7 +34,7 @@ it('uses the server key and verified identity for read-only data analysis', asyn
   const response = await server.post({ message: 'Hello', history: [], key: 'ignored-client-key', sql: 'DELETE FROM notes', userId: 'victim' });
   expect(response.status).toBe(200);
   expect(await response.json()).toMatchObject({ answer: 'Hello there', context: { source: 'expenses', recordCount: 0 } });
-  expect(server.request).toHaveBeenCalledTimes(3);
+  expect(server.request).toHaveBeenCalledTimes(7);
   expect(String(server.request.mock.calls[0])).toContain('/auth/v1/user');
   expect(server.generate.mock.calls[0][0]).toMatchObject({ key: 'private-key', model: 'gemini-3.5-flash-lite', message: 'Hello', history: [] });
   expect(await (await fetch(server.base + '/status')).text()).not.toContain('private-key');
@@ -87,6 +87,7 @@ it('loads 1,500 records in two pages without dropping records or caching old dat
   const request = vi.fn(async (input: string | URL | Request) => {
     const url = new URL(String(input));
     if (url.pathname.includes('/auth/')) return Response.json({ id: 'user-a' });
+    if (url.pathname.endsWith('/budget_configs')) return Response.json([]);
     const offset = Number(url.searchParams.get('offset'));
     const count = Math.min(Number(url.searchParams.get('limit')), 1500 - offset);
     return Response.json(Array.from({ length: count }, (_, index) => ({ id: 'note-' + (offset + index), title: 'Note ' + (offset + index) })), { headers: { 'content-range': `${offset}-${offset + count - 1}/1500` } });
@@ -97,7 +98,7 @@ it('loads 1,500 records in two pages without dropping records or caching old dat
     expect((await server.post({ source: 'notes', message: 'Summarize' })).status).toBe(200);
     expect(generate.mock.calls[attempt][0].context.data.notes).toHaveLength(1500);
   }
-  expect(request).toHaveBeenCalledTimes(6); // Identity + two fresh pages per question.
+  expect(request).toHaveBeenCalledTimes(8); // Identity, settings and two fresh pages per question.
 });
 
 it('requires valid authentication before invoking Gemini', async () => {
@@ -144,9 +145,12 @@ it('retrieves only owner-scoped GET records and calculates expense totals withou
     const url = new URL(String(input));
     if (url.pathname.includes('/auth/')) return Response.json({ id: 'user-a' });
     if (url.pathname.endsWith('/budget_configs')) return Response.json([{ id: 'budget', currency: 'INR' }], { headers: { 'content-range': '0-0/1' } });
+    if (url.pathname.endsWith('/loans_and_dues')) return Response.json([{ id: 'loan', person: 'Alex', lent_date: '2026-01-01', amount: 100, repaid: 25 }], { headers: { 'content-range': '0-0/1' } });
+    if (url.pathname.endsWith('/loan_existing_movements')) return Response.json([{ id: 'match', loan_id: 'loan', expense_id: 'one' }], { headers: { 'content-range': '0-0/1' } });
+    if (url.pathname.endsWith('/loan_payment_installments')) return Response.json([{ expense_id: 'one', loan_id: 'loan', installment_date: '2026-11-10' }], { headers: { 'content-range': '0-0/1' } });
     return Response.json([
       { id: 'one', title: 'Food', entry_date: '2026-11-10', amount: 25, category: 'Groceries', transaction_type: 'expense' },
-      { id: 'two', title: 'Transfer', entry_date: '2026-11-10', amount: 500, category: 'Transfer', is_transfer: true },
+      { id: 'two', title: 'Transfer', entry_date: '2026-11-10', amount: 500, category: 'Transfer', account: 'savings', is_transfer: true },
       { id: 'three', title: 'Salary', entry_date: '2026-11-10', amount: 100, category: 'Salary', transaction_type: 'income' },
     ], { headers: { 'content-range': '0-2/3' } });
   });
@@ -154,8 +158,10 @@ it('retrieves only owner-scoped GET records and calculates expense totals withou
   const server = await serve({ fetch: request, generate });
   const response = await server.post({ source: 'expenses', start: '2026-11-10', end: '2026-11-11', message: 'Explain spending', userId: 'victim', sql: 'DELETE FROM expenses', context: { expenses: 99999 } });
   expect(response.status).toBe(200);
-  expect(await response.json()).toMatchObject({ context: { source: 'expenses', recordCount: 3 } });
+  expect(await response.json()).toMatchObject({ context: { source: 'expenses', recordCount: 7 } });
+  expect(generate.mock.calls[0][0].context.data).toMatchObject({ loans: [{ person: 'Alex', repaid: 25 }], loanMovementMatches: [{ loan_id: 'loan', expense_id: 'one' }], installmentAssignments: [{ installment_date: '2026-11-10' }] });
   expect(generate.mock.calls[0][0].context.data.summary).toEqual({ expenses: 25, income: 100, net: 75, dailyAverage: 12.5, calendarDays: 2, expenseCount: 1, incomeCount: 1 });
+  expect(generate.mock.calls[0][0].context.data.accountBalancesAsOfEnd).toEqual({ expense: 575, cash: 0, savings: -500 });
   expect(generate.mock.calls[0][0].context.facts).toContainEqual({ label: 'Total expenses', value: 'INR 25.00' });
   expect(generate.mock.calls[0][0].context.data.daily).toEqual([{ date: '2026-11-10', expenses: 25, income: 100 }, { date: '2026-11-11', expenses: 0, income: 0 }]);
   expect(generate.mock.calls[0][0].context.data.categories).toEqual([{ name: 'Groceries', amount: 25, count: 1, sharePercent: 100 }]);
@@ -171,10 +177,10 @@ it('retrieves only owner-scoped GET records and calculates expense totals withou
 });
 
 it.each([
-  ['habits', ['custom_trackers', 'tracker_entries']],
-  ['tasks', ['tasks', 'task_entries']],
-  ['notes', ['notes']],
-  ['wellness', ['daily_notes']],
+  ['habits', ['custom_trackers', 'tracker_entries', 'budget_configs']],
+  ['tasks', ['tasks', 'task_entries', 'budget_configs']],
+  ['notes', ['notes', 'budget_configs']],
+  ['wellness', ['daily_notes', 'budget_configs']],
 ] as const)('reads the fixed %s source and never selects media', async (source, tables) => {
   const request = vi.fn(async (url: string | URL | Request, _options?: RequestInit) => String(url).includes('/auth/') ? Response.json({ id: 'user-a' }) : Response.json([]));
   const server = await serve({ fetch: request });
@@ -184,7 +190,7 @@ it.each([
   for (const url of reads) {
     expect(url.searchParams.get('select')).not.toMatch(/image|media|\*/);
     expect(url.searchParams.get('user_id')).toBe('eq.user-a');
-    if (source === 'notes') expect(url.searchParams.getAll('created_at')).toEqual(['gte.2026-11-01T00:00:00Z', 'lt.2026-11-18T00:00:00Z']);
+    if (source === 'notes' && url.pathname.endsWith('/notes')) expect(url.searchParams.getAll('created_at')).toEqual(['gte.2026-11-01T00:00:00Z', 'lt.2026-11-18T00:00:00Z']);
   }
 });
 
