@@ -77,7 +77,7 @@ export default {
             const loans: ReminderLoan[] = [];
             const pageSize = 1000;
             for (let offset = 0; ; offset += pageSize) {
-              const result = await db.from('loans_and_dues').select('id,person,record_kind,amount,repaid,lent_date,due_date,end_date,payment_day').eq('user_id', pref.user_id).order('id').range(offset, offset + pageSize - 1);
+              const result = await db.from('loans_and_dues').select('id,person,record_kind,amount,repaid,lent_date,due_date,end_date,payment_day,payment_cycle,payment_interval_days,first_payment_date').eq('user_id', pref.user_id).order('id').range(offset, offset + pageSize - 1);
               if (result.error) throw result.error;
               loans.push(...(result.data || []) as ReminderLoan[]);
               if (!result.data || result.data.length < pageSize) break;

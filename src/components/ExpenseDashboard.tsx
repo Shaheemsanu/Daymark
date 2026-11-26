@@ -1145,7 +1145,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
 
           {/* Quick Action Buttons */}
           <div className="flex items-center flex-wrap gap-2">
-            <button type="button" title="Loans & Repayments" aria-label="Loans & Repayments" onClick={() => setShowLoans(true)} className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 sm:w-auto sm:rounded-xl sm:px-3"><HandCoins className="h-4 w-4 text-indigo-500" /><span className="ml-1.5 hidden sm:inline">Loans &amp; Repayments</span></button>
+            <button type="button" title="Payables & Receivables" aria-label="Payables & Receivables" onClick={() => setShowLoans(true)} className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 sm:w-auto sm:rounded-xl sm:px-3"><HandCoins className="h-4 w-4 text-indigo-500" /><span className="ml-1.5 hidden sm:inline">Payables &amp; Receivables</span></button>
             <button
               onClick={() => setIsCategoryModalOpen(true)}
               className="flex items-center justify-center sm:justify-start w-9 h-9 sm:w-auto sm:px-3 sm:py-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full sm:rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors shadow-2xs cursor-pointer"

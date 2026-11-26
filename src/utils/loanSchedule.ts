@@ -33,3 +33,21 @@ export function countMonthlyPayments(startDate: string, endDate: string, payment
   const months = (Number(endDate.slice(0, 4)) - Number(first.slice(0, 4))) * 12 + Number(endDate.slice(5, 7)) - Number(first.slice(5, 7)) + 1;
   return Math.max(0, months - (last > endDate ? 1 : 0));
 }
+
+export type PaymentCycle = 'daily' | 'weekly' | 'monthly' | 'custom';
+export type Schedule = { lent_date: string; end_date: string | null; payment_day: number | null; payment_cycle?: PaymentCycle | null; payment_interval_days?: number | null; first_payment_date?: string | null };
+export function nextPaymentDate(item: Schedule, asOf: string): string | null {
+  if ((item.payment_cycle || 'monthly') === 'monthly') return item.payment_day ? nextMonthlyPaymentDate(item.payment_day, item.lent_date, asOf, item.end_date) : null;
+  const interval = item.payment_cycle === 'daily' ? 1 : item.payment_cycle === 'weekly' ? 7 : item.payment_interval_days;
+  const start = Date.parse((item.first_payment_date || item.lent_date) + 'T00:00:00Z'), target = Date.parse(asOf + 'T00:00:00Z');
+  if (!interval || !Number.isInteger(interval) || interval < 1 || !Number.isFinite(start) || !Number.isFinite(target)) return null;
+  const result = new Date(start + Math.max(0, Math.ceil((target - start) / 86400000 / interval)) * interval * 86400000).toISOString().slice(0, 10);
+  return item.end_date && result > item.end_date ? null : result;
+}
+export function countPayments(item: Schedule, end: string): number {
+  if (end < item.lent_date) return 0;
+  if ((item.payment_cycle || 'monthly') === 'monthly') return countMonthlyPayments(item.lent_date, end, item.payment_day || Number(item.lent_date.slice(8, 10)));
+  const interval = item.payment_cycle === 'daily' ? 1 : item.payment_cycle === 'weekly' ? 7 : item.payment_interval_days;
+  const days = (Date.parse(end + 'T00:00:00Z') - Date.parse((item.first_payment_date || item.lent_date) + 'T00:00:00Z')) / 86400000;
+  return interval && interval > 0 && Number.isFinite(days) ? Math.max(0, Math.floor(days / interval) + 1) : 0;
+}

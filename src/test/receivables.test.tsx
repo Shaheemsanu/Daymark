@@ -12,6 +12,114 @@ beforeEach(() => { vi.mocked(receivablesService.list).mockResolvedValue([loan]);
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
 
 describe('money to receive', () => {
+  it('prefills the remaining amount for the selected installment', async () => {
+    const emi = { ...loan, person: 'Bank', amount: 1000, repaid: 50, lent_date: '2026-11-01', record_kind: 'emi' as const, payment_cycle: 'weekly' as const, first_payment_date: '2026-11-03', installment_amount: 100 };
+    const payment = { title: 'Payment', category: 'Loan: EMI / loan', paymentMethod: 'Cash', account: 'expense' as const, type: 'expense' as const, notes: 'Loan record: 1', createdAt: 1 };
+    const expenses = [{ ...payment, id: 'a', amount: 30, date: '2026-11-23' }, { ...payment, id: 'b', amount: 20, date: '2026-11-17' }];
+    vi.mocked(receivablesService.list).mockResolvedValue([emi]);
+    vi.mocked(receivablesService.listInstallmentAssignments).mockResolvedValue([{ loan_id: '1', expense_id: 'a', installment_date: '2026-11-24' }, { loan_id: '1', expense_id: 'b', installment_date: '2026-11-17' }]);
+    render(<Receivables currency="INR" today="2026-11-24" expenses={expenses} />);
+    fireEvent.click(screen.getByRole('tab', { name: /EMI \/ loan/ }));
+    await screen.findByText('Bank');
+    fireEvent.click(screen.getByRole('button', { name: 'Mark payment' }));
+    const amount = screen.getByLabelText('Amount paid to Bank');
+    expect(amount).toHaveValue(70);
+    fireEvent.click(screen.getByRole('button', { name: 'Installment date for payment' }));
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Choose scheduled installment' })).getByRole('button', { name: '17-11-2026' }));
+    expect(amount).toHaveValue(80);
+    fireEvent.change(amount, { target: { value: '40' } });
+    expect(amount).toHaveValue(40);
+    fireEvent.click(screen.getByRole('button', { name: 'Installment date for payment' }));
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Choose scheduled installment' })).getByRole('button', { name: '03-11-2026' }));
+    expect(amount).toHaveValue(100);
+  });
+
+  it('offers only scheduled dates and lets the user navigate to another month', async () => {
+    const emi = { ...loan, person: 'Weekly loan', amount: 1000, repaid: 0, lent_date: '2026-11-01', end_date: '2026-12-15', record_kind: 'emi' as const, payment_cycle: 'weekly' as const, first_payment_date: '2026-11-06', installment_amount: 100 };
+    vi.mocked(receivablesService.list).mockResolvedValue([emi]);
+    render(<Receivables currency="INR" today="2026-11-24" />);
+    fireEvent.click(screen.getByRole('tab', { name: /EMI \/ loan/ }));
+    await screen.findByText('Weekly loan');
+    fireEvent.click(screen.getByRole('button', { name: 'Mark payment' }));
+    const picker = screen.getByRole('button', { name: 'Installment date for payment' });
+    expect(picker).toHaveTextContent('27-11-2026');
+    fireEvent.click(picker);
+    let dialog = screen.getByRole('dialog', { name: 'Choose scheduled installment' });
+    expect(within(dialog).getAllByRole('button').map(button => button.textContent)).toEqual(['06-11-2026', '13-11-2026', '20-11-2026', '27-11-2026']);
+    fireEvent.change(screen.getByLabelText('Installment date for payment month'), { target: { value: '2026-12' } });
+    expect(within(dialog).getAllByRole('button').map(button => button.textContent)).toEqual(['04-12-2026', '11-12-2026']);
+    fireEvent.click(within(dialog).getByRole('button', { name: '11-12-2026' }));
+    expect(picker).toHaveTextContent('11-12-2026');
+    fireEvent.click(picker);
+    dialog = screen.getByRole('dialog', { name: 'Choose scheduled installment' });
+    fireEvent.change(screen.getByLabelText('Installment date for payment month'), { target: { value: '2027-01' } });
+    expect(within(dialog).getByText('No installments this month')).toBeInTheDocument();
+  });
+
+  it('advances past a paid installment and counts partially paid past installments', async () => {
+    const emi = { ...loan, person: 'Scheduled loan', amount: 1000, repaid: 150, lent_date: '2026-11-01', record_kind: 'emi' as const, payment_cycle: 'weekly' as const, first_payment_date: '2026-11-03', installment_amount: 100 };
+    const payment = { title: 'Payment', category: 'Loan: EMI / loan', paymentMethod: 'Cash', account: 'expense' as const, type: 'expense' as const, notes: 'Loan record: 1', createdAt: 1 };
+    const expenses = [{ ...payment, id: 'a', amount: 50, date: '2026-11-10' }, { ...payment, id: 'b', amount: 100, date: '2026-11-23' }];
+    vi.mocked(receivablesService.list).mockResolvedValue([emi]);
+    vi.mocked(receivablesService.listInstallmentAssignments).mockResolvedValue([{ loan_id: '1', expense_id: 'a', installment_date: '2026-11-10' }, { loan_id: '1', expense_id: 'b', installment_date: '2026-11-24' }]);
+    render(<Receivables currency="INR" today="2026-11-24" expenses={expenses} />);
+    fireEvent.click(screen.getByRole('tab', { name: /EMI \/ loan/ }));
+    expect(await screen.findByText('Next scheduled: 01-12-2026')).toBeInTheDocument();
+    expect(screen.getByText('3 past installments to check')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Mark payment' }));
+    expect(screen.getByLabelText('Installment date for payment')).toHaveTextContent('01-12-2026');
+  });
+  it('flags an estimated missed count when payment details are incomplete', async () => {
+    const emi = { ...loan, person: 'Incomplete loan', amount: 1000, repaid: 100, lent_date: '2026-11-01', record_kind: 'emi' as const, payment_cycle: 'weekly' as const, first_payment_date: '2026-11-03', installment_amount: 100 };
+    vi.mocked(receivablesService.list).mockResolvedValue([emi]);
+    render(<Receivables currency="INR" today="2026-11-24" />);
+    fireEvent.click(screen.getByRole('tab', { name: /EMI \/ loan/ }));
+    expect(await screen.findByText('3 past installments to check (payment details may be incomplete)')).toBeInTheDocument();
+  });
+
+  it.each([[1, 1], [5, 1], [6, 2], [10, 2], [11, 3], [15, 3], [16, 4], [20, 4], [21, 5], [31, 5], [32, 5]])('shows a custom %i-day cycle warning %i days ahead', async (interval, warningDays) => {
+    const dateAfter = (days: number) => new Date(Date.UTC(2026, 10, 24 + days)).toISOString().slice(0, 10);
+    const custom = { ...loan, person: 'Custom loan', record_kind: 'emi' as const, lent_date: '2026-11-01', payment_cycle: 'custom' as const, payment_interval_days: interval, first_payment_date: dateAfter(warningDays + 1), installment_amount: 20 };
+    vi.mocked(receivablesService.list).mockResolvedValue([custom]);
+    const view = render(<Receivables currency="INR" today="2026-11-24" />);
+    fireEvent.click(screen.getByRole('tab', { name: /EMI \/ loan/ }));
+    await screen.findByText('Custom loan');
+    expect(screen.queryByText(/Installment in/)).not.toBeInTheDocument();
+    view.rerender(<Receivables currency="INR" today="2026-11-25" />);
+    expect(screen.getByText(`Installment in ${warningDays} ${warningDays === 1 ? 'day' : 'days'}`)).toBeInTheDocument();
+  });
+
+  it('selects a weekly payment day and saves its first occurrence', async () => {
+    vi.mocked(receivablesService.create).mockResolvedValue({ loan: { ...loan, record_kind: 'emi', person: 'Bank' }, transaction: null });
+    render(<Receivables currency="INR" today="2026-11-24" />);
+    await screen.findByText('Asha', { selector: 'h5' });
+    fireEvent.click(screen.getByRole('tab', { name: /EMI \/ loan/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add record' }));
+    fireEvent.change(screen.getByLabelText('Lender or provider'), { target: { value: 'Bank' } });
+    fireEvent.change(screen.getByLabelText('Total remaining to pay'), { target: { value: '400' } });
+    fireEvent.change(screen.getByLabelText('Installment cycle'), { target: { value: 'weekly' } });
+    fireEvent.change(screen.getByLabelText('Weekly payment day'), { target: { value: '1' } });
+    expect(screen.getByText(/Next scheduled payment: 30-11-2026/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Save record' }));
+    await waitFor(() => expect(receivablesService.create).toHaveBeenCalledWith(expect.objectContaining({ payment_cycle: 'weekly', first_payment_date: '2026-11-30' }), null));
+  });
+  it('saves a custom installment cycle and estimates its payments', async () => {
+    vi.mocked(receivablesService.create).mockResolvedValue({ loan: { ...loan, record_kind: 'emi', person: 'Bank' }, transaction: null });
+    render(<Receivables currency="INR" today="2026-11-24" />);
+    await screen.findByText('Asha', { selector: 'h5' });
+    fireEvent.click(screen.getByRole('tab', { name: /EMI \/ loan/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add record' }));
+    fireEvent.change(screen.getByLabelText('Lender or provider'), { target: { value: 'Bank' } });
+    fireEvent.change(screen.getByLabelText('Total remaining to pay'), { target: { value: '400' } });
+    fireEvent.change(screen.getByLabelText('Installment cycle'), { target: { value: 'custom' } });
+    fireEvent.change(screen.getByLabelText('Every number of days'), { target: { value: '3' } });
+    fireEvent.change(screen.getByLabelText('First payment date'), { target: { value: '2026-11-25' } });
+    fireEvent.change(screen.getByLabelText('End date (optional)'), { target: { value: '2026-12-04' } });
+    expect(screen.getByLabelText('Installment amount (optional)')).toHaveValue(100);
+    fireEvent.click(screen.getByRole('button', { name: 'Save record' }));
+    await waitFor(() => expect(receivablesService.create).toHaveBeenCalledWith(expect.objectContaining({ payment_cycle: 'custom', payment_interval_days: 3, first_payment_date: '2026-11-25', payment_day: null, installment_amount: 100 }), null));
+  });
+
   it('keeps add-record drafts separate for each loan type', async () => {
     render(<Receivables currency="INR" today="2026-11-24" />);
     await screen.findByText('Asha', { selector: 'h5' });
@@ -97,7 +205,9 @@ describe('money to receive', () => {
     await screen.findByText('Asha', { selector: 'h5' });
     fireEvent.click(screen.getByText(/Payment history/));
     fireEvent.click(screen.getByRole('button', { name: 'Choose installment' }));
-    fireEvent.change(screen.getByLabelText('Installment month'), { target: { value: '2026-12' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Installment date' }));
+    fireEvent.change(screen.getByLabelText('Installment date month'), { target: { value: '2026-12' } });
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Choose scheduled installment' })).getByRole('button', { name: '24-12-2026' }));
     fireEvent.click(screen.getByRole('button', { name: 'Save installment' }));
     await waitFor(() => expect(receivablesService.assignInstallment).toHaveBeenCalledWith('1', 'p', '2026-12-24'));
     expect(await screen.findByText('Installment: 24-12-2026')).toBeInTheDocument();
@@ -406,9 +516,9 @@ describe('money to receive', () => {
     render(<ExpenseDashboard dateNavigator={<div>Date navigator</div>} expenses={[]} budget={{ monthlyBudget: 3000, weeklyBudget: 700, dailyBudget: 100, currency: 'INR', categoryBudgets: {} }} initialDate="2026-11-24" onAddExpense={vi.fn()} onUpdateExpense={vi.fn()} onDeleteExpense={vi.fn()} onUpdateBudget={vi.fn()} onExportCSV={vi.fn()} customCategories={{}} onSaveCustomCategories={vi.fn()} />);
     expect(screen.getByText('Date navigator')).toBeInTheDocument();
     expect(within(screen.getByRole('group', { name: 'Expense modules' })).queryByRole('button', { name: /Loans/ })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Loans & Repayments' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Payables & Receivables' }));
     expect(screen.queryByText('Date navigator')).not.toBeInTheDocument();
-    expect(screen.getByRole('region', { name: 'Loans & Repayments' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Payables & Receivables' })).toBeInTheDocument();
     await screen.findByText('Asha', { selector: 'h5' });
     fireEvent.click(screen.getByRole('button', { name: 'Back to finance' }));
     expect(screen.getByText('Date navigator')).toBeInTheDocument();

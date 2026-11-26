@@ -1,14 +1,15 @@
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
+import type { PaymentCycle } from '../../utils/loanSchedule';
 import { Expense } from '../../types';
 import { Account } from '../../utils/accounts';
 
 export type LoanKind = 'lent' | 'borrowed' | 'emi';
-export type Receivable = { id: string; person: string; amount: number; repaid: number; lent_date: string; due_date: string | null; end_date: string | null; payment_day: number | null; note: string | null; record_kind: LoanKind; installment_amount: number | null };
+export type Receivable = { id: string; person: string; amount: number; repaid: number; lent_date: string; due_date: string | null; end_date: string | null; payment_day: number | null; note: string | null; record_kind: LoanKind; installment_amount: number | null; payment_cycle?: PaymentCycle | null; payment_interval_days?: number | null; first_payment_date?: string | null };
 export type LoanMovementLink = { loan_id: string; expense_id: string };
 export type InstallmentAssignment = { loan_id: string; expense_id: string; installment_date: string };
-export type LoanEdits = Pick<Receivable, 'person' | 'amount' | 'lent_date' | 'due_date' | 'end_date' | 'payment_day' | 'note' | 'installment_amount'>;
+export type LoanEdits = Pick<Receivable, 'person' | 'amount' | 'lent_date' | 'due_date' | 'end_date' | 'payment_day' | 'note' | 'installment_amount' | 'payment_cycle' | 'payment_interval_days' | 'first_payment_date'>;
 export type OriginalEdits = { transaction: Expense; amount: number; account: Account; paymentMethod: string };
-const columns = 'id,person,amount,repaid,lent_date,due_date,end_date,payment_day,note,record_kind,installment_amount';
+const columns = 'id,person,amount,repaid,lent_date,due_date,end_date,payment_day,note,record_kind,installment_amount,payment_cycle,payment_interval_days,first_payment_date';
 
 async function context() {
   if (!supabase || !isSupabaseConfigured()) throw new Error('Supabase is not configured.');
@@ -60,7 +61,7 @@ export const receivablesService = {
     if (!Array.isArray(data?.deleted_transaction_ids)) throw new Error('Could not confirm which transactions were deleted. Refresh and try again.');
     return data.deleted_transaction_ids;
   },
-  async create(item: Pick<Receivable, 'person' | 'amount' | 'lent_date' | 'due_date' | 'end_date' | 'payment_day' | 'note' | 'record_kind' | 'installment_amount'> & { initial_received?: number; existing_expense_id?: string; payment_method?: string }, account: Account | null): Promise<{ loan: Receivable; transaction: Expense | null }> {
+  async create(item: Pick<Receivable, 'person' | 'amount' | 'lent_date' | 'due_date' | 'end_date' | 'payment_day' | 'note' | 'record_kind' | 'installment_amount' | 'payment_cycle' | 'payment_interval_days' | 'first_payment_date'> & { initial_received?: number; existing_expense_id?: string; payment_method?: string }, account: Account | null): Promise<{ loan: Receivable; transaction: Expense | null }> {
     const { db } = await context();
     const { data, error } = await db.rpc('save_loan_with_movement', { p_loan: item, p_account: account });
     if (error) throw error;

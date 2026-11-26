@@ -8,6 +8,9 @@ export type ReminderLoan = {
   due_date: string | null;
   end_date: string | null;
   payment_day: number | null;
+  payment_cycle?: 'daily' | 'weekly' | 'monthly' | 'custom' | null;
+  payment_interval_days?: number | null;
+  first_payment_date?: string | null;
 };
 
 function nextDate(date: string): string {
@@ -25,6 +28,12 @@ export function loanRemindersForDate(loans: ReminderLoan[], today: string) {
     const isDue = (date: string) => {
       if (date < loan.lent_date) return false;
       if (loan.record_kind !== 'emi') return loan.due_date === date;
+      if (loan.end_date && date > loan.end_date) return false;
+      if (loan.payment_cycle && loan.payment_cycle !== 'monthly') {
+        const interval = loan.payment_cycle === 'daily' ? 1 : loan.payment_cycle === 'weekly' ? 7 : loan.payment_interval_days;
+        const days = (Date.parse(date + 'T00:00:00Z') - Date.parse((loan.first_payment_date || loan.lent_date) + 'T00:00:00Z')) / 86400000;
+        return !!interval && interval > 0 && days >= 0 && days % interval === 0;
+      }
       const day = loan.payment_day;
       if (!Number.isInteger(day) || !day || day < 1 || day > 31 || (loan.end_date && date > loan.end_date)) return false;
       const year = Number(date.slice(0, 4)), month = Number(date.slice(5, 7));
