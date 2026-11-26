@@ -283,7 +283,7 @@ export default function Receivables({ currency, today, expenses = [], accountVis
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [kind, setKind] = useState<LoanKind>('lent');
+  const [kind, setKind] = useState<LoanKind>('emi');
   const [loanViews, setLoanViews] = useState<Record<LoanKind, 'records' | 'analytics'>>({ lent: 'records', borrowed: 'records', emi: 'records' });
   const loanView = loanViews[kind];
   const setLoanView = (view: 'records' | 'analytics') => setLoanViews(current => ({ ...current, [kind]: view }));
@@ -455,9 +455,9 @@ export default function Receivables({ currency, today, expenses = [], accountVis
 <p className="mt-4 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">All records</p><div className="mt-2 grid gap-3 sm:grid-cols-2">{[['To receive', total(true)], ['To pay', total(false)]].map(([label, value]) => <div key={label} className="rounded-xl bg-indigo-50 px-4 py-3 dark:bg-indigo-500/10"><p className="text-[10px] font-medium uppercase tracking-wide text-indigo-600 dark:text-indigo-300">{label}</p><p className="mt-1 text-xl font-semibold tabular-nums">{money(Number(value))}</p></div>)}</div><p className="mt-3 text-xs text-slate-500 dark:text-slate-400">Recorded loan movements update the selected account and appear in the transaction ledger. They are excluded from spending and income reports; EMI interest is not separated. Installment status uses recorded payments and may need review when payment details are incomplete.</p></div>
       <div>
         <div role="tablist" aria-label="Record type" className="grid grid-cols-3 gap-1 rounded-2xl border border-slate-200 bg-slate-100 p-1.5 shadow-sm dark:border-slate-700 dark:bg-slate-900">{([
+          { value: 'emi', title: 'EMI / loan', detail: 'Track loan payments', Icon: CalendarDays },
           { value: 'lent', title: 'Money lent', detail: 'Someone owes you', Icon: ArrowUpRight },
           { value: 'borrowed', title: 'Money borrowed', detail: 'You owe someone', Icon: ArrowDownLeft },
-          { value: 'emi', title: 'EMI / loan', detail: 'Track loan payments', Icon: CalendarDays },
         ] as const).map(({ value, title, detail, Icon }, index, choices) => <button key={value} id={`loan-kind-${value}`} type="button" role="tab" aria-selected={kind === value} aria-controls="loan-kind-details" tabIndex={kind === value ? 0 : -1} onClick={() => setKind(value)} onKeyDown={event => {
           if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
           event.preventDefault();

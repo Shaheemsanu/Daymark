@@ -42,6 +42,7 @@ import {
 } from '../utils/constants';
 import { CategoryDonutChart, DailySpendingTrendChart, FinancialHealth50_30_20 } from './ExpenseCharts';
 import Receivables from './Receivables';
+import { receivablesService, type InstallmentAssignment, type Receivable } from '../features/expenses/receivablesService';
 
 const FinancialAnalyticsDashboard = lazy(() => import('./FinancialAnalyticsDashboard'));
 
@@ -148,6 +149,25 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
   // Tab switcher state for Analytics & Ledger (default to Transaction Ledger as first tab)
   const [activeTab, setActiveTab] = useState<'ledger' | 'classification' | 'category' | 'velocity' | 'account_report'>('ledger');
   const [showLoans, setShowLoans] = useState(false);
+  const [ledgerInstallments, setLedgerInstallments] = useState<InstallmentAssignment[]>([]);
+  const [ledgerLoans, setLedgerLoans] = useState<Receivable[]>([]);
+  useEffect(() => {
+    if (showLoans || !expenses.some(isLoanMovement)) return;
+    let active = true;
+    receivablesService.listInstallmentAssignments().then(rows => { if (active) setLedgerInstallments(rows); }).catch(() => { if (active) setLedgerInstallments([]); });
+    receivablesService.list().then(rows => { if (active) setLedgerLoans(rows); }).catch(() => { if (active) setLedgerLoans([]); });
+    return () => { active = false; };
+  }, [expenses, showLoans]);
+  const transactionNote = (item: Expense) => {
+    const assigned = ledgerInstallments.find(entry => entry.expense_id === item.id);
+    const internalNote = isLoanMovement(item) && /^Loan record: .+$/.test(item.notes || '');
+    const loanId = assigned?.loan_id || (internalNote ? item.notes?.slice('Loan record: '.length) : undefined);
+    const amount = ledgerLoans.find(loan => loan.id === loanId)?.installment_amount;
+    const amountNote = amount != null && Number.isFinite(Number(amount)) ? ` · Current installment amount: ${formatCurrency(Number(amount), currencySymbol)}` : '';
+    if (assigned && (internalNote || !item.notes)) return `Installment: ${formatDisplayDate(assigned.installment_date)}${amountNote}`;
+    if (internalNote) return item.title.toLowerCase().startsWith('loan payment') ? `Loan payment${amountNote}` : 'Loan transaction';
+    return getBalanceAdjustmentNote(item);
+  };
   useDialogBack(showLoans, () => setShowLoans(false));
   useEffect(() => {
     if ((!analyticsEnabled && ['classification', 'category', 'velocity'].includes(activeTab)) ||
@@ -161,10 +181,12 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
   const [isUpdatingTransaction, setIsUpdatingTransaction] = useState(false);
   const [transactionUpdateError, setTransactionUpdateError] = useState<string | null>(null);
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
+  const [loanEditBlocked, setLoanEditBlocked] = useState(false);
+  useDialogBack(loanEditBlocked, () => setLoanEditBlocked(false));
   useDialogBack(isAddModalOpen || Boolean(editingExpense), () => { setIsAddModalOpen(false); setEditingExpense(null); });
   const [viewingExpense, setViewingExpense] = useState<LedgerExpense | null>(null);
   const viewingInflow = viewingExpense?.transferDirection === 'received' || (!viewingExpense?.isTransfer && viewingExpense?.type === 'income');
-  const viewingNote = viewingExpense ? getBalanceAdjustmentNote(viewingExpense) : undefined;
+  const viewingNote = viewingExpense ? transactionNote(viewingExpense) : undefined;
   const viewingCopyText = viewingExpense ? [
     viewingExpense.title,
     `${viewingInflow ? '+' : '-'}${formatCurrency(viewingExpense.amount, currencySymbol)}`,
@@ -948,6 +970,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
 
   // Submit Edit Expense
   const handleOpenEdit = (exp: Expense) => {
+    if (isLoanMovement(exp)) { setLoanEditBlocked(true); return; }
     setEditingExpense(exp);
     setTransactionUpdateError(null);
     setFormAccount(exp.account || 'expense');
@@ -1817,7 +1840,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                         {item.transferDirection === 'received' ? '+' : item.transferDirection === 'sent' ? '-' : isIncome ? '+' : '-'}{formatCurrency(item.amount, currencySymbol)}
                       </strong>
                     </div>
-                    {item.notes && <p className="line-clamp-2 break-words text-xs text-slate-500 dark:text-slate-400">{getBalanceAdjustmentNote(item)}</p>}
+                    {transactionNote(item) && <p className="line-clamp-2 break-words text-xs text-slate-500 dark:text-slate-400">{transactionNote(item)}</p>}
                   </article>
                 );
               })}
@@ -1890,9 +1913,9 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                             <div className="font-medium text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
                               <span className="line-clamp-2 max-w-sm break-words">{item.title}</span>
                             </div>
-                            {item.notes && (
+                            {transactionNote(item) && (
                               <div className="line-clamp-2 break-words text-[11px] text-slate-400 max-w-sm mt-0.5">
-                                {getBalanceAdjustmentNote(item)}
+                                {transactionNote(item)}
                               </div>
                             )}
                           </td>
@@ -2055,6 +2078,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
         </div>
       )}
 
+      {loanEditBlocked && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs"><div role="dialog" aria-modal="true" aria-labelledby="loan-edit-blocked-title" className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-800 dark:bg-slate-900"><h3 id="loan-edit-blocked-title" className="text-base font-bold text-slate-900 dark:text-slate-100">Edit loan transaction</h3><p className="mt-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">Loan transactions cannot be edited separately from their loan record. Go to Payables &amp; Receivables, find the loan record, and edit it or use Payment history to edit a repayment.</p><div className="mt-5 flex justify-end"><button type="button" autoFocus onClick={() => setLoanEditBlocked(false)} className="min-h-10 rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white hover:bg-indigo-700">Close</button></div></div></div>}
       {(isAddModalOpen || editingExpense) && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs">
           <div className="w-full max-w-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">

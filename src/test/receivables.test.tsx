@@ -10,15 +10,51 @@ vi.mock('../features/expenses/receivablesService', () => ({ receivablesService: 
 const loan = { id: '1', person: 'Asha', amount: 500, repaid: 100, lent_date: '2026-11-01', due_date: null, end_date: null, payment_day: null, note: null, record_kind: 'lent' as const, installment_amount: null };
 beforeEach(() => { vi.mocked(receivablesService.list).mockResolvedValue([loan]); vi.mocked(receivablesService.listMovementLinks).mockResolvedValue([]); vi.mocked(receivablesService.listInstallmentAssignments).mockResolvedValue([]); });
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
+const renderLent = (element: React.ReactElement) => { const view = render(element); fireEvent.click(screen.getByRole('tab', { name: /Money lent/ })); return view; };
 
 describe('money to receive', () => {
+  it('opens with EMI / loan as the first selected tab', () => {
+    render(<Receivables currency="INR" today="2026-11-24" />);
+    const tabs = within(screen.getByRole('tablist', { name: 'Record type' })).getAllByRole('tab');
+    expect(tabs.map(tab => tab.id)).toEqual(['loan-kind-emi', 'loan-kind-lent', 'loan-kind-borrowed']);
+    expect(tabs[0]).toHaveAttribute('aria-selected', 'true');
+    fireEvent.keyDown(tabs[0], { key: 'End' });
+    expect(tabs[2]).toHaveFocus();
+    fireEvent.keyDown(tabs[2], { key: 'Home' });
+    expect(tabs[0]).toHaveFocus();
+  });
+
+  it('shows an installment date instead of the internal loan identifier in the ledger', async () => {
+    const transaction = { id: 'p', title: 'Loan payment to Bank', amount: 20, category: 'Loan: EMI / loan', date: '2026-11-24', paymentMethod: 'Cash', account: 'expense' as const, type: 'expense' as const, notes: 'Loan record: internal-id', createdAt: 1 };
+    vi.mocked(receivablesService.listInstallmentAssignments).mockResolvedValue([{ loan_id: 'internal-id', expense_id: 'p', installment_date: '2026-12-01' }]);
+    vi.mocked(receivablesService.list).mockResolvedValue([{ ...loan, id: 'internal-id', record_kind: 'emi', installment_amount: 100 }]);
+    render(<ExpenseDashboard expenses={[transaction]} budget={{ monthlyBudget: 3000, weeklyBudget: 700, dailyBudget: 100, currency: 'INR', categoryBudgets: {} }} initialDate="2026-11-24" onAddExpense={vi.fn()} onUpdateExpense={vi.fn()} onDeleteExpense={vi.fn()} onUpdateBudget={vi.fn()} onExportCSV={vi.fn()} customCategories={{}} onSaveCustomCategories={vi.fn()} />);
+    expect((await screen.findAllByText(/Installment: 01-12-2026 .* Current installment amount: INR 100.00/)).length).toBeGreaterThan(0);
+    expect(screen.queryByText('Loan record: internal-id')).not.toBeInTheDocument();
+    const viewButtons = screen.getAllByRole('button', { name: 'View Loan payment to Bank' });
+    fireEvent.click(viewButtons[0]);
+    expect(screen.getAllByText(/Installment: 01-12-2026 .* Current installment amount: INR 100.00/).length).toBeGreaterThan(1);
+  });
+
+  it('blocks editing loan transactions in the ledger and explains where to edit', async () => {
+    const transaction = { id: 'p', title: 'Loan payment to Bank', amount: 20, category: 'Loan: EMI / loan', date: '2026-11-24', paymentMethod: 'Cash', account: 'expense' as const, type: 'expense' as const, notes: 'Loan record: 1', createdAt: 1 };
+    const update = vi.fn();
+    render(<ExpenseDashboard expenses={[transaction]} budget={{ monthlyBudget: 3000, weeklyBudget: 700, dailyBudget: 100, currency: 'INR', categoryBudgets: {} }} initialDate="2026-11-24" onAddExpense={vi.fn()} onUpdateExpense={update} onDeleteExpense={vi.fn()} onUpdateBudget={vi.fn()} onExportCSV={vi.fn()} customCategories={{}} onSaveCustomCategories={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Loan payment to Bank' }));
+    const dialog = screen.getByRole('dialog', { name: 'Edit loan transaction' });
+    expect(within(dialog).getByText(/Go to Payables & Receivables/)).toBeInTheDocument();
+    expect(update).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog', { name: 'Edit loan transaction' })).not.toBeInTheDocument();
+  });
+
   it('prefills the remaining amount for the selected installment', async () => {
     const emi = { ...loan, person: 'Bank', amount: 1000, repaid: 50, lent_date: '2026-11-01', record_kind: 'emi' as const, payment_cycle: 'weekly' as const, first_payment_date: '2026-11-03', installment_amount: 100 };
     const payment = { title: 'Payment', category: 'Loan: EMI / loan', paymentMethod: 'Cash', account: 'expense' as const, type: 'expense' as const, notes: 'Loan record: 1', createdAt: 1 };
     const expenses = [{ ...payment, id: 'a', amount: 30, date: '2026-11-23' }, { ...payment, id: 'b', amount: 20, date: '2026-11-17' }];
     vi.mocked(receivablesService.list).mockResolvedValue([emi]);
     vi.mocked(receivablesService.listInstallmentAssignments).mockResolvedValue([{ loan_id: '1', expense_id: 'a', installment_date: '2026-11-24' }, { loan_id: '1', expense_id: 'b', installment_date: '2026-11-17' }]);
-    render(<Receivables currency="INR" today="2026-11-24" expenses={expenses} />);
+    renderLent(<Receivables currency="INR" today="2026-11-24" expenses={expenses} />);
     fireEvent.click(screen.getByRole('tab', { name: /EMI \/ loan/ }));
     await screen.findByText('Bank');
     fireEvent.click(screen.getByRole('button', { name: 'Mark payment' }));
@@ -37,7 +73,7 @@ describe('money to receive', () => {
   it('offers only scheduled dates and lets the user navigate to another month', async () => {
     const emi = { ...loan, person: 'Weekly loan', amount: 1000, repaid: 0, lent_date: '2026-11-01', end_date: '2026-12-15', record_kind: 'emi' as const, payment_cycle: 'weekly' as const, first_payment_date: '2026-11-06', installment_amount: 100 };
     vi.mocked(receivablesService.list).mockResolvedValue([emi]);
-    render(<Receivables currency="INR" today="2026-11-24" />);
+    renderLent(<Receivables currency="INR" today="2026-11-24" />);
     fireEvent.click(screen.getByRole('tab', { name: /EMI \/ loan/ }));
     await screen.findByText('Weekly loan');
     fireEvent.click(screen.getByRole('button', { name: 'Mark payment' }));
@@ -62,7 +98,7 @@ describe('money to receive', () => {
     const expenses = [{ ...payment, id: 'a', amount: 50, date: '2026-11-10' }, { ...payment, id: 'b', amount: 100, date: '2026-11-23' }];
     vi.mocked(receivablesService.list).mockResolvedValue([emi]);
     vi.mocked(receivablesService.listInstallmentAssignments).mockResolvedValue([{ loan_id: '1', expense_id: 'a', installment_date: '2026-11-10' }, { loan_id: '1', expense_id: 'b', installment_date: '2026-11-24' }]);
-    render(<Receivables currency="INR" today="2026-11-24" expenses={expenses} />);
+    renderLent(<Receivables currency="INR" today="2026-11-24" expenses={expenses} />);
     fireEvent.click(screen.getByRole('tab', { name: /EMI \/ loan/ }));
     expect(await screen.findByText('Next scheduled: 01-12-2026')).toBeInTheDocument();
     expect(screen.getByText('3 past installments to check')).toBeInTheDocument();
@@ -72,7 +108,7 @@ describe('money to receive', () => {
   it('flags an estimated missed count when payment details are incomplete', async () => {
     const emi = { ...loan, person: 'Incomplete loan', amount: 1000, repaid: 100, lent_date: '2026-11-01', record_kind: 'emi' as const, payment_cycle: 'weekly' as const, first_payment_date: '2026-11-03', installment_amount: 100 };
     vi.mocked(receivablesService.list).mockResolvedValue([emi]);
-    render(<Receivables currency="INR" today="2026-11-24" />);
+    renderLent(<Receivables currency="INR" today="2026-11-24" />);
     fireEvent.click(screen.getByRole('tab', { name: /EMI \/ loan/ }));
     expect(await screen.findByText('3 past installments to check (payment details may be incomplete)')).toBeInTheDocument();
   });
@@ -81,7 +117,7 @@ describe('money to receive', () => {
     const dateAfter = (days: number) => new Date(Date.UTC(2026, 10, 24 + days)).toISOString().slice(0, 10);
     const custom = { ...loan, person: 'Custom loan', record_kind: 'emi' as const, lent_date: '2026-11-01', payment_cycle: 'custom' as const, payment_interval_days: interval, first_payment_date: dateAfter(warningDays + 1), installment_amount: 20 };
     vi.mocked(receivablesService.list).mockResolvedValue([custom]);
-    const view = render(<Receivables currency="INR" today="2026-11-24" />);
+    const view = renderLent(<Receivables currency="INR" today="2026-11-24" />);
     fireEvent.click(screen.getByRole('tab', { name: /EMI \/ loan/ }));
     await screen.findByText('Custom loan');
     expect(screen.queryByText(/Installment in/)).not.toBeInTheDocument();
@@ -91,7 +127,7 @@ describe('money to receive', () => {
 
   it('selects a weekly payment day and saves its first occurrence', async () => {
     vi.mocked(receivablesService.create).mockResolvedValue({ loan: { ...loan, record_kind: 'emi', person: 'Bank' }, transaction: null });
-    render(<Receivables currency="INR" today="2026-11-24" />);
+    renderLent(<Receivables currency="INR" today="2026-11-24" />);
     await screen.findByText('Asha', { selector: 'h5' });
     fireEvent.click(screen.getByRole('tab', { name: /EMI \/ loan/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Add record' }));
@@ -105,7 +141,7 @@ describe('money to receive', () => {
   });
   it('saves a custom installment cycle and estimates its payments', async () => {
     vi.mocked(receivablesService.create).mockResolvedValue({ loan: { ...loan, record_kind: 'emi', person: 'Bank' }, transaction: null });
-    render(<Receivables currency="INR" today="2026-11-24" />);
+    renderLent(<Receivables currency="INR" today="2026-11-24" />);
     await screen.findByText('Asha', { selector: 'h5' });
     fireEvent.click(screen.getByRole('tab', { name: /EMI \/ loan/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Add record' }));
@@ -121,7 +157,7 @@ describe('money to receive', () => {
   });
 
   it('keeps add-record drafts separate for each loan type', async () => {
-    render(<Receivables currency="INR" today="2026-11-24" />);
+    renderLent(<Receivables currency="INR" today="2026-11-24" />);
     await screen.findByText('Asha', { selector: 'h5' });
     fireEvent.click(screen.getByRole('button', { name: 'Add record' }));
     fireEvent.change(screen.getByLabelText('Person'), { target: { value: 'Lent draft' } });
@@ -143,7 +179,7 @@ describe('money to receive', () => {
     expect(screen.getByLabelText('Amount')).toHaveValue(250);
   });
   it('keeps the records and analytics view independent for each loan type', async () => {
-    render(<Receivables currency="INR" today="2026-11-24" />);
+    renderLent(<Receivables currency="INR" today="2026-11-24" />);
     await screen.findByText('Asha', { selector: 'h5' });
     fireEvent.click(screen.getByRole('tab', { name: 'Analytics' }));
     expect(screen.getByRole('tab', { name: 'Analytics' })).toHaveAttribute('aria-selected', 'true');
@@ -160,7 +196,7 @@ describe('money to receive', () => {
       { ...loan, id: 'done', person: 'Bina', repaid: 500, note: 'Travel' },
       { ...loan, id: 'borrowed', person: 'Chen', record_kind: 'borrowed' },
     ]);
-    render(<Receivables currency="INR" today="2026-11-24" />);
+    renderLent(<Receivables currency="INR" today="2026-11-24" />);
     await screen.findByText('Asha', { selector: 'h5' });
     expect(screen.getByText('Active records')).toBeInTheDocument();
     expect(screen.getByText('Completed records')).toBeInTheDocument();
@@ -180,7 +216,7 @@ describe('money to receive', () => {
   });
   it('keeps search and status filters independent between loan types', async () => {
     vi.mocked(receivablesService.list).mockResolvedValue([loan, { ...loan, id: '2', person: 'Bina', record_kind: 'borrowed' }, { ...loan, id: '3', person: 'Chen', record_kind: 'emi' }]);
-    render(<Receivables currency="INR" today="2026-11-24" />);
+    renderLent(<Receivables currency="INR" today="2026-11-24" />);
     await screen.findByText('Asha', { selector: 'h5' });
     fireEvent.change(screen.getByLabelText('Search loan records'), { target: { value: 'Asha' } });
     fireEvent.change(screen.getByLabelText('Filter loan records'), { target: { value: 'completed' } });
@@ -200,7 +236,7 @@ describe('money to receive', () => {
     const payment = { id: 'p', title: 'Payment', amount: 100, category: 'Loan: EMI / loan', date: '2026-11-25', paymentMethod: 'Cash', account: 'expense' as const, type: 'expense' as const, notes: 'Loan record: 1', createdAt: 1 };
     vi.mocked(receivablesService.list).mockResolvedValue([emi]);
     vi.mocked(receivablesService.assignInstallment).mockResolvedValue();
-    render(<Receivables currency="INR" today="2026-11-25" expenses={[payment]} />);
+    renderLent(<Receivables currency="INR" today="2026-11-25" expenses={[payment]} />);
     fireEvent.click(screen.getByRole('tab', { name: /EMI \/ loan/ }));
     await screen.findByText('Asha', { selector: 'h5' });
     fireEvent.click(screen.getByText(/Payment history/));
@@ -221,7 +257,7 @@ describe('money to receive', () => {
       { ...record, id: 'later', person: 'Later', due_date: '2026-11-30' },
       { ...record, id: 'settled', person: 'Settled', due_date: '2026-11-23', repaid: 500 },
     ]);
-    render(<Receivables currency="INR" today="2026-11-24" />);
+    renderLent(<Receivables currency="INR" today="2026-11-24" />);
     fireEvent.click(screen.getByRole('tab', { name: new RegExp(tabName) }));
     const card = async (name: string) => (await screen.findByText(name, { selector: 'h5' })).closest('article')!;
     expect(within(await card('Past')).getByText('Past due')).toBeInTheDocument();
@@ -238,7 +274,7 @@ describe('money to receive', () => {
       { ...emi, id: 'soon', person: 'Soon EMI', lent_date: '2026-11-24', payment_day: 29 },
     ]);
     const payment = { id: 'p', title: 'Payment', amount: 100, category: 'Loan: EMI / loan', date: '2026-11-20', paymentMethod: 'Cash', account: 'expense' as const, type: 'expense' as const, notes: 'Loan record: paid', createdAt: 1 };
-    render(<Receivables currency="INR" today="2026-11-24" expenses={[payment]} />);
+    renderLent(<Receivables currency="INR" today="2026-11-24" expenses={[payment]} />);
     fireEvent.click(screen.getByRole('tab', { name: /EMI \/ loan/ }));
     const card = async (name: string) => (await screen.findByText(name, { selector: 'h5' })).closest('article')!;
     expect(within(await card('Late EMI')).getByText(/passed - check payment/)).toBeInTheDocument();
@@ -253,7 +289,7 @@ describe('money to receive', () => {
       { ...record, id: 'fallback-later', person: 'Later start', lent_date: '2026-11-20', due_date: null },
       { ...record, id: 'early', person: 'Sooner', lent_date: '2026-11-01', due_date: '2026-12-01' },
     ]);
-    render(<Receivables currency="INR" today="2026-11-24" />);
+    renderLent(<Receivables currency="INR" today="2026-11-24" />);
     fireEvent.click(screen.getByRole('tab', { name: new RegExp(tabName) }));
     await screen.findByText('Sooner', { selector: 'h5' });
     expect(screen.getAllByRole('article').map(article => within(article).getByRole('heading').textContent)).toEqual(['Sooner', 'Later', 'No due date', 'Later start']);
@@ -266,13 +302,13 @@ describe('money to receive', () => {
       { ...emi, id: 'early', person: 'Sooner', payment_day: 10 },
       { ...emi, id: 'settled', person: 'Settled', payment_day: 1, repaid: 500 },
     ]);
-    render(<Receivables currency="INR" today="2026-11-24" />);
+    renderLent(<Receivables currency="INR" today="2026-11-24" />);
     fireEvent.click(screen.getByRole('tab', { name: /EMI \/ loan/ }));
     await screen.findByText('Sooner', { selector: 'h5' });
     expect(screen.getAllByRole('article').map(article => within(article).getByRole('heading').textContent)).toEqual(['Sooner', 'Later', 'No schedule', 'Settled']);
   });
   it('switches between records and analytics for the selected loan type', async () => {
-    render(<Receivables currency="INR" today="2026-11-24" />);
+    renderLent(<Receivables currency="INR" today="2026-11-24" />);
     await screen.findByText('Asha', { selector: 'h5' });
     fireEvent.click(screen.getByRole('tab', { name: 'Analytics' }));
     expect(screen.getByRole('tab', { name: 'Analytics' })).toHaveAttribute('aria-selected', 'true');
@@ -285,7 +321,7 @@ describe('money to receive', () => {
     expect(screen.getByText(/No money borrowed records yet/)).toBeInTheDocument();
   });
   it.each(['Money lent', 'Money borrowed', 'EMI / loan'])('shows the relevant message and account fields for %s', async tabName => {
-    render(<Receivables currency="INR" today="2026-11-24" />);
+    renderLent(<Receivables currency="INR" today="2026-11-24" />);
     await screen.findByText('Asha', { selector: 'h5' });
     fireEvent.click(screen.getByRole('tab', { name: new RegExp(tabName.replace('/', '\\/')) }));
     fireEvent.click(screen.getByRole('button', { name: 'Add record' }));
@@ -305,7 +341,7 @@ describe('money to receive', () => {
     ['Money borrowed', 'Add money borrowed'],
     ['EMI / loan', 'Add emi / loan'],
   ])('opens and closes an add dialog for %s', async (tabName, dialogName) => {
-    render(<Receivables currency="INR" today="2026-11-24" />);
+    renderLent(<Receivables currency="INR" today="2026-11-24" />);
     await screen.findByText('Asha', { selector: 'h5' });
     fireEvent.click(screen.getByRole('tab', { name: new RegExp(tabName.replace('/', '\\/')) }));
     fireEvent.click(screen.getByRole('button', { name: 'Add record' }));
@@ -318,7 +354,7 @@ describe('money to receive', () => {
     const onTransactionDeleted = vi.fn();
     let finish!: (ids: string[]) => void;
     vi.mocked(receivablesService.delete).mockReturnValue(new Promise(resolve => { finish = resolve; }));
-    render(<Receivables currency="INR" today="2026-11-24" onTransactionDeleted={onTransactionDeleted} />);
+    renderLent(<Receivables currency="INR" today="2026-11-24" onTransactionDeleted={onTransactionDeleted} />);
     const record = (await screen.findByText('Asha', { selector: 'h5' })).closest('article')!;
     const button = within(record).getByRole('button', { name: 'Delete Asha' });
     fireEvent.click(button);
@@ -339,7 +375,7 @@ describe('money to receive', () => {
     const confirmation = vi.spyOn(window, 'confirm').mockReturnValue(true);
     let finish!: (value: typeof loan) => void;
     vi.mocked(receivablesService.deletePayment).mockReturnValue(new Promise(resolve => { finish = resolve; }));
-    render(<Receivables currency="INR" today="2026-11-24" expenses={[row]} />);
+    renderLent(<Receivables currency="INR" today="2026-11-24" expenses={[row]} />);
     const record = (await screen.findByText('Asha', { selector: 'h5' })).closest('article')!;
     fireEvent.click(within(record).getByText('Payment history · 1 payment'));
     fireEvent.click(within(record).getByRole('button', { name: /Delete payment 10-11-2026/ }));
@@ -354,7 +390,7 @@ describe('money to receive', () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true);
     const onTransactionDeleted = vi.fn();
     vi.mocked(receivablesService.deletePayment).mockResolvedValue({ ...loan, repaid: 0 });
-    render(<Receivables currency="INR" today="2026-11-24" expenses={[row]} onTransactionDeleted={onTransactionDeleted} />);
+    renderLent(<Receivables currency="INR" today="2026-11-24" expenses={[row]} onTransactionDeleted={onTransactionDeleted} />);
     const record = (await screen.findByText('Asha', { selector: 'h5' })).closest('article')!;
     fireEvent.click(within(record).getByText('Payment history · 1 payment'));
     const button = within(record).getByRole('button', { name: /Delete payment 10-11-2026/ });
@@ -370,7 +406,7 @@ describe('money to receive', () => {
     const row = { id: 'payment', title: 'Repayment', amount: 100, category: 'Loan: Money lent', date: '2026-11-10', paymentMethod: 'Cash', account: 'expense' as const, type: 'income' as const, notes: 'Loan record: 1', createdAt: 1 };
     const onTransactionUpdated = vi.fn();
     vi.mocked(receivablesService.editPayment).mockResolvedValue({ loan: { ...loan, repaid: 150 }, transaction: { ...row, amount: 150 } });
-    render(<Receivables currency="INR" today="2026-11-24" expenses={[row]} onTransactionUpdated={onTransactionUpdated} />);
+    renderLent(<Receivables currency="INR" today="2026-11-24" expenses={[row]} onTransactionUpdated={onTransactionUpdated} />);
     const record = (await screen.findByText('Asha', { selector: 'h5' })).closest('article')!;
     fireEvent.click(within(record).getByText('Payment history · 1 payment'));
     fireEvent.click(within(record).getByRole('button', { name: /Edit payment 10-11-2026/ }));
@@ -382,7 +418,7 @@ describe('money to receive', () => {
   });
   it('edits a loan without changing its recorded movement', async () => {
     vi.mocked(receivablesService.update).mockResolvedValue({ loan: { ...loan, person: 'Anu', due_date: '2026-12-05' }, transaction: null });
-    render(<Receivables currency="INR" today="2026-11-24" />);
+    renderLent(<Receivables currency="INR" today="2026-11-24" />);
     const record = (await screen.findByText('Asha', { selector: 'h5' })).closest('article')!;
     fireEvent.click(within(record).getByRole('button', { name: 'Edit Asha' }));
     fireEvent.change(within(record).getByLabelText('Edit name'), { target: { value: 'Anu' } });
@@ -395,7 +431,7 @@ describe('money to receive', () => {
     const transaction = { id: 'original', title: 'Money lent to Asha', amount: 500, category: 'Loan: Money lent', date: '2026-11-01', paymentMethod: 'UPI / QR', account: 'expense' as const, type: 'expense' as const, notes: 'Loan record: 1', createdAt: 1 };
     const onTransactionUpdated = vi.fn();
     vi.mocked(receivablesService.update).mockResolvedValue({ loan: { ...loan, amount: 600, lent_date: '2026-11-02' }, transaction: { ...transaction, amount: 600, date: '2026-11-02' } });
-    render(<Receivables currency="INR" today="2026-11-24" expenses={[transaction]} onTransactionUpdated={onTransactionUpdated} />);
+    renderLent(<Receivables currency="INR" today="2026-11-24" expenses={[transaction]} onTransactionUpdated={onTransactionUpdated} />);
     const record = (await screen.findByText('Asha', { selector: 'h5' })).closest('article')!;
     fireEvent.click(within(record).getByRole('button', { name: 'Edit Asha' }));
     fireEvent.change(within(record).getByLabelText('Edit amount'), { target: { value: '600' } });
@@ -407,7 +443,7 @@ describe('money to receive', () => {
   it('prevents an EMI total below payments already recorded', async () => {
     const emi = { ...loan, record_kind: 'emi' as const, installment_amount: 100 };
     vi.mocked(receivablesService.list).mockResolvedValue([emi]);
-    render(<Receivables currency="INR" today="2026-11-24" />);
+    renderLent(<Receivables currency="INR" today="2026-11-24" />);
     await screen.findByRole('tab', { name: /EMI \/ loan/ });
     fireEvent.click(screen.getByRole('tab', { name: /EMI \/ loan/ }));
     const record = (await screen.findByText('Asha', { selector: 'h5' })).closest('article')!;
@@ -419,7 +455,7 @@ describe('money to receive', () => {
   });
   it('sends the selected payment method for a new loan transaction', async () => {
     vi.mocked(receivablesService.create).mockResolvedValue({ loan: { ...loan, id: '2', person: 'Sam', amount: 125, repaid: 0 }, transaction: null });
-    render(<Receivables currency="INR" today="2026-11-24" />);
+    renderLent(<Receivables currency="INR" today="2026-11-24" />);
     await screen.findByText('Asha', { selector: 'h5' });
     fireEvent.click(screen.getByRole('button', { name: 'Add record' }));
     fireEvent.change(screen.getByLabelText('Person'), { target: { value: 'Sam' } });
@@ -430,7 +466,7 @@ describe('money to receive', () => {
   });
   it('sends the selected payment method when recording a repayment', async () => {
     vi.mocked(receivablesService.repay).mockResolvedValue({ loan: { ...loan, repaid: 250 }, transaction: null });
-    render(<Receivables currency="INR" today="2026-11-24" />);
+    renderLent(<Receivables currency="INR" today="2026-11-24" />);
     const record = (await screen.findByText('Asha', { selector: 'h5' })).closest('article')!;
     fireEvent.click(within(record).getByRole('button', { name: 'Mark received' }));
     fireEvent.change(within(record).getByLabelText('Amount received from Asha'), { target: { value: '150' } });
@@ -439,7 +475,7 @@ describe('money to receive', () => {
     await waitFor(() => expect(receivablesService.repay).toHaveBeenCalledWith(loan, 150, '2026-11-24', 'expense', undefined, 'Net Banking'));
   });
   it('increments loan amount fields by one rupee and accepts paise', async () => {
-    render(<Receivables currency="INR" today="2026-11-24" />);
+    renderLent(<Receivables currency="INR" today="2026-11-24" />);
     await screen.findByText('Asha', { selector: 'h5' });
     fireEvent.click(screen.getByRole('button', { name: 'Add record' }));
     const amount = screen.getByLabelText('Amount') as HTMLInputElement;
@@ -457,7 +493,7 @@ describe('money to receive', () => {
     expect(installment.value).toBe('501.25');
   });
   it('estimates installments from the schedule and preserves manual edits', async () => {
-    render(<Receivables currency="INR" today="2026-11-24" />);
+    renderLent(<Receivables currency="INR" today="2026-11-24" />);
     await screen.findByText('Asha', { selector: 'h5' });
     fireEvent.click(screen.getByRole('tab', { name: /EMI \/ loan/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Add record' }));
@@ -481,7 +517,7 @@ describe('money to receive', () => {
       { ...common, id: 'first', title: 'First payment', amount: 100, date: '2026-11-10', type: 'income' as const, notes: 'Loan record: 1' },
       { ...common, id: 'linked', title: 'Second payment', amount: 150, date: '2026-11-20', type: 'income' as const },
     ];
-    render(<Receivables currency="INR" today="2026-11-24" expenses={entries} />);
+    renderLent(<Receivables currency="INR" today="2026-11-24" expenses={entries} />);
     const record = (await screen.findByText('Asha', { selector: 'h5' })).closest('article')!;
     await waitFor(() => expect(within(record).getByText('Payment history · 2 payments')).toBeInTheDocument());
     fireEvent.click(within(record).getByText('Payment history · 2 payments'));
@@ -492,7 +528,7 @@ describe('money to receive', () => {
   it('lets the user link a matching original payment instead of creating another', async () => {
     const entry = { id: 'existing', title: 'Sent to Sam', amount: 125, category: 'Other', date: '2026-11-24', paymentMethod: 'Cash', type: 'expense' as const, account: 'expense' as const, createdAt: 0 };
     vi.mocked(receivablesService.create).mockResolvedValue({ loan: { ...loan, id: '2', person: 'Sam', amount: 125, repaid: 0 }, transaction: null });
-    render(<Receivables currency="INR" today="2026-11-24" expenses={[entry]} />);
+    renderLent(<Receivables currency="INR" today="2026-11-24" expenses={[entry]} />);
     await screen.findByText('Asha', { selector: 'h5' });
     fireEvent.click(screen.getByRole('button', { name: 'Add record' }));
     fireEvent.change(screen.getByLabelText('Person'), { target: { value: 'Sam' } });
@@ -504,7 +540,7 @@ describe('money to receive', () => {
   it('links an existing repayment only after the user selects it', async () => {
     const entry = { id: 'received', title: 'Asha repayment', amount: 150, category: 'Other', date: '2026-11-24', paymentMethod: 'Cash', type: 'income' as const, account: 'expense' as const, createdAt: 0 };
     vi.mocked(receivablesService.repay).mockResolvedValue({ loan: { ...loan, repaid: 250 }, transaction: null });
-    render(<Receivables currency="INR" today="2026-11-24" expenses={[entry]} />);
+    renderLent(<Receivables currency="INR" today="2026-11-24" expenses={[entry]} />);
     const record = (await screen.findByText('Asha', { selector: 'h5' })).closest('article')!;
     fireEvent.click(within(record).getByRole('button', { name: 'Mark received' }));
     fireEvent.change(within(record).getByLabelText('Amount received from Asha'), { target: { value: '150' } });
@@ -519,6 +555,7 @@ describe('money to receive', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Payables & Receivables' }));
     expect(screen.queryByText('Date navigator')).not.toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'Payables & Receivables' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: /Money lent/ }));
     await screen.findByText('Asha', { selector: 'h5' });
     fireEvent.click(screen.getByRole('button', { name: 'Back to finance' }));
     expect(screen.getByText('Date navigator')).toBeInTheDocument();
@@ -526,7 +563,7 @@ describe('money to receive', () => {
   });
   it('shows the remaining amount and records a partial repayment', async () => {
     vi.mocked(receivablesService.repay).mockResolvedValue({ loan: { ...loan, repaid: 250 }, transaction: null });
-    render(<Receivables currency="INR" today="2026-11-24" />);
+    renderLent(<Receivables currency="INR" today="2026-11-24" />);
     const record = (await screen.findByText('Asha', { selector: 'h5' })).closest('article')!;
     expect(within(record).getByText('INR 400.00')).toBeInTheDocument();
     fireEvent.click(within(record).getByRole('button', { name: 'Mark received' }));
@@ -538,7 +575,7 @@ describe('money to receive', () => {
 
   it('saves a loan with its optional details', async () => {
     vi.mocked(receivablesService.create).mockResolvedValue({ loan: { ...loan, id: '2', person: 'Sam', amount: 125, repaid: 0 }, transaction: null });
-    render(<Receivables currency="INR" today="2026-11-24" />);
+    renderLent(<Receivables currency="INR" today="2026-11-24" />);
     await screen.findByText('Asha', { selector: 'h5' });
     fireEvent.click(screen.getByRole('button', { name: 'Add record' }));
     fireEvent.change(screen.getByLabelText('Person'), { target: { value: 'Sam' } });
@@ -550,7 +587,7 @@ describe('money to receive', () => {
 
   it('records an EMI with its installment and shows it as money to pay', async () => {
     vi.mocked(receivablesService.create).mockResolvedValue({ loan: { ...loan, id: '2', person: 'Bank', amount: 12000, repaid: 0, record_kind: 'emi', installment_amount: 1000, end_date: '2027-11-24', payment_day: 15 }, transaction: null });
-    render(<Receivables currency="INR" today="2026-11-24" />);
+    renderLent(<Receivables currency="INR" today="2026-11-24" />);
     await screen.findByText('Asha', { selector: 'h5' });
     fireEvent.click(screen.getByRole('tab', { name: /EMI \/ loan/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Add record' }));
@@ -570,7 +607,7 @@ describe('money to receive', () => {
   });
 
   it('supports keyboard navigation between record type tabs', async () => {
-    render(<Receivables currency="INR" today="2026-11-24" />);
+    renderLent(<Receivables currency="INR" today="2026-11-24" />);
     await screen.findByText('Asha', { selector: 'h5' });
     const lent = screen.getByRole('tab', { name: /Money lent/ });
     lent.focus();
@@ -590,7 +627,7 @@ describe('money to receive', () => {
     const transaction = { id: 'tx', title: 'Money lent to Sam', amount: 125, category: 'Loan funds movement', date: '2026-11-24', paymentMethod: 'Cash', account: 'cash' as const, type: 'expense' as const, createdAt: 1 };
     vi.mocked(receivablesService.create).mockResolvedValue({ loan: { ...loan, id: '2', person: 'Sam', amount: 125, repaid: 0 }, transaction });
     const onTransactionAdded = vi.fn();
-    render(<Receivables currency="INR" today="2026-11-24" accountVisibility={{ cash: true, savings: false }} onTransactionAdded={onTransactionAdded} />);
+    renderLent(<Receivables currency="INR" today="2026-11-24" accountVisibility={{ cash: true, savings: false }} onTransactionAdded={onTransactionAdded} />);
     await screen.findByText('Asha', { selector: 'h5' });
     fireEvent.click(screen.getByRole('button', { name: 'Add record' }));
     const account = screen.getByLabelText('Paid from account');
@@ -608,7 +645,7 @@ describe('money to receive', () => {
     const transaction = { id: 'pay', title: 'Loan repayment from Asha', amount: 150, category: 'Loan funds movement', date: '2026-11-20', paymentMethod: 'Cash', account: 'cash' as const, type: 'income' as const, createdAt: 1 };
     vi.mocked(receivablesService.repay).mockResolvedValue({ loan: { ...loan, repaid: 250 }, transaction });
     const onTransactionAdded = vi.fn();
-    render(<Receivables currency="INR" today="2026-11-24" accountVisibility={{ cash: true, savings: false }} onTransactionAdded={onTransactionAdded} />);
+    renderLent(<Receivables currency="INR" today="2026-11-24" accountVisibility={{ cash: true, savings: false }} onTransactionAdded={onTransactionAdded} />);
     const record = (await screen.findByText('Asha', { selector: 'h5' })).closest('article')!;
     fireEvent.click(within(record).getByRole('button', { name: 'Mark received' }));
     fireEvent.change(within(record).getByLabelText('Amount received from Asha'), { target: { value: '150' } });
@@ -625,7 +662,7 @@ describe('money to receive', () => {
     const transaction = { id: 'emi-tx', title: 'Loan received from Bank', amount: 10000, category: 'Loan: EMI / loan', date: '2026-11-24', paymentMethod: 'Cash', account: 'cash' as const, type: 'income' as const, createdAt: 1 };
     vi.mocked(receivablesService.create).mockResolvedValue({ loan: { ...loan, id: '2', person: 'Bank', amount: 12000, repaid: 0, record_kind: 'emi', payment_day: 15 }, transaction });
     const onTransactionAdded = vi.fn();
-    render(<Receivables currency="INR" today="2026-11-24" accountVisibility={{ cash: true, savings: false }} onTransactionAdded={onTransactionAdded} />);
+    renderLent(<Receivables currency="INR" today="2026-11-24" accountVisibility={{ cash: true, savings: false }} onTransactionAdded={onTransactionAdded} />);
     await screen.findByText('Asha', { selector: 'h5' });
     fireEvent.click(screen.getByRole('tab', { name: /EMI \/ loan/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Add record' }));
@@ -643,7 +680,7 @@ describe('money to receive', () => {
   it('can track a previously recorded loan without adding a second transaction', async () => {
     vi.mocked(receivablesService.create).mockResolvedValue({ loan: { ...loan, id: '2', person: 'Sam', repaid: 0 }, transaction: null });
     const onTransactionAdded = vi.fn();
-    render(<Receivables currency="INR" today="2026-11-24" onTransactionAdded={onTransactionAdded} />);
+    renderLent(<Receivables currency="INR" today="2026-11-24" onTransactionAdded={onTransactionAdded} />);
     await screen.findByText('Asha', { selector: 'h5' });
     fireEvent.click(screen.getByRole('button', { name: 'Add record' }));
     fireEvent.click(screen.getByRole('checkbox', { name: /Record the original money you lent/ }));
@@ -657,7 +694,7 @@ describe('money to receive', () => {
   it('keeps the existing balance and ledger unchanged if a payment fails', async () => {
     vi.mocked(receivablesService.repay).mockRejectedValue(new Error('Payment could not be saved'));
     const onTransactionAdded = vi.fn();
-    render(<Receivables currency="INR" today="2026-11-24" onTransactionAdded={onTransactionAdded} />);
+    renderLent(<Receivables currency="INR" today="2026-11-24" onTransactionAdded={onTransactionAdded} />);
     const record = (await screen.findByText('Asha', { selector: 'h5' })).closest('article')!;
     fireEvent.click(within(record).getByRole('button', { name: 'Mark received' }));
     fireEvent.change(within(record).getByLabelText('Amount received from Asha'), { target: { value: '150' } });
@@ -669,7 +706,7 @@ describe('money to receive', () => {
 
   it('prefills the remaining amount and marks the loan settled only after saving', async () => {
     vi.mocked(receivablesService.repay).mockResolvedValue({ loan: { ...loan, repaid: 500 }, transaction: null });
-    render(<Receivables currency="INR" today="2026-11-24" />);
+    renderLent(<Receivables currency="INR" today="2026-11-24" />);
     const record = (await screen.findByText('Asha', { selector: 'h5' })).closest('article')!;
     fireEvent.click(within(record).getByRole('button', { name: 'Mark received' }));
     expect(within(record).getByLabelText('Amount received from Asha')).toHaveValue(400);
@@ -682,7 +719,7 @@ describe('money to receive', () => {
   it('prefills an EMI payment without marking the entire loan settled', async () => {
     const emi = { ...loan, record_kind: 'emi' as const, installment_amount: 150 };
     vi.mocked(receivablesService.list).mockResolvedValue([emi]);
-    render(<Receivables currency="INR" today="2026-11-24" />);
+    renderLent(<Receivables currency="INR" today="2026-11-24" />);
     fireEvent.click(screen.getByRole('tab', { name: /EMI \/ loan/ }));
     const record = (await screen.findByText('Asha', { selector: 'h5' })).closest('article')!;
     fireEvent.click(within(record).getByRole('button', { name: 'Mark payment' }));

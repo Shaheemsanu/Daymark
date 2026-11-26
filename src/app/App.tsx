@@ -573,7 +573,7 @@ export default function App() {
   const handleUpdateExpense = async (id: string, partial: Partial<Expense>): Promise<boolean | string> => {
     const existing = expenses.find(expense => expense.id === id);
     if (!existing) return 'Transaction could not be found.';
-    if (isLoanMovement(existing)) return 'Loan transactions cannot be edited separately from their loan record.';
+    if (isLoanMovement(existing)) return 'Loan transactions cannot be edited separately from their loan record. Go to Payables & Receivables, find the loan record, and edit it or use Payment history to edit a repayment.';
     if (!user) return 'You must be signed in to update a transaction.';
     const updated = { ...existing, ...partial };
     if (!isAccountTransactionVisible(updated, accountPermissions)) return 'This account is currently disabled in Settings.';
@@ -594,7 +594,7 @@ export default function App() {
 
   const handleDeleteExpense = async (id: string): Promise<boolean | string> => {
     const existing = expenses.find(expense => expense.id === id);
-    if (existing && isLoanMovement(existing)) return 'Loan transactions cannot be deleted separately from their loan record.';
+    if (existing && isLoanMovement(existing)) return 'Loan transactions cannot be deleted separately from their loan record. Go to Payables & Receivables, find the loan record, and delete the repayment from Payment history.';
     if (!user) return 'You must be signed in to delete a transaction.';
     setCloudPendingCount(count => count + 1);
     try {
