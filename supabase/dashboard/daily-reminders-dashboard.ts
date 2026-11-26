@@ -10,6 +10,9 @@ type ReminderLoan = {
   due_date: string | null;
   end_date: string | null;
   payment_day: number | null;
+  payment_cycle?: 'daily' | 'weekly' | 'monthly' | 'custom' | null;
+  payment_interval_days?: number | null;
+  first_payment_date?: string | null;
 };
 
 function nextDate(date: string): string {
@@ -27,6 +30,12 @@ function loanRemindersForDate(loans: ReminderLoan[], today: string) {
     const isDue = (date: string) => {
       if (date < loan.lent_date) return false;
       if (loan.record_kind !== 'emi') return loan.due_date === date;
+      if (loan.end_date && date > loan.end_date) return false;
+      if (loan.payment_cycle && loan.payment_cycle !== 'monthly') {
+        const interval = loan.payment_cycle === 'daily' ? 1 : loan.payment_cycle === 'weekly' ? 7 : loan.payment_interval_days;
+        const days = (Date.parse(date + 'T00:00:00Z') - Date.parse((loan.first_payment_date || loan.lent_date) + 'T00:00:00Z')) / 86400000;
+        return !!interval && interval > 0 && days >= 0 && days % interval === 0;
+      }
       const day = loan.payment_day;
       if (!Number.isInteger(day) || !day || day < 1 || day > 31 || (loan.end_date && date > loan.end_date)) return false;
       const year = Number(date.slice(0, 4)), month = Number(date.slice(5, 7));
@@ -106,7 +115,7 @@ export default {
           db.from('tracker_entries').select('tracker_id,boolean_value,entry_date').eq('user_id', pref.user_id).in('entry_date', dates),
           db.from('tasks').select('id,title,is_active,start_time,weekdays').eq('user_id', pref.user_id),
           db.from('expenses').select('id').eq('user_id', pref.user_id).eq('entry_date', today).eq('transaction_type', 'expense').eq('is_transfer', false).limit(1),
-          db.from('push_tokens').select('token').eq('user_id', pref.user_id),
+          db.from('push_tokens').select('token,sound_enabled').eq('user_id', pref.user_id),
         ]);
         if ([taskResult, habitResult, entryResult, trackerResult, expenseResult, tokenResult].some(result => result.error)) throw new Error('Could not load reminder data');
         const pendingFor = (date: string, day: number) => (trackerResult.data || []).filter(row => row.is_active && (row.weekdays || [0, 1, 2, 3, 4, 5, 6]).includes(day) && ((taskResult.data || []).find(entry => entry.task_id === row.id && entry.entry_date === date)?.status || 'pending') === 'pending');
@@ -120,7 +129,7 @@ export default {
             const loans: ReminderLoan[] = [];
             const pageSize = 1000;
             for (let offset = 0; ; offset += pageSize) {
-              const result = await db.from('loans_and_dues').select('id,person,record_kind,amount,repaid,lent_date,due_date,end_date,payment_day').eq('user_id', pref.user_id).order('id').range(offset, offset + pageSize - 1);
+              const result = await db.from('loans_and_dues').select('id,person,record_kind,amount,repaid,lent_date,due_date,end_date,payment_day,payment_cycle,payment_interval_days,first_payment_date').eq('user_id', pref.user_id).order('id').range(offset, offset + pageSize - 1);
               if (result.error) throw result.error;
               loans.push(...(result.data || []) as ReminderLoan[]);
               if (!result.data || result.data.length < pageSize) break;
@@ -150,11 +159,11 @@ export default {
           if (noticeError) { await db.from('reminder_runs').delete().eq('user_id', pref.user_id).eq('reminder_date', reminderDate).eq('kind', reminder.kind); throw noticeError; }
           created++;
           if (!accessToken || !account) continue;
-          for (const { token } of tokenResult.data || []) {
+          for (const { token, sound_enabled } of tokenResult.data || []) {
             try {
               const response = await sendPush(`https://fcm.googleapis.com/v1/projects/${encodeURIComponent(account.project_id)}/messages:send`, {
                 method: 'POST', headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message: { token, notification: { title: reminder.title, body: reminder.body }, webpush: { notification: { title: reminder.title, body: reminder.body, icon }, fcm_options: { link: `https://daymarks.ai.studio/?notificationView=${encodeURIComponent(reminder.view)}` } }, data: { notification_id: notice.id, view: reminder.view } } }),
+                body: JSON.stringify({ message: { token, notification: { title: reminder.title, body: reminder.body }, webpush: { notification: { title: reminder.title, body: reminder.body, icon, silent: sound_enabled === false }, fcm_options: { link: `https://daymarks.ai.studio/?notificationView=${encodeURIComponent(reminder.view)}` } }, data: { notification_id: notice.id, view: reminder.view } } }),
               });
               if (response.ok) pushAccepted++;
               else {

@@ -32,7 +32,7 @@ export default {
     const credentials = Deno.env.get('FIREBASE_SERVICE_ACCOUNT');
     if (!credentials) return Response.json({ error: 'Firebase credential missing' }, { status: 500 });
     try {
-      const { data: tokens, error: tokenError } = await db.from('push_tokens').select('token').eq('user_id', notice.user_id);
+      const { data: tokens, error: tokenError } = await db.from('push_tokens').select('token,sound_enabled').eq('user_id', notice.user_id);
       if (tokenError) throw tokenError;
       if (!tokens?.length) {
         console.error('Budget alert has no registered devices');
@@ -48,11 +48,11 @@ export default {
       const { access_token: accessToken } = await oauth.json();
       const icon = 'https://daymarks.ai.studio/daymark-icon-192.png';
       let sent = 0;
-      for (const { token } of tokens) {
+      for (const { token, sound_enabled } of tokens) {
         try {
           const response = await sendPush(`https://fcm.googleapis.com/v1/projects/${encodeURIComponent(account.project_id)}/messages:send`, {
             method: 'POST', headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message: { token, notification: { title: notice.title, body: notice.body }, webpush: { notification: { title: notice.title, body: notice.body, icon }, fcm_options: { link: `https://daymarks.ai.studio/?notificationView=${encodeURIComponent(notice.view || 'expenses')}` } }, data: { notification_id: notice.id, view: notice.view || 'expenses' } } }),
+            body: JSON.stringify({ message: { token, notification: { title: notice.title, body: notice.body }, webpush: { notification: { title: notice.title, body: notice.body, icon, silent: sound_enabled === false }, fcm_options: { link: `https://daymarks.ai.studio/?notificationView=${encodeURIComponent(notice.view || 'expenses')}` } }, data: { notification_id: notice.id, view: notice.view || 'expenses' } } }),
           });
           if (response.ok) sent++;
           else {

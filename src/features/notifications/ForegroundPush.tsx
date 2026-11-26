@@ -3,8 +3,9 @@ import { Bell, CheckCheck, Trash2, X } from 'lucide-react';
 import { getMessaging, isSupported, onMessage } from 'firebase/messaging';
 import { firebaseApp } from '../../lib/firebase';
 import { supabase } from '../../lib/supabase';
-import { enablePush, hasLocalPushRegistration } from './pushRegistration';
+import { enablePush, hasLocalPushRegistration, isPushSoundEnabled, reportPushRestoreError } from './pushRegistration';
 import { formatDisplayDate } from '../../utils/dateFormatting';
+import { playNotificationSound, unlockNotificationSound } from './notificationSound';
 
 type Notice = { id: string; title: string; body: string; receivedAt: number; read: boolean; view?: string };
 export function ForegroundPush({ userId, onNavigate }: { userId: string; onNavigate: (view: string) => void }) {
@@ -22,22 +23,27 @@ export function ForegroundPush({ userId, onNavigate }: { userId: string; onNavig
   };
   useEffect(() => {
     setNotices([]); setMessage(null); setOpen(false);
-    if (hasLocalPushRegistration()) void enablePush(userId, true).catch(() => {});
+    if (hasLocalPushRegistration(userId)) void enablePush(userId, true).catch(error => reportPushRestoreError(userId, error));
     let disposed = false;
     let unsubscribe: (() => void) | undefined;
     void loadNotices();
     const onFocus = () => { void loadNotices(); };
     window.addEventListener('focus', onFocus);
+    const unlockSound = () => { if (hasLocalPushRegistration(userId)) void unlockNotificationSound(); };
+    window.addEventListener('pointerdown', unlockSound);
+    window.addEventListener('keydown', unlockSound);
     const channel = supabase?.channel(`notification-history:${userId}`).on('postgres_changes', { event: '*', schema: 'public', table: 'notifications', filter: `user_id=eq.${userId}` }, onFocus).subscribe();
     void isSupported().then((supported) => {
       if (!supported || disposed) return;
       unsubscribe = onMessage(getMessaging(firebaseApp), (payload) => {
+        if (disposed) return;
+        if (isPushSoundEnabled(userId)) playNotificationSound();
         const notice: Notice = { id: payload.messageId || crypto.randomUUID(), title: payload.notification?.title || 'Daymark', body: payload.notification?.body || '', receivedAt: Date.now(), read: false, view: payload.data?.view };
         setMessage(notice);
         void loadNotices();
       });
     }).catch(() => {});
-    return () => { disposed = true; unsubscribe?.(); window.removeEventListener('focus', onFocus); if (channel && supabase) void supabase.removeChannel(channel); };
+    return () => { disposed = true; unsubscribe?.(); window.removeEventListener('focus', onFocus); window.removeEventListener('pointerdown', unlockSound); window.removeEventListener('keydown', unlockSound); if (channel && supabase) void supabase.removeChannel(channel); };
   }, [userId]);
   useEffect(() => {
     if (!open) return;

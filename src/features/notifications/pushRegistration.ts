@@ -3,10 +3,39 @@ import { firebaseApp } from '../../lib/firebase';
 import { supabase } from '../../lib/supabase';
 
 const savedTokenKey = 'daymark-push-token';
+const savedOwnerKey = 'daymark-push-token-owner';
+const preferenceKey = (userId: string) => `daymark-push-enabled:${userId}`;
+const soundPreferenceKey = (userId: string) => `daymark-push-sound:${userId}`;
+let activeRegistration: Promise<void> | null = null;
+const restoreErrors = new Map<string, string>();
 
-export function hasLocalPushRegistration() {
-  try { return typeof Notification !== 'undefined' && Notification.permission === 'granted' && !!localStorage.getItem(savedTokenKey); }
+export function hasLocalPushRegistration(userId: string) {
+  try {
+    const owner = localStorage.getItem(savedOwnerKey);
+    const legacyToken = !!localStorage.getItem(savedTokenKey) && (!owner || owner === userId);
+    return typeof Notification !== 'undefined' && Notification.permission === 'granted' && (localStorage.getItem(preferenceKey(userId)) === 'true' || legacyToken);
+  }
   catch { return false; }
+}
+export function getPushRestoreError(userId: string) { return restoreErrors.get(userId) || ''; }
+export function isPushSoundEnabled(userId: string) {
+  try { return localStorage.getItem(soundPreferenceKey(userId)) !== 'off'; } catch { return true; }
+}
+export async function setPushSoundEnabled(userId: string, enabled: boolean) {
+  if (activeRegistration) await activeRegistration;
+  if (!supabase) throw new Error('Connect Supabase before changing notification sound.');
+  const token = localStorage.getItem(savedTokenKey);
+  const owner = localStorage.getItem(savedOwnerKey);
+  if (!token || (owner && owner !== userId)) throw new Error('This device is not registered. Retry notification registration first.');
+  const { data, error } = await supabase.from('push_tokens').update({ sound_enabled: enabled }).eq('token', token).eq('user_id', userId).select('token');
+  if (error) throw error;
+  if (!data?.length) throw new Error('This device is not registered. Retry notification registration first.');
+  localStorage.setItem(soundPreferenceKey(userId), enabled ? 'on' : 'off');
+  window.dispatchEvent(new Event('daymark-push-registration-change'));
+}
+export function reportPushRestoreError(userId: string, error: unknown) {
+  restoreErrors.set(userId, error instanceof Error ? error.message : String(error));
+  window.dispatchEvent(new Event('daymark-push-registration-change'));
 }
 
 async function validateVapidKey(value: string): Promise<string> {
@@ -24,7 +53,7 @@ async function validateVapidKey(value: string): Promise<string> {
   return key;
 }
 
-export async function enablePush(userId: string, refresh = false) {
+async function registerPush(userId: string, refresh = false) {
   if (!supabase) throw new Error('Connect Supabase before enabling notifications.');
   if (!('Notification' in window) || !('serviceWorker' in navigator)) throw new Error('Push notifications are not supported in this browser.');
   if (Notification.permission === 'denied') throw new Error('Notifications are blocked. Allow notifications in your browser’s site settings, then refresh this page.');
@@ -59,21 +88,47 @@ export async function enablePush(userId: string, refresh = false) {
   }
   const token = await getToken(getMessaging(firebaseApp), { vapidKey, serviceWorkerRegistration: registration });
   if (!token) throw new Error('Firebase did not return a device token.');
-  const { error } = await supabase.from('push_tokens').upsert({ token, user_id: userId, updated_at: new Date().toISOString() });
+  const { error } = await supabase.from('push_tokens').upsert({ token, user_id: userId, sound_enabled: isPushSoundEnabled(userId), updated_at: new Date().toISOString() });
   if (error) throw error;
   if (!refresh) {
     const { error: preferenceError } = await supabase.from('reminder_preferences').upsert({ user_id: userId, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Kolkata', enabled: true, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
     if (preferenceError) throw preferenceError;
   }
   localStorage.setItem(savedTokenKey, token);
+  localStorage.setItem(savedOwnerKey, userId);
+  localStorage.setItem(preferenceKey(userId), 'true');
+  restoreErrors.delete(userId);
+  window.dispatchEvent(new Event('daymark-push-registration-change'));
 }
 
-export async function disablePush(userId: string) {
+export function enablePush(userId: string, refresh = false): Promise<void> {
+  if (activeRegistration) return activeRegistration;
+  const operation = registerPush(userId, refresh);
+  activeRegistration = operation;
+  void operation.finally(() => { if (activeRegistration === operation) activeRegistration = null; }).catch(() => {});
+  return operation;
+}
+
+async function removeDeviceRegistration(userId: string, preservePreference: boolean) {
+  if (activeRegistration) await activeRegistration.catch(() => {});
+  const owner = localStorage.getItem(savedOwnerKey);
+  if (owner && owner !== userId) {
+    if (!preservePreference) localStorage.removeItem(preferenceKey(userId));
+    return;
+  }
   const token = localStorage.getItem(savedTokenKey);
+  if (preservePreference && token) localStorage.setItem(preferenceKey(userId), 'true');
   if (token && supabase) {
     const { error } = await supabase.from('push_tokens').delete().eq('token', token).eq('user_id', userId);
     if (error) throw error;
   }
   if (token && await isSupported()) await deleteToken(getMessaging(firebaseApp));
   localStorage.removeItem(savedTokenKey);
+  localStorage.removeItem(savedOwnerKey);
+  if (!preservePreference) localStorage.removeItem(preferenceKey(userId));
+  restoreErrors.delete(userId);
+  window.dispatchEvent(new Event('daymark-push-registration-change'));
 }
+
+export async function disablePush(userId: string) { await removeDeviceRegistration(userId, false); }
+export async function suspendPush(userId: string) { await removeDeviceRegistration(userId, true); }

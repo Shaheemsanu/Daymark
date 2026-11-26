@@ -330,6 +330,7 @@ CREATE TABLE IF NOT EXISTS public.push_tokens (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+ALTER TABLE public.push_tokens ADD COLUMN IF NOT EXISTS sound_enabled BOOLEAN NOT NULL DEFAULT true;
 ALTER TABLE public.push_tokens ENABLE ROW LEVEL SECURITY;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.push_tokens TO authenticated;
 
