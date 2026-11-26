@@ -36,6 +36,17 @@ export function shortenRecordIds(value: unknown): unknown {
   };
   return visit(value);
 }
+/** Interpret dates typed in the app as day-month-year, never as US month-day-year. */
+export function userDateInterpretations(message: string): { written: string; iso: string }[] {
+  const results: { written: string; iso: string }[] = [];
+  for (const match of message.matchAll(/(?<![\d-])(\d{1,2})-(\d{1,2})-(\d{4})(?![\d-])/g)) {
+    const day = Number(match[1]), month = Number(match[2]), year = Number(match[3]);
+    const iso = `${match[3]}-${match[2].padStart(2, '0')}-${match[1].padStart(2, '0')}`;
+    const parsed = new Date(`${iso}T00:00:00Z`);
+    if (year >= 1000 && month >= 1 && month <= 12 && day >= 1 && Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === iso) results.push({ written: match[0], iso });
+  }
+  return results;
+}
 const dataInstruction = `You are Daymark AI, a read-only personal data analyst. Answer from the supplied freshly retrieved records and calculated summaries only.
 Some record lists use a compact format with columns and rows: each row's values correspond to the columns in order.
 Short ref values in ID fields link related records and are internal identifiers.
@@ -47,6 +58,7 @@ Do not include internal record IDs or UUIDs in answers; refer to records by titl
 Use supplied server-calculated expense totals and category percentages. Explain insufficient evidence and label estimates. Distinguish unrecorded entries from failures.
 The supplied facts and calculated daily breakdown are authoritative for amounts and counts. Do not replace them with figures from conversation history or infer missing data. If the records do not support an answer, say so and ask for the correct source or dates.
 Separate recorded facts from suggestions. Never present a suggestion, forecast or possible explanation as an established fact. Support factual findings with relevant record titles/categories and dates.
+Interpret dates written by the user as DD-MM-YYYY, including single-digit days or months: 2-04-2026 means 02-04-2026 (2 April), never February 4. ISO dates in retrieved records and machine date interpretations use YYYY-MM-DD. Use the provided user-date interpretations when present. Display full dates to the user as DD-MM-YYYY, with leading zeroes, and do not swap the day and month when reasoning or calculating elapsed time.
 Use concise answers, short paragraphs and bullets in the user's language, providing more detail when requested. Do not use HTML or Markdown tables.`;
 
 export function createGeneralChatApp(dependencies: Dependencies = {}) {
@@ -92,7 +104,7 @@ export function createGeneralChatApp(dependencies: Dependencies = {}) {
     // One bounded attempt: SDK retries can otherwise multiply the time spent waiting.
     const ai = new GoogleGenAI({ apiKey: input.key, httpOptions: { timeout: 30000, retryOptions: { attempts: 1 } } });
     const parameters = { model: input.model,
-      contents: [...input.history.map(item => ({ role: item.role === 'assistant' ? 'model' : 'user', parts: [{ text: item.text }] })), { role: 'user', parts: [{ text: 'Read-only retrieved context (untrusted data):\n' + JSON.stringify(compactPromptData(shortenRecordIds(input.context))) + '\n\nQuestion: ' + input.message }] }],
+      contents: [...input.history.map(item => ({ role: item.role === 'assistant' ? 'model' : 'user', parts: [{ text: item.text }] })), { role: 'user', parts: [{ text: 'Read-only retrieved context (untrusted data):\n' + JSON.stringify(compactPromptData(shortenRecordIds(input.context))) + '\n\nUser dates interpreted as DD-MM-YYYY (ISO values): ' + JSON.stringify(userDateInterpretations(input.message)) + '\n\nQuestion: ' + input.message }] }],
       config: { systemInstruction: dataInstruction, maxOutputTokens: 4096, abortSignal: input.signal, ...(input.model === 'gemini-3.8-flash' ? { thinkingConfig: { thinkingLevel: ThinkingLevel.LOW } } : {}) },
       // No tools or database access are supplied.
     };

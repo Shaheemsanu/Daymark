@@ -164,7 +164,7 @@ it('supports category filtering and keeps calendar clicks in Patterns', () => {
   expect(within(kpi('Total expenses')).getByText('INR 60.00')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Reset filters' }));
   fireEvent.click(screen.getByRole('tab', { name: 'Patterns' }));
-  fireEvent.click(screen.getByRole('button', { name: /2026-11-16:/ }));
+  fireEvent.click(screen.getByRole('button', { name: /16-11-2026:/ }));
   expect(screen.getByRole('status')).toHaveTextContent('INR 40.00');
   expect(screen.getByRole('status')).toHaveTextContent('16-11-2026');
   expect(screen.getByRole('tab', { name: 'Patterns' })).toHaveAttribute('aria-selected', 'true');

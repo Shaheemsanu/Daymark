@@ -4,6 +4,7 @@ import { getMessaging, isSupported, onMessage } from 'firebase/messaging';
 import { firebaseApp } from '../../lib/firebase';
 import { supabase } from '../../lib/supabase';
 import { enablePush, hasLocalPushRegistration } from './pushRegistration';
+import { formatDisplayDate } from '../../utils/dateFormatting';
 
 type Notice = { id: string; title: string; body: string; receivedAt: number; read: boolean; view?: string };
 export function ForegroundPush({ userId, onNavigate }: { userId: string; onNavigate: (view: string) => void }) {
@@ -71,7 +72,7 @@ export function ForegroundPush({ userId, onNavigate }: { userId: string; onNavig
           <button type="button" className="w-full rounded text-left" onClick={() => { updateNotices(notices.map(item => item.id === notice.id ? { ...item, read: true } : item)); if (notice.view) { onNavigate(notice.view); setOpen(false); } }}>
             <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{!notice.read && <span aria-label="Unread" className="mr-2 inline-block h-2 w-2 rounded-full bg-emerald-500" />}{notice.title}</p><p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{notice.body}</p>
           </button>
-          <time className="mt-2 block text-xs text-slate-500 dark:text-slate-400" dateTime={new Date(notice.receivedAt).toISOString()}>{new Date(notice.receivedAt).toLocaleString(undefined, { day: '2-digit', month: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}</time>
+          <time className="mt-2 block text-xs text-slate-500 dark:text-slate-400" dateTime={new Date(notice.receivedAt).toISOString()}>{formatDisplayDate(notice.receivedAt)} {new Date(notice.receivedAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', hour12: true })}</time>
           <div className="mt-3 flex items-center gap-2">{!notice.read && <button type="button" onClick={() => updateNotices(notices.map(item => item.id === notice.id ? { ...item, read: true } : item))} className="rounded-md bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-200 dark:bg-emerald-900/50 dark:text-emerald-300 dark:hover:bg-emerald-900">Mark as read</button>}<button type="button" onClick={() => updateNotices(notices.filter(item => item.id !== notice.id))} className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/50"><Trash2 className="h-3 w-3" />Clear</button></div>
         </li>)}</ul>}
       </section>}

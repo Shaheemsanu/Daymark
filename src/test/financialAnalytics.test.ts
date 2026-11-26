@@ -26,8 +26,8 @@ describe('financial calculations', () => {
     expect(automaticChartGrouping('2020-01-01', '2026-11-16')).toBe('yearly');
     const report = buildFinancialAnalytics(records, budget, { ...filters, start: '2026-11-12', end: '2026-11-16', grouping: 'weekly' })!;
     expect(report.groups.map(row => [row.start, row.end])).toEqual([['2026-11-12', '2026-11-15'], ['2026-11-16', '2026-11-16']]);
-    expect(report.groups.map(analyticsGroupLabel)).toEqual(['12 Nov – 15 Nov', '16 Nov']);
-    expect(analyticsGroupLabel({ start: '2026-12-31', end: '2027-01-02' })).toBe('31 Dec 2026 – 2 Jan 2027');
+    expect(report.groups.map(analyticsGroupLabel)).toEqual(['12-11-2026 – 15-11-2026', '16-11-2026']);
+    expect(analyticsGroupLabel({ start: '2026-12-31', end: '2027-01-02' })).toBe('31-12-2026 – 02-01-2027');
   });
   it('separates operating totals from balance movements and reconciles cash flow', () => {
     const report = buildFinancialAnalytics(records, budget, filters)!;

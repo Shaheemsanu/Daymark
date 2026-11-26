@@ -2,6 +2,7 @@ import { BudgetConfig, Expense } from '../types';
 import { Account, getAccountBalance } from './accounts';
 import { buildExpenseReport, reportWeekStart, shiftReportDate } from './expenseReports';
 import { isLoanMovement } from './loanMovement';
+import { formatDisplayDate } from './dateFormatting';
 
 export type AnalyticsFilters = { start: string; end: string; account: Account | 'all'; category: string; payment?: string; type: 'all' | 'income' | 'expense'; grouping: 'daily' | 'weekly' | 'monthly' | 'yearly' };
 export function automaticChartGrouping(start: string, end: string): AnalyticsFilters['grouping'] {
@@ -10,10 +11,8 @@ export function automaticChartGrouping(start: string, end: string): AnalyticsFil
 }
 
 export function analyticsGroupLabel(row: { start: string; end: string }) {
-  const shortDate = (date: string) => `${Number(date.slice(8, 10))} ${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][Number(date.slice(5, 7)) - 1]}`;
-  if (row.start === row.end) return shortDate(row.start);
-  const crossesYear = row.start.slice(0, 4) !== row.end.slice(0, 4);
-  return `${shortDate(row.start)}${crossesYear ? ' ' + row.start.slice(0, 4) : ''} – ${shortDate(row.end)}${crossesYear ? ' ' + row.end.slice(0, 4) : ''}`;
+  if (row.start === row.end) return formatDisplayDate(row.start);
+  return `${formatDisplayDate(row.start)} – ${formatDisplayDate(row.end)}`;
 }
 export const accountNames: Record<Account, string> = { expense: 'Expense Account', cash: 'Cash in Hand', savings: 'Savings Account' };
 export const analyticsAccounts: Account[] = ['expense', 'cash', 'savings'];

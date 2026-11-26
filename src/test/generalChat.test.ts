@@ -1,6 +1,13 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import type { Server } from 'node:http';
-import { compactPromptData, createGeneralChatApp, shortenRecordIds } from '../../server/generalChat';
+import { compactPromptData, createGeneralChatApp, shortenRecordIds, userDateInterpretations } from '../../server/generalChat';
+
+it('interprets user dates as day-month-year without changing ISO dates or accepting invalid dates', () => {
+  expect(userDateInterpretations('From 2-04-2026 to 12-11-2026; ISO 2026-04-02; invalid 31-02-2026')).toEqual([
+    { written: '2-04-2026', iso: '2026-04-02' },
+    { written: '12-11-2026', iso: '2026-11-12' },
+  ]);
+});
 
 it('shortens internal IDs while preserving links and ordinary text', () => {
   expect(shortenRecordIds({ definitions: [{ id: 'long-id', name: 'long-id' }], entries: [{ id: 'entry-id', tracker_id: 'long-id' }] })).toEqual({

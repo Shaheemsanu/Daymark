@@ -14,6 +14,8 @@ describe('compact date navigation', () => {
       return <CompactDateNavigator date={date} onChange={setDate} />;
     }
     render(<Harness />);
+    expect(screen.getByText('01-03-2026')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Select 01-03-2026' })).toBeInTheDocument();
     const input = screen.getByLabelText('Selected date') as HTMLInputElement;
     fireEvent.click(screen.getByRole('button', { name: 'Previous day' }));
     expect(input.value).toBe('2026-02-28');

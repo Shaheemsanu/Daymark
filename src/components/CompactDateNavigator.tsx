@@ -1,12 +1,13 @@
 import React from 'react';
 import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react';
 import { formatDate } from '../utils/constants';
+import { formatDisplayDate } from '../utils/dateFormatting';
 
 export function CompactDateNavigator({ date, onChange }: { date: string; onChange: (date: string) => void }) {
   const today = formatDate(new Date());
   const isToday = date === today;
   const selected = new Date(`${date}T12:00:00`);
-  const displayDate = selected.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  const displayDate = formatDisplayDate(date);
   const nearbyDays = Array.from({ length: 7 }, (_, index) => {
     const day = new Date(selected);
     day.setDate(day.getDate() + index - 3);
@@ -34,7 +35,7 @@ export function CompactDateNavigator({ date, onChange }: { date: string; onChang
       </div>
       <div className="hidden min-w-0 flex-1 grid-cols-7 gap-1 border-l border-slate-200 pl-1.5 md:grid dark:border-slate-800">
         {nearbyDays.map(day => (
-          <button key={day.date} type="button" aria-label={`Select ${day.date}`} aria-pressed={day.date === date} aria-current={day.date === today ? 'date' : undefined} onClick={() => onChange(day.date)}
+          <button key={day.date} type="button" aria-label={`Select ${formatDisplayDate(day.date)}`} aria-pressed={day.date === date} aria-current={day.date === today ? 'date' : undefined} onClick={() => onChange(day.date)}
             className={`flex h-8 min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg px-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${day.date === date
               ? 'bg-blue-600 text-white shadow-xs dark:bg-blue-500'
               : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100'}`}>

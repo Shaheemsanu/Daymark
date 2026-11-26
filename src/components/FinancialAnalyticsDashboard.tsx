@@ -253,7 +253,7 @@ function SpendingCalendar({ report, currency }: { report: FinancialAnalytics; cu
           <div className="grid grid-cols-7 gap-1.5 text-center">
             {weekdays.map(([short, full]) => <abbr key={full} title={full} className="mb-1 text-[10px] font-medium text-slate-500 no-underline dark:text-slate-400">{short}</abbr>)}
             {Array.from({ length: offset }, (_, index) => <span key={`space-${index}`} aria-hidden="true" />)}
-            {days.map(row => <button type="button" key={row.date} onClick={() => setSelectedDate(row.date)} aria-pressed={selectedDate === row.date} title={`${formatDisplayDate(row.date)} · ${formatCurrency(row.expenses, currency)} · ${row.count} transactions`} aria-label={`${row.date}: ${formatCurrency(row.expenses, currency)}, ${row.count} transactions`} className={`flex h-9 w-full items-center justify-center rounded-lg text-[11px] font-semibold tabular-nums transition-shadow focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-400 ${selectedDate === row.date ? 'ring-2 ring-indigo-400 ring-offset-2 ring-offset-white dark:ring-offset-slate-900' : ''} ${row.expenses === 0 ? 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300' : row.expenses < 0 ? 'bg-emerald-700 text-white' : 'text-white'}`} style={row.expenses > 0 ? { backgroundColor: spendingColors[spendingLevel(row.expenses)] } : undefined}>{Number(row.date.slice(-2))}</button>)}
+            {days.map(row => <button type="button" key={row.date} onClick={() => setSelectedDate(row.date)} aria-pressed={selectedDate === row.date} title={`${formatDisplayDate(row.date)} · ${formatCurrency(row.expenses, currency)} · ${row.count} transactions`} aria-label={`${formatDisplayDate(row.date)}: ${formatCurrency(row.expenses, currency)}, ${row.count} transactions`} className={`flex h-9 w-full items-center justify-center rounded-lg text-[11px] font-semibold tabular-nums transition-shadow focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-400 ${selectedDate === row.date ? 'ring-2 ring-indigo-400 ring-offset-2 ring-offset-white dark:ring-offset-slate-900' : ''} ${row.expenses === 0 ? 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300' : row.expenses < 0 ? 'bg-emerald-700 text-white' : 'text-white'}`} style={row.expenses > 0 ? { backgroundColor: spendingColors[spendingLevel(row.expenses)] } : undefined}>{Number(row.date.slice(-2))}</button>)}
           </div>
     </div>
     <div className="relative min-w-0">
@@ -273,7 +273,7 @@ function SpendingCalendar({ report, currency }: { report: FinancialAnalytics; cu
         return <span key={color} className="inline-flex items-center gap-1.5"><span className="h-3 w-3 rounded-sm ring-1 ring-inset ring-white/15" style={{ backgroundColor: color }} />{index === 0 ? `Up to ${formatCurrency(upper, currency)}` : `${formatCurrency(lower, currency)} – ${formatCurrency(upper, currency)}`}</span>;
       })}</div>}
     </div>
-    <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">{days[0].date} – {days[days.length - 1].date} · Color levels use a square-root scale relative to the highest spending day, making smaller amounts easier to distinguish.</p>
+    <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">{formatDisplayDate(days[0].date)} – {formatDisplayDate(days[days.length - 1].date)} · Color levels use a square-root scale relative to the highest spending day, making smaller amounts easier to distinguish.</p>
   </section>;
 }
 

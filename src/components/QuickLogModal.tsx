@@ -5,6 +5,7 @@ import { IndianRupee, CheckCircle2, ListTodo, TrendingDown, TrendingUp, Grid } f
 import { Expense, ExpenseCategory, PaymentMethod, Task, TaskPriority } from '../lib/types';
 import { getAllCategories } from '../utils/constants';
 import { CategoryInfo } from '../types';
+import { formatDisplayDate } from '../utils/dateFormatting';
 
 interface QuickLogModalProps {
   isOpen: boolean;
@@ -577,7 +578,7 @@ export const QuickLogModal: React.FC<QuickLogModalProps> = ({
         {featureVisibility.habits && activeTab === 'habit' && (
           <div className="p-5 space-y-3 overflow-y-auto max-h-[75vh]">
             <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">
-              Toggle habit completion for {selectedDate}:
+              Toggle habit completion for {formatDisplayDate(selectedDate)}:
             </p>
             <div className="space-y-2 max-h-64 overflow-y-auto">
               {habits.length === 0 ? (

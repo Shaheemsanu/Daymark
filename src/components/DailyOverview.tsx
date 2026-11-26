@@ -25,6 +25,7 @@ import { orderHabits } from '../utils/habitOrder';
 import { getAccountBalance, isAccountTransactionVisible } from '../utils/accounts';
 import { isLoanMovement } from '../utils/loanMovement';
 import { formatCurrency, formatDate, CATEGORIES } from '../utils/constants';
+import { formatDisplayDate } from '../utils/dateFormatting';
 import { WellnessNotes } from './WellnessNotes';
 
 interface DailyOverviewProps {
@@ -138,12 +139,7 @@ export const DailyOverview: React.FC<DailyOverviewProps> = ({
   const currentDateObj = new Date(selectedDate + 'T00:00:00');
 
   // Format header date
-  const formattedHeaderDate = currentDateObj.toLocaleDateString('en-US', {
-    weekday: 'long',
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric'
-  });
+  const formattedHeaderDate = `${currentDateObj.toLocaleDateString('en-US', { weekday: 'long' })}, ${formatDisplayDate(selectedDate)}`;
 
   // Calculate 7-day strip
   const dateStrip = Array.from({ length: 7 }).map((_, idx) => {

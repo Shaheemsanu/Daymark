@@ -29,7 +29,7 @@ describe('Date & Tracker Logic', () => {
   });
 
   it('formats short dates accurately', () => {
-    expect(formatShortDate('2026-11-01')).toBe('Nov 1');
+    expect(formatShortDate('2026-11-01')).toBe('01-11-2026');
   });
 
   it('generates valid CSV content for tasks and expenses', () => {

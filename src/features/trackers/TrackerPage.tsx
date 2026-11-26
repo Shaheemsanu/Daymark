@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { CustomTracker, TrackerEntry, TrackerType } from '../../lib/types';
 import { Plus, Trash2, Edit2, Droplet, Moon, Activity, CheckCircle2, Circle, Flame, Sparkles } from 'lucide-react';
 import { calculateStreak } from '../../lib/dateUtils';
+import { formatDisplayDate } from '../../utils/dateFormatting';
 
 interface TrackerPageProps {
   trackers: CustomTracker[];
@@ -56,7 +57,7 @@ export const TrackerPage: React.FC<TrackerPageProps> = ({
           <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 mt-1">
             <span>Numeric and binary habit monitoring</span>
             <span aria-hidden="true">·</span>
-            <span>Logging for {selectedDate}</span>
+            <span>Logging for {formatDisplayDate(selectedDate)}</span>
             <span aria-hidden="true">·</span>
             <span>{trackers.length} active trackers</span>
           </div>

@@ -18,6 +18,7 @@ import {
   formatDateIso
 } from '../../lib/dateUtils';
 import { taskService } from '../tasks/taskService';
+import { formatDisplayDate } from '../../utils/dateFormatting';
 import {
   ChevronLeft,
   ChevronRight,
@@ -448,7 +449,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
-                  Transactions Recorded for {selectedDate}
+                  Transactions Recorded for {formatDisplayDate(selectedDate)}
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                   Total logged: <strong className="font-mono text-slate-800 dark:text-slate-200">${daySpendTotal.toFixed(2)}</strong>

@@ -36,12 +36,12 @@ export function parseDateIso(isoString: string): Date {
 
 export function formatHeaderDate(isoString: string): string {
   const date = parseDateIso(isoString);
-  return format(date, 'EEEE, MMM d, yyyy');
+  return format(date, 'EEEE, dd-MM-yyyy');
 }
 
 export function formatShortDate(isoString: string): string {
   const date = parseDateIso(isoString);
-  return format(date, 'MMM d');
+  return format(date, 'dd-MM-yyyy');
 }
 
 export function isDateToday(isoString: string): boolean {
@@ -144,7 +144,7 @@ export function getPastNWeeks(numWeeks = 8): PeriodInterval[] {
     const start = startOfWeek(targetDate, { weekStartsOn: 1 });
     const end = endOfWeek(targetDate, { weekStartsOn: 1 });
     const days = eachDayOfInterval({ start, end }).map(d => formatDateIso(d));
-    const label = `${format(start, 'MMM d')} - ${format(end, 'MMM d')}`;
+    const label = `${format(start, 'dd-MM-yyyy')} - ${format(end, 'dd-MM-yyyy')}`;
     const shortLabel = `W${format(start, 'w')}`;
     intervals.push({
       key: `week-${formatDateIso(start)}`,
