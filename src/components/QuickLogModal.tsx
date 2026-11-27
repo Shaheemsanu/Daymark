@@ -341,12 +341,13 @@ export const QuickLogModal: React.FC<QuickLogModalProps> = ({
                 )}
               </div>
 
-              <div>
+              <div className="min-w-0">
                 <input
                   type="date"
+                  aria-label="Transaction date"
                   value={expDate}
                   onChange={e => setExpDate(e.target.value)}
-                  className="w-full px-2.5 py-1.5 text-xs font-mono font-semibold bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-slate-100 focus:outline-none"
+                  className="block h-full min-h-10 w-full min-w-0 rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-mono font-semibold text-slate-900 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:[color-scheme:dark]"
                 />
               </div>
             </div>

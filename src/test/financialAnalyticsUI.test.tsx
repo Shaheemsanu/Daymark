@@ -128,7 +128,7 @@ it('shares global filters across KPIs, sections, and exports', () => {
 it('has one shared date selector with exactly the requested ranges', () => {
   render(<FinancialAnalyticsDashboard expenses={expenses} budget={budget} referenceDate="2026-11-16" />);
   const period = screen.getByLabelText('Analytics period');
-  expect(within(period).getAllByRole('option').map(option => option.textContent)).toEqual(['Today', 'Yesterday', 'Last 7 days', 'Last 30 days', 'Custom range']);
+  expect(within(period).getAllByRole('option').map(option => option.textContent)).toEqual(['Today', 'Yesterday', 'Last 7 Days', 'This Month', 'Last 30 Days', '📅 Custom Date Range']);
   expect(screen.getAllByRole('region', { name: 'Shared report filters' })).toHaveLength(1);
   fireEvent.change(period, { target: { value: 'today' } });
   expect(within(kpi('Total expenses')).getByText('INR 40.00')).toBeInTheDocument();
@@ -138,6 +138,8 @@ it('has one shared date selector with exactly the requested ranges', () => {
   expect(screen.getByText(/1 day · 0 transactions/)).toBeInTheDocument();
   fireEvent.change(period, { target: { value: '7days' } });
   expect(within(kpi('Total expenses')).getByText('INR 40.00')).toBeInTheDocument();
+  fireEvent.change(period, { target: { value: 'this_month' } });
+  expect(within(kpi('Total expenses')).getByText('INR 100.00')).toBeInTheDocument();
   fireEvent.change(period, { target: { value: 'custom' } });
   fireEvent.change(screen.getByLabelText('Analytics start date'), { target: { value: '2026-11-05' } });
   fireEvent.change(screen.getByLabelText('Analytics end date'), { target: { value: '2026-11-05' } });

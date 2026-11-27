@@ -29,6 +29,25 @@ const props = {
 };
 
 describe('Cumulative expense target balances', () => {
+  it('uses calendar week and month to date for expense account spending', () => {
+    vi.useFakeTimers();
+    const transaction = (date: string, amount: number): Expense => ({
+      id: date, title: date, date, amount, type: 'expense', account: 'expense', category: 'Other', paymentMethod: 'Cash', createdAt: 1,
+    });
+    render(<ExpenseDashboard {...props} initialDate="2026-11-27" expenses={[
+      transaction('2026-11-22', 2500), transaction('2026-11-23', 660), transaction('2026-11-27', 200),
+      transaction('2026-10-27', 100), transaction('2026-10-28', 900),
+    ]} />);
+    expect(screen.getByText('Weekly Spend').nextElementSibling?.textContent).toContain('860.00');
+    expect(screen.getByText('Monthly Spend').nextElementSibling?.textContent).toContain('3,360.00');
+    expect(screen.getByText(/Previous week:/).textContent).toContain('2,500.00');
+    expect(screen.getByText(/Previous month:/).textContent).toContain('1,000.00');
+    document.getElementById('transaction-ledger-section')!.scrollIntoView = vi.fn();
+    fireEvent.click(screen.getByText('Weekly Spend'));
+    vi.advanceTimersByTime(50);
+    expect(screen.getAllByText('2026-11-23').length).toBeGreaterThan(0);
+    expect(screen.queryAllByText('2026-11-22')).toHaveLength(0);
+  });
   it('controls account intelligence independently and returns to the ledger when access is removed', () => {
     const view = render(<ExpenseDashboard {...props} expenses={[]} analyticsEnabled={false} accountIntelligenceEnabled={false} />);
     const reportTab = () => screen.queryByRole('button', { name: /Account Spends & Intelligence/i });

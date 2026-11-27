@@ -314,8 +314,8 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
     setHistoryPayment('all');
   };
   const [analyticsAccount, setAnalyticsAccount] = useState<'all' | 'expense' | 'savings' | 'cash'>('all');
-  const [classificationPeriod, setClassificationPeriod] = useState<'this_month' | 'last_30_days' | 'custom'>('this_month');
-  const [categoryPeriod, setCategoryPeriod] = useState<'this_month' | 'last_30_days' | 'all' | 'custom'>('this_month');
+  const [classificationPeriod, setClassificationPeriod] = useState<'today' | 'yesterday' | '7days' | 'this_month' | '30days' | 'custom'>('this_month');
+  const [categoryPeriod, setCategoryPeriod] = useState<'today' | 'yesterday' | '7days' | 'this_month' | '30days' | 'custom'>('this_month');
   const [analyticsStartDate, setAnalyticsStartDate] = useState('');
   const [analyticsEndDate, setAnalyticsEndDate] = useState('');
   const [analyticsPayment, setAnalyticsPayment] = useState<string>('all');
@@ -384,11 +384,9 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
   }, [expenseAccTransactions, referenceDateIso]);
 
   const weeklyExpenseSpend = useMemo(() => {
-    const d = new Date(`${referenceDateIso}T00:00:00`);
-    d.setDate(d.getDate() - 6);
-    const sevenDaysAgoIso = formatDate(d);
+    const weekStart = reportWeekStart(referenceDateIso);
     return expenseAccTransactions
-      .filter(e => e.date >= sevenDaysAgoIso && e.date <= referenceDateIso && e.type !== 'income' && !e.isTransfer && !isLoanMovement(e))
+      .filter(e => e.date >= weekStart && e.date <= referenceDateIso && e.type !== 'income' && !e.isTransfer && !isLoanMovement(e))
       .reduce((sum, e) => sum + e.amount, 0);
   }, [expenseAccTransactions, referenceDateIso]);
 
@@ -402,12 +400,8 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
   }, [expenseAccTransactions, referenceDateIso]);
 
   const previousWeekExpenseSpend = useMemo(() => {
-    const end = new Date(`${referenceDateIso}T00:00:00`);
-    end.setDate(end.getDate() - 7);
-    const start = new Date(end);
-    start.setDate(start.getDate() - 6);
-    const startIso = formatDate(start);
-    const endIso = formatDate(end);
+    const startIso = shiftReportDate(reportWeekStart(referenceDateIso), -7);
+    const endIso = shiftReportDate(reportWeekStart(referenceDateIso), -1);
     return expenseAccTransactions
       .filter(e => e.date >= startIso && e.date <= endIso && e.date <= referenceDateIso && e.type !== 'income' && !e.isTransfer && !isLoanMovement(e))
       .reduce((sum, e) => sum + e.amount, 0);
@@ -432,7 +426,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
         return eDate.getFullYear() === previousYear && eDate.getMonth() === previousMonth && e.type !== 'income' && !e.isTransfer && !isLoanMovement(e);
       })
       .reduce((sum, e) => sum + e.amount, 0);
-  }, [expenseAccTransactions, currentYear, currentMonth]);
+  }, [expenseAccTransactions, currentYear, currentMonth, referenceDateIso]);
 
   const weeklyDailyTargetBalance = useMemo(() => {
     const today = new Date(`${referenceDateIso}T00:00:00`);
@@ -695,14 +689,10 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
 
   const classificationAnalyticsExpenses = useMemo(() => expenses.filter(expense => {
     if (!isAccountTransactionVisible(expense, accountVisibility) || isLoanMovement(expense)) return false;
-    const date = new Date(`${expense.date}T00:00:00`);
     if (analyticsAccount !== 'all' && (expense.account || 'expense') !== analyticsAccount) return false;
-    if (classificationPeriod !== 'custom' && expense.date > referenceDateIso) return false;
-    if (classificationPeriod === 'this_month' && (date.getFullYear() !== currentYear || date.getMonth() !== currentMonth)) return false;
-    if (classificationPeriod === 'last_30_days') {
-      const cutoff = new Date(`${referenceDateIso}T00:00:00`);
-      cutoff.setDate(cutoff.getDate() - 30);
-      if (date < cutoff) return false;
+    if (classificationPeriod !== 'custom') {
+      const range = resolveAnalyticsRange(classificationPeriod, referenceDateIso);
+      if (expense.date < range.start || expense.date > range.end) return false;
     }
     if (classificationPeriod === 'custom' && ((analyticsStartDate && expense.date < analyticsStartDate) || (analyticsEndDate && expense.date > analyticsEndDate))) return false;
     return true;
@@ -710,14 +700,10 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
 
   const categoryAnalyticsExpenses = useMemo(() => expenses.filter(expense => {
     if (!isAccountTransactionVisible(expense, accountVisibility) || isLoanMovement(expense)) return false;
-    const date = new Date(`${expense.date}T00:00:00`);
     if (analyticsAccount !== 'all' && (expense.account || 'expense') !== analyticsAccount) return false;
-    if (categoryPeriod !== 'custom' && categoryPeriod !== 'all' && expense.date > referenceDateIso) return false;
-    if (categoryPeriod === 'this_month' && (date.getFullYear() !== currentYear || date.getMonth() !== currentMonth)) return false;
-    if (categoryPeriod === 'last_30_days') {
-      const cutoff = new Date(`${referenceDateIso}T00:00:00`);
-      cutoff.setDate(cutoff.getDate() - 30);
-      if (date < cutoff) return false;
+    if (categoryPeriod !== 'custom') {
+      const range = resolveAnalyticsRange(categoryPeriod, referenceDateIso);
+      if (expense.date < range.start || expense.date > range.end) return false;
     }
     if (categoryPeriod === 'custom' && ((analyticsStartDate && expense.date < analyticsStartDate) || (analyticsEndDate && expense.date > analyticsEndDate))) return false;
     return expense.type !== 'income' && !expense.isTransfer &&
@@ -830,13 +816,10 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
   };
 
   const handleFilterWeeklySpend = () => {
-    const d = new Date(`${referenceDateIso}T00:00:00`);
-    d.setDate(d.getDate() - 6);
-    const sevenDaysAgo = formatDate(d);
     setHistoryAccountFilter('expense');
     setHistoryTypeFilter('outflow');
     setHistoryTimeframe('custom');
-    setHistoryStartDate(sevenDaysAgo);
+    setHistoryStartDate(reportWeekStart(referenceDateIso));
     setHistoryEndDate(referenceDateIso);
     setHistoryCategory('all');
     setHistoryPayment('all');
@@ -1261,8 +1244,8 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                   <span className="text-xl sm:text-2xl font-extrabold font-mono text-amber-600 dark:text-amber-400 tabular-nums tracking-tight">
                     {formatCurrency(weeklyExpenseSpend, currencySymbol)}
                   </span>
-                  <span className="text-[10px] text-slate-400 block mt-0.5">Last 7 Days</span>
-                  {renderPreviousTargetSummary('Previous 7 days', budget.weeklyBudget || 7000, previousWeekExpenseSpend)}
+                  <span className="text-[10px] text-slate-400 block mt-0.5">{formatDisplayDate(reportWeekStart(referenceDateIso))} – {formatDisplayDate(referenceDateIso)}</span>
+                  {renderPreviousTargetSummary('Previous week', budget.weeklyBudget || 7000, previousWeekExpenseSpend)}
                   {renderTargetSummary(budget.weeklyBudget || 7000, weeklyExpenseSpend, 'amber')}
                   {renderCumulativeTargetBalance('4-week balance', fourWeekTargetBalance)}
                 </div>
@@ -1278,7 +1261,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                   <span className="text-xl sm:text-2xl font-extrabold font-mono text-indigo-600 dark:text-indigo-400 tabular-nums tracking-tight">
                     {formatCurrency(monthlyExpenseSpend, currencySymbol)}
                   </span>
-                  <span className="text-[10px] text-slate-400 block mt-0.5">{new Date(`${referenceDateIso}T00:00:00`).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</span>
+                  <span className="text-[10px] text-slate-400 block mt-0.5">{formatDisplayDate(`${referenceDateIso.slice(0, 7)}-01`)} – {formatDisplayDate(referenceDateIso)}</span>
                   {renderPreviousTargetSummary('Previous month', monthlyBudget, previousMonthExpenseSpend)}
                   {renderTargetSummary(monthlyBudget, monthlyExpenseSpend, 'indigo')}
                   {renderCumulativeTargetBalance('12-month balance', twelveMonthTargetBalance)}
@@ -1409,6 +1392,19 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
             </button>
 
 
+            {accountIntelligenceEnabled && <button
+              type="button"
+              aria-pressed={activeTab === 'account_report'}
+              onClick={() => setActiveTab('account_report')}
+              className={`shrink-0 w-auto min-w-max min-h-11 justify-center rounded-xl border py-2 px-3 text-center text-[11px] leading-tight sm:min-h-0 sm:w-auto sm:rounded-none sm:border-0 sm:border-b-2 sm:bg-transparent sm:px-5 sm:py-2.5 sm:text-left sm:text-xs font-bold transition-all flex items-center gap-1 sm:gap-2 whitespace-nowrap snap-start focus-visible:outline-2 focus-visible:outline-indigo-500 cursor-pointer ${
+                activeTab === 'account_report'
+                  ? 'bg-white shadow-sm dark:bg-slate-800 sm:bg-transparent sm:shadow-none dark:sm:bg-transparent border-emerald-600 text-emerald-600 dark:border-emerald-400 dark:text-emerald-400 font-extrabold'
+                  : 'border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
+              }`}
+            >
+              <span className="sm:hidden">💳 Accounts</span><span className="hidden sm:inline">💳 Account Spends &amp; Intelligence</span>
+            </button>}
+
             {analyticsEnabled && (<button
               type="button"
               aria-pressed={activeTab === 'classification'}
@@ -1447,18 +1443,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
             >
               <span className="sm:hidden">📈 Velocity</span><span className="hidden sm:inline">📈 Daily Velocity</span>
             </button>)}
-            {accountIntelligenceEnabled && <button
-              type="button"
-              aria-pressed={activeTab === 'account_report'}
-              onClick={() => setActiveTab('account_report')}
-              className={`shrink-0 w-auto min-w-max min-h-11 justify-center rounded-xl border py-2 px-3 text-center text-[11px] leading-tight sm:min-h-0 sm:w-auto sm:rounded-none sm:border-0 sm:border-b-2 sm:bg-transparent sm:px-5 sm:py-2.5 sm:text-left sm:text-xs font-bold transition-all flex items-center gap-1 sm:gap-2 whitespace-nowrap snap-start focus-visible:outline-2 focus-visible:outline-indigo-500 cursor-pointer ${
-                activeTab === 'account_report'
-                  ? 'bg-white shadow-sm dark:bg-slate-800 sm:bg-transparent sm:shadow-none dark:sm:bg-transparent border-emerald-600 text-emerald-600 dark:border-emerald-400 dark:text-emerald-400 font-extrabold'
-                  : 'border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
-              }`}
-            >
-              <span className="sm:hidden">💳 Accounts</span><span className="hidden sm:inline">💳 Account Spends &amp; Intelligence</span>
-            </button>}
+
           </div>
         </div>
 
@@ -1499,12 +1484,12 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
               )}
               {analyticsEnabled && activeTab === 'classification' && (
                 <select aria-label="Classification period" value={classificationPeriod} onChange={e => setClassificationPeriod(e.target.value as typeof classificationPeriod)} className="w-full min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2.5 text-xs text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
-                  <option value="this_month">This Month</option><option value="last_30_days">Last 30 Days</option><option value="custom">Custom Dates</option>
+                  <option value="today">Today</option><option value="yesterday">Yesterday</option><option value="7days">Last 7 Days</option><option value="this_month">This Month</option><option value="30days">Last 30 Days</option><option value="custom">📅 Custom Date Range</option>
                 </select>
               )}
               {activeTab === 'category' && <>
                 <select aria-label="Category period" value={categoryPeriod} onChange={e => setCategoryPeriod(e.target.value as typeof categoryPeriod)} className="w-full min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2.5 text-xs text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
-                  <option value="this_month">This Month</option><option value="last_30_days">Last 30 Days</option><option value="custom">Custom Dates</option><option value="all">All Records</option>
+                  <option value="today">Today</option><option value="yesterday">Yesterday</option><option value="7days">Last 7 Days</option><option value="this_month">This Month</option><option value="30days">Last 30 Days</option><option value="custom">📅 Custom Date Range</option>
                 </select>
               </>}
               {analyticsEnabled && activeTab === 'velocity' && (
@@ -1719,9 +1704,11 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                   <option value="today">Today</option>
                   <option value="yesterday">Yesterday</option>
                   <option value="last_7_days">Last 7 Days</option>
+                  <option value="this_month">This Month</option>
                   <option value="last_30_days">Last 30 Days</option>
                   <option value="custom">📅 Custom Date Range</option>
                 </select>
+
 
                 {/* Custom Date Pickers */}
                 {historyTimeframe === 'custom' && (
@@ -2081,9 +2068,9 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
       {loanEditBlocked && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs"><div role="dialog" aria-modal="true" aria-labelledby="loan-edit-blocked-title" className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-800 dark:bg-slate-900"><h3 id="loan-edit-blocked-title" className="text-base font-bold text-slate-900 dark:text-slate-100">Edit loan transaction</h3><p className="mt-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">Loan transactions cannot be edited separately from their loan record. Go to Payables &amp; Receivables, find the loan record, and edit it or use Payment history to edit a repayment.</p><div className="mt-5 flex justify-end"><button type="button" autoFocus onClick={() => setLoanEditBlocked(false)} className="min-h-10 rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white hover:bg-indigo-700">Close</button></div></div></div>}
       {(isAddModalOpen || editingExpense) && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs">
-          <div className="w-full max-w-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+          <div className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-900 sm:max-h-[calc(100dvh-2rem)] sm:rounded-3xl animate-in fade-in zoom-in-95 duration-150">
             {/* Modal Header */}
-            <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+            <div className="shrink-0 px-5 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className={`w-7 h-7 rounded-lg text-white flex items-center justify-center font-bold text-xs ${
                   formAccount === 'savings' ? 'bg-emerald-600' : formAccount === 'cash' ? 'bg-amber-600' : 'bg-rose-600'
@@ -2114,7 +2101,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                   void handleSubmitAdd();
                 }
               }}
-              className="p-5 space-y-3.5 max-h-[75vh] overflow-y-auto pr-1"
+              className="min-h-0 overflow-y-auto p-4 space-y-2.5"
             >
               {/* 1. Account Selection */}
               <div>
@@ -2242,12 +2229,13 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                   )}
                 </div>
 
-                <div>
+                <div className="min-w-0">
                   <input
                     type="date"
+                    aria-label="Transaction date"
                     value={formDate}
                     onChange={e => setFormDate(e.target.value)}
-                    className="w-full px-2.5 py-1.5 text-xs font-mono font-semibold bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-slate-100 focus:outline-none"
+                    className="block h-full min-h-10 w-full min-w-0 rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-mono font-semibold text-slate-900 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:[color-scheme:dark]"
                   />
                 </div>
               </div>
@@ -2794,3 +2782,5 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
     </>
   );
 };
+import { resolveAnalyticsRange } from '../utils/financialAnalytics';
+import { reportWeekStart, shiftReportDate } from '../utils/expenseReports';
